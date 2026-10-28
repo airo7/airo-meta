@@ -75,7 +75,7 @@ def rollout(body: Body, t, cmd_t, cmd, pose0, wheels0=None) -> np.ndarray:
     a = math.exp(-(g[1] - g[0]) / body.lag)
     w0 = np.zeros(2) if wheels0 is None else np.asarray(wheels0, float)
     target = body.wheel_target(command_at(cmd_t, cmd, g - body.tau))
-    w, _ = lfilter([1 - a], [1, -a], target, axis=0, zi=(a * w0)[None])
+    w, _ = lfilter([(1 - a) / 2] * 2, [1, -a], target, axis=0, zi=(a * w0 + (1 - a) / 2 * target[0])[None])
 
     v = w.mean(axis=1)
     om = body.eta * (w[:, 1] - w[:, 0]) / TRACK + body.kappa * v
