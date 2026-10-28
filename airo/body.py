@@ -43,6 +43,12 @@ KEY = Body(g_l=0.00316, g_r=0.00316, dz=25, eta=0.3, tau=0.2, lag=0.1, kappa=-0.
 LOWER = Body(1e-4, 1e-4, 0, 0.05, 0, 0.01, -2)
 UPPER = Body(0.02, 0.02, 120, 1.5, 0.6, 0.6, 2)
 SCALE = np.array([1e-3, 1e-3, 10, 0.3, 0.1, 0.1, 0.1])
+PRIOR_SD = np.array([1.5e-3, 1.5e-3, 15, 0.4, 0.15, 0.1, 0.2])
+# Calibrated in sim for ~95% predictive coverage over 30 seeds (tests/test_body.py checks it). The Laplace fit
+# misses each segment's noisy start pose and the curved tau-lag ridge, so the residual variance needs 12-20x.
+INFLATE = 14.0
+# tau and lag move the command interpolation by whole grid kinks, so their steps span one DT.
+JAC_STEP = np.array([1e-5, 1e-5, 0.1, 3e-3, DT, DT, 1e-3])
 
 
 @dataclass
@@ -121,10 +127,41 @@ def fit(segments: list[Segment], x0: Body = PRIOR, taus: tuple[float, ...] = (0.
     return Body(*map(float, best.x))
 
 
+def _corr_time(r: np.ndarray) -> float:
+    """Integrated autocorrelation time in samples, summed up to the first non-positive lag."""
+    r = r - r.mean()
+    if len(r) < 4 or not r.any():
+        return 1.0
+    ac = np.correlate(r, r, "full")[len(r) - 1:] / (r @ r)
+    stop = np.nonzero(ac[1:] <= 0)[0]
+    return 1 + 2 * ac[1:(stop[0] + 1 if len(stop) else len(r))].sum()
+
+
+def posterior(segments: list[Segment], best: Body, anchor: Body | None = None) -> np.ndarray:
+    """Laplace covariance at best: the data and anchor Jacobian, plus a broad prior so unprobed parameters keep
+    their spread. The noise variance is inflated by INFLATE times the residuals' autocorrelation time."""
+    x = np.array(astuple(best))
+    precision = np.diag(1 / PRIOR_SD ** 2)
+    if not segments:
+        return np.linalg.inv(precision)
+
+    def residuals(x):
+        per = [_residual(Body(*x), s) for s in segments]
+        return np.concatenate(per), (ANCHOR_W * (x - astuple(anchor)) / SCALE if anchor else np.zeros(0)), per
+
+    data, _, per = residuals(x)
+    corr = np.mean([_corr_time(r[i:2 * (len(r) // 3):2]) for r in per for i in (0, 1)])
+    h = JAC_STEP
+    J = np.column_stack([(np.concatenate(residuals(x + e)[:2]) - np.concatenate(residuals(x - e)[:2])) / (2 * hi)
+                         for e, hi in zip(np.diag(h), h)])
+    s2 = INFLATE * corr * (data ** 2).sum() / max(1, len(data) - len(x))
+    return np.linalg.inv(J.T @ J / s2 + precision)
+
+
 def ensemble(segments: list[Segment], best: Body, k: int = 20, seed: int = 0, anchor: Body | None = None) -> list[Body]:
-    rng = np.random.default_rng(seed)
-    n = len(segments)
-    return [fit([segments[i] for i in rng.integers(n, size=n)], best, taus=(), anchor=anchor) for _ in range(k)]
+    """k draws from the Laplace posterior around best, clipped to the bounds."""
+    draws = np.random.default_rng(seed).multivariate_normal(astuple(best), posterior(segments, best, anchor), k)
+    return [Body(*map(float, d)) for d in np.clip(draws, astuple(LOWER), astuple(UPPER))]
 
 
 def cloud(members: list[Body], t, cmd_t, cmd, pose0, wheels0=None) -> np.ndarray:

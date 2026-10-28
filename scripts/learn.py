@@ -28,7 +28,8 @@ def gates(b: Body, radii: list[float]) -> list[tuple[str, bool]]:
             ("dead zone within ±8 PWM", abs(b.dz - KEY.dz) <= 8),
             ("delay 150-250 ms", 0.15 <= b.tau <= 0.25),
             ("drift to the right (kappa < 0)", b.kappa < 0),
-            ("cloud radius shrinks", len(radii) > 1 and radii[-1] < radii[0])]
+            ("cloud radius shrinks, at most one bump",
+             len(radii) > 1 and radii[-1] < radii[0] and sum(b > a for a, b in zip(radii, radii[1:])) <= 1)]
 
 
 async def main(args):
@@ -50,6 +51,9 @@ async def main(args):
             print(f"{'refit':>14}  {len(sci.segments)} probes, cloud {radii[-1]:.1f} cm")
 
     sci = Scientist(rig, recentre=lambda r: recentre(r, sci.best), k=args.k, on_update=on_update)
+    members = sci.members
+    radii.append(radius_cm(members))
+    print(f"{'prior':>14}  cloud {radii[-1]:.1f} cm")
     try:
         await sci.learn(args.budget)
     finally:

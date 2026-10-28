@@ -96,3 +96,24 @@ def test_save_load_roundtrip(tmp_path):
     assert load(tmp_path / "none.json") is None
     save(TRUTH, [TRUTH, KEY], "stock", tmp_path / "b.json")
     assert load(tmp_path / "b.json") == (TRUTH, [TRUTH, KEY], "stock")
+
+
+def test_cloud_covers_the_truth():
+    """Held-out probe predictions from few segments land within 2 sd about 95% of the time."""
+    t = np.arange(0, 1.8, 0.05)
+    cmd = np.where((t < 1)[:, None], [60, 120], 0)
+    end = lambda b: rollout(b, t, t, cmd, (0, 0, 0), wheels0=(0, 0))[-1]
+    hits = []
+    for seed in range(12):
+        segs = [data(TRUTH, seed)[i] for i in (0, 3, 8, 12)]
+        best = fit(segs, KEY, taus=())
+        ends = np.array([end(m) for m in ensemble(segs, best, k=60, seed=seed)])
+        hits.append(np.abs(end(TRUTH) - ends.mean(axis=0)) < 2 * ends.std(axis=0))
+    assert np.mean(hits) >= 0.85
+
+
+def test_cloud_starts_wide_and_shrinks_with_data():
+    segs = data(TRUTH)
+    spread = [np.std([m.eta for m in ensemble(segs[:n], fit(segs[:n], KEY, taus=()) if n else KEY, k=40)])
+              for n in (0, 15)]
+    assert spread[0] > 0.2 and spread[1] < 0.01

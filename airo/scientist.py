@@ -82,7 +82,7 @@ class Scientist:
         self.rig = rig
         self.recentre = recentre
         self.best = body
-        self.members = [body]
+        self.members = ensemble([], body, k)
         self.segments: list[Segment] = []
         self.n = 0
         self.name = "prior"
