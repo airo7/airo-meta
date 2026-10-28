@@ -316,4 +316,5 @@ class Mission:
                 dash.publish(self.state())
                 if (frame := self.rig.frame()) is not None and self.rig.H is not None:
                     dash.set_frame(topdown(frame, self.rig.H, self.rig.floor))
-                    dash.set_view(frame)
+                    if not hasattr(self.rig, "view"):
+                        dash.set_view(frame)
