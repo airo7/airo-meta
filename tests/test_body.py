@@ -4,7 +4,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from airo.body import KEY, PRIOR, Body, Segment, ensemble, fit, inverse, rollout, surprise
+from airo.body import KEY, PRIOR, PRIOR_SD, Body, Segment, ensemble, fit, inverse, posterior, rollout, surprise
 
 TRUTH = Body(g_l=0.0030, g_r=0.0033, dz=25, eta=0.3, tau=0.2, lag=0.1, kappa=-0.1)
 PROBES = [(p, p, 1) for p in (40, 60, 80, 110, 150, -60, -110)] + \
@@ -117,3 +117,10 @@ def test_cloud_starts_wide_and_shrinks_with_data():
     spread = [np.std([m.eta for m in ensemble(segs[:n], fit(segs[:n], KEY, taus=()) if n else KEY, k=40)])
               for n in (0, 15)]
     assert spread[0] > 0.2 and spread[1] < 0.01
+
+
+def test_unexcited_parameters_keep_their_prior_spread():
+    straight = [s for s in data(TRUTH) if s.cmd[0, 0] == s.cmd[0, 1] and abs(s.cmd[0, 0]) >= 60]
+    sd = np.sqrt(np.diag(posterior(straight, fit(straight, KEY, taus=()))))
+    assert sd[3] == pytest.approx(PRIOR_SD[3]) and sd[6] == pytest.approx(PRIOR_SD[6])
+    assert sd[2] == pytest.approx(PRIOR_SD[2]) and sd[0] < PRIOR_SD[0] / 10

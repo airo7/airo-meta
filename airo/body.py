@@ -137,9 +137,20 @@ def _corr_time(r: np.ndarray) -> float:
     return 1 + 2 * ac[1:(stop[0] + 1 if len(stop) else len(r))].sum()
 
 
+def _excited(segments: list[Segment], best: Body) -> np.ndarray:
+    """Which parameters the segments' commands can inform. Gains, tau and lag need any motion, dz a command near
+    the dead zone, eta and kappa a turn: straight runs only see eta * (g_r - g_l) and kappa together."""
+    cmd = np.abs(np.concatenate([s.cmd[(s.cmd_t >= s.t[0]) & (s.cmd_t <= s.t[-1])] for s in segments]))
+    p = cmd.max(axis=1)
+    moving, low = (p > 0).any(), ((p > 0) & (p < best.dz + 20)).any()
+    turn = (np.abs(cmd[:, 0] - cmd[:, 1]) > 20).any()
+    return np.array([moving, moving, low, turn, moving, moving, turn])
+
+
 def posterior(segments: list[Segment], best: Body, anchor: Body | None = None) -> np.ndarray:
-    """Laplace covariance at best: the data and anchor Jacobian, plus a broad prior so unprobed parameters keep
-    their spread. The noise variance is inflated by INFLATE times the residuals' autocorrelation time."""
+    """Laplace covariance at best: the data and anchor Jacobian, plus a broad prior. Parameters no command has
+    excited keep their prior spread. The noise variance is inflated by INFLATE times the residuals' autocorrelation
+    time."""
     x = np.array(astuple(best))
     precision = np.diag(1 / PRIOR_SD ** 2)
     if not segments:
@@ -154,6 +165,7 @@ def posterior(segments: list[Segment], best: Body, anchor: Body | None = None) -
     h = JAC_STEP
     J = np.column_stack([(np.concatenate(residuals(x + e)[:2]) - np.concatenate(residuals(x - e)[:2])) / (2 * hi)
                          for e, hi in zip(np.diag(h), h)])
+    J[:len(data), ~_excited(segments, best)] = 0
     s2 = INFLATE * corr * (data ** 2).sum() / max(1, len(data) - len(x))
     return np.linalg.inv(J.T @ J / s2 + precision)
 

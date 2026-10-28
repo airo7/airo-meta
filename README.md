@@ -53,6 +53,15 @@ On the phone, turn off Center Stage, Portrait and Studio Light; auto-cropping br
 - `airo/meta_api.py`: SAM 3.1 and Muse Spark
 - `airo/mjsim.py`: MuJoCo twin of the rig: contact physics, rendered overhead camera, 3D ghost cloud (`scripts/mjshow.py`)
 
+## Uncertainty
+
+The ghost cloud is a Laplace posterior around the fitted body with a broad physical prior; a parameter keeps its
+prior spread until some probe has excited it (eta and drift need a turn, the dead zone a command near it). The noise
+variance is inflated by 14 × the residuals' autocorrelation time, calibrated on held-out probes in simulation: over
+30 seeds the true outcome falls within 2σ of the prediction 87–100% of the time (93/87/100% for x/y/heading with
+all probes, 100/100/97% with four), and the true parameters 87–100%, except the dead zone at 73% when only four probes
+are available.
+
 ## Measured numbers
 
 ## License

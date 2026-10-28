@@ -79,7 +79,7 @@ def test_learn_with_wonder(monkeypatch):
     result = next(e for e in sci.notebook if e["kind"] == "result")
     assert {"hypothesis", "predicted", "measured", "z"} <= result.keys()
     z = [r["z"] for r in results(seen) if "z" in r]
-    assert abs(z[0]["forward_cm"]) < 3 < abs(z[5]["turn_deg"]), "the prior is wide; a straight-only fit misses pivots"
+    assert max(abs(z[0]["forward_cm"]), abs(z[5]["turn_deg"])) < 3, "unprobed parameters keep their prior spread"
     assert max(map(abs, z[-1].values())) < 3, "pulse after the straight-line refit"
 
 
