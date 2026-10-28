@@ -7,9 +7,9 @@ from dataclasses import astuple
 
 import numpy as np
 
-from airo.body import BODY_PATH, KEY, SIM_BODY_PATH, Body, cloud_radius_cm, posterior, save
+from airo.body import KEY, Body, cloud_radius_cm, posterior, save
 from airo.control import recentre
-from airo.rig import RigAbort, add_args, open_rig
+from airo.rig import RigAbort, add_args, body_path, open_rig
 from airo.scientist import Scientist
 
 UNITS = {"g_l": ("mm/s/PWM", 1000), "g_r": ("mm/s/PWM", 1000), "dz": ("PWM", 1), "eta": ("", 1),
@@ -67,7 +67,7 @@ async def main(args):
     print()
     for status, what in gates(b, sd[6], radii):
         print(f"{status}  {what}")
-    out = args.out or (SIM_BODY_PATH if args.sim else BODY_PATH)
+    out = args.out or body_path(args)
     save(b, sci.members, sci.name, out)
     print(f"\nsaved {out}")
 
@@ -77,7 +77,7 @@ if __name__ == "__main__":
     add_args(p)
     p.add_argument("--budget", type=int, default=10)
     p.add_argument("-k", type=int, default=12, help="ensemble size")
-    p.add_argument("--out", help="default data/body.json, or data/body_sim.json with --sim")
+    p.add_argument("--out", help="default: the body path for the chosen rig")
     args = p.parse_args()
     if args.dry:
         p.error("learning drives the car; use goto.py --dry to check the camera")
