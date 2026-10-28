@@ -9,7 +9,7 @@ import pytest
 from airo import planner
 from airo.body import KEY
 from airo.control import V_MAX
-from airo.mission import Mission
+from airo.mission import Mission, _gauge
 from airo.rig import RigAbort
 from airo.sim import PARCEL, SimRig, world
 
@@ -153,3 +153,11 @@ def test_inconsistent_relearn_stops_with_a_fault(mission):
     with pytest.raises(RigAbort, match="hardware fault"):
         asyncio.run(mission.relearn("test"))
     assert mission.notes[-1]["text"].startswith("Hardware fault")
+
+
+def test_notebook_outcomes_become_gauge_numbers():
+    e = _gauge({"kind": "result", "predicted": {"forward_cm": (1.0, 0.2), "lateral_cm": (0.1, 0.1),
+                                                "turn_deg": (51.3, 11.0)},
+                "measured": {"forward_cm": 0.5, "lateral_cm": 0.0, "turn_deg": 68.8}})
+    assert (e["predicted"], e["sd"], e["measured"], e["unit"]) == (51.3, 11.0, 68.8, "°")
+    assert _gauge({"kind": "prediction", "predicted": {"turn_deg": (5.0, 1.0)}})["predicted"] == {"turn_deg": (5.0, 1.0)}
