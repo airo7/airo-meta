@@ -21,12 +21,12 @@ def test_goto_reaches_ten_goals(truth, model, latency):
     assert max(asyncio.run(run())) < 0.05
 
 
-def test_follow_path():
+def test_follow_sparse_path():
     path = [(0.4, 0.4), (1.6, 0.4), (1.6, 0.8), (0.6, 0.8)]
 
     async def run():
         rig = SimRig(DRIFTY, pose0=(0.4, 0.4, 0.0), log_dir=None)
-        err = await follow(rig, KEY, np.vstack([np.linspace(a, b, 20) for a, b in zip(path, path[1:])]))
+        err = await follow(rig, KEY, path)
         return err, rig.segment().pose
 
     err, track = asyncio.run(run())

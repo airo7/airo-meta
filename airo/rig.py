@@ -50,9 +50,9 @@ class BaseRig:
 
     def segment(self, t0: float = -math.inf) -> Segment:
         """Commands so far and one pose row per tick since t0, NaN for ticks without a fresh pose."""
-        rows = [(p.t, p.x, p.y, p.theta) if p else (t, math.nan, math.nan, math.nan)
-                for t, p in self._ticks if t >= t0]
-        rows = np.array(rows).reshape(-1, 4)
+        rows = np.array([(p.t, p.x, p.y, p.theta) if p else (t, math.nan, math.nan, math.nan)
+                         for t, p in self._ticks]).reshape(-1, 4)
+        rows = rows[rows[:, 0] >= t0]
         return Segment(*self.history, rows[:, 0], rows[:, 1:])
 
     async def _tick(self, t: float, pwm_l: int, pwm_r: int, sent: bool, fresh: Pose | None) -> Pose | None:

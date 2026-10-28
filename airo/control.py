@@ -56,10 +56,16 @@ async def goto(rig: BaseRig, body: Body, xy, tol: float = 0.04, timeout: float =
     return math.dist((rig.pose.x, rig.pose.y), goal)
 
 
+def _densify(path: np.ndarray, step: float = 0.02) -> np.ndarray:
+    s = np.r_[0, np.cumsum(np.hypot(*np.diff(path, axis=0).T))]
+    q = np.linspace(0, s[-1], max(2, math.ceil(s[-1] / step) + 1))
+    return np.column_stack([np.interp(q, s, path[:, 0]), np.interp(q, s, path[:, 1])])
+
+
 async def follow(rig: BaseRig, body: Body, path, tol: float = 0.04, lookahead: float = LOOKAHEAD,
                  timeout: float = 60) -> float:
     """Pure pursuit along path with a fixed lookahead, then goto its last point."""
-    path = np.asarray(path, float)
+    path = _densify(np.asarray(path, float))
     i, pivoting = 0, False
     for _ in range(round(timeout * HZ)):
         pose = predict(rig, body)
