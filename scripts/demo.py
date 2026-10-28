@@ -7,7 +7,6 @@ and on --mujoco also "slippery" or "flip".
 
 import argparse
 import asyncio
-import math
 import sys
 import time
 from dataclasses import replace
@@ -99,8 +98,8 @@ async def listen(inbox: asyncio.Queue):
 
 
 async def main(args):
-    # On --mujoco learning then ends far from the parcel, so the surprise monitor watches the drive to it.
-    pose0 = (1.6, 0.7, math.pi) if args.mujoco else (0.4, 0.7, 0.0)
+    # From the floor centre the drive to the parcel starts far enough out to be watched: the parcel approach is not.
+    pose0 = (1.0, 0.7, 0.0) if args.mujoco else (0.4, 0.7, 0.0)
     rig = await open_rig(args, objects=world(), pose0=pose0, log_dir="data/runs")
     sim = args.sim or args.mujoco
     if sim:
