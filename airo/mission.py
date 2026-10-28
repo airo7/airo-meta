@@ -3,6 +3,7 @@ cloud, then replans from where the car stands."""
 
 import asyncio
 import math
+import time
 from collections import deque
 from contextlib import suppress
 
@@ -23,6 +24,11 @@ DRIFT_M = 0.08
 RUN_IN = 0.4
 NEAR_PARCEL = 0.35
 STANDOFF = 0.22
+PROBE_REACH = 0.6
+RELEARN_PROBES = 3
+PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
+          "surprised": ("surprise", "reality left the cloud"), "relearning": ("relearn", "relearn"),
+          "learning": ("probe", "learn the body")}
 PARAMS = [("g_l", "Gain left", "mm/s/PWM", 1000, 0, 5), ("g_r", "Gain right", "mm/s/PWM", 1000, 0, 5),
           ("dz", "Dead zone", "PWM", 1, 0, 80), ("eta", "Turn efficiency", "", 1, 0, 1),
           ("tau", "Delay", "ms", 1000, 0, 400), ("lag", "Wheel lag", "ms", 1000, 0, 400),
@@ -56,16 +62,21 @@ class Mission:
     """sci follows the scientist contract: best, members, n, name, notebook, learn(), relearn(seg) -> seconds."""
 
     def __init__(self, rig: BaseRig, sci, inbox: asyncio.Queue | None = None, scan=None, threshold=THRESHOLD,
-                 watch_push: bool = False):
+                 watch_push: bool = False, mode: str = "real"):
         self.rig, self.sci = rig, sci
         self.watch_push = watch_push
+        self.mode = mode
+        self.phases: list[dict] = []
+        self._relearn_t: float | None = None
+        self._relearn_end: float | None = None
         self.inbox = inbox or asyncio.Queue()
         self.scan = scan or (lambda: planner.scan(rig.frame(), rig.H, rig.floor))
         self.threshold = threshold
-        self.status, self.command = "idle", ""
+        self._status, self.command = "idle", ""
         self.scene: planner.Scene | None = None
         self.path: list = []
         self.notes: list[dict] = []
+        self.t0 = time.time()
         self.relearned_s: float | None = None
         self.values: deque[float] = deque(maxlen=120)
         self._recent: deque[float | None] = deque(maxlen=3)
@@ -75,11 +86,22 @@ class Mission:
         self._task: asyncio.Task | None = None
 
     @property
+    def status(self) -> str:
+        return self._status
+
+    @status.setter
+    def status(self, value: str):
+        if value != self._status and value in PHASES:
+            kind, label = PHASES[value]
+            self.phases.append({"t": time.time() - self.t0, "kind": kind, "label": label})
+        self._status = value
+
+    @property
     def body(self) -> Body:
         return self.sci.best
 
     def note(self, kind: str, text: str):
-        self.notes.append({"t": self.rig.pose.t if self.rig.pose else 0.0, "kind": kind, "text": text})
+        self.notes.append({"t": time.time(), "kind": kind, "text": text})
 
     def watch(self):
         """Score the last window; raise Surprised when the median of three unsuppressed windows passes threshold."""
@@ -167,12 +189,19 @@ class Mission:
         return self.scene.parcel is not None and math.dist(self.scene.parcel, target) < 0.1
 
     async def relearn(self, why: str = ""):
+        """Probes drive blind, so first leave the parcel's reach for the probe area if recentring is available."""
         await self.rig.stop()
+        self._relearn_t, self._relearn_end = time.time(), None
         self.status = "surprised"
-        self.note("alert", f"Reality left the cloud ({why}). Pausing to relearn.")
         seg = self.rig.segment(self.rig.pose.t - 3 * WINDOW)
         self.status = "relearning"
-        self.relearned_s = await self.sci.relearn(seg)
+        p, parcel = self.rig.pose, self.scene and self.scene.parcel
+        recentre = getattr(self.sci, "recentre", None)
+        if recentre and parcel and math.dist((p.x, p.y), parcel) < PROBE_REACH:
+            self.note("alert", f"Reality left the cloud ({why}). Moving clear of the parcel to probe.")
+            await recentre(self.rig)
+        self.relearned_s = await self.sci.relearn(seg, RELEARN_PROBES)
+        self._relearn_end = time.time()
         self._quiet_until = self.rig.pose.t + QUIET_S
         self.note("conclusion", f"Body #{self.sci.n}, relearned in {self.relearned_s:.1f} s.")
 
@@ -227,18 +256,30 @@ class Mission:
             cmd_t, cmd = self.rig.history
             t = p.t + np.linspace(0, 1.5, 16)
             ghost = cloud(self.sci.members, t, cmd_t, cmd, (p.x, p.y, p.theta))[..., :2].round(3)
-        b = self.body
+        b, first = self.body, self.sci.n <= 1
         polygons = [{"label": lb, "points": pts.round(3)} for lb, pts in self.scene.polygons] if self.scene else []
         return {
             "t": p.t if p else 0.0, "status": self.status, "command": self.command,
             "floor": {"w": self.rig.floor[0], "h": self.rig.floor[1]},
             "pose": pose, "cloud": ghost, "path": self.path, "polygons": polygons,
             "body": {"n": self.sci.n, "name": self.sci.name, "relearned_s": self.relearned_s,
-                     "params": [{"name": nm, "value": getattr(b, f) * k, "key": getattr(KEY, f) * k, "unit": u,
+                     "params": [{"name": nm, "value": getattr(b, f) * k, "key": getattr(KEY, f) * k if first else None,
+                                 "unit": u,
                                  "lo": lo, "hi": hi} for f, nm, u, k, lo, hi in PARAMS]},
             "surprise": {"values": list(self.values), "threshold": self.threshold},
-            "notebook": sorted(self.notes + list(self.sci.notebook), key=lambda n: n["t"]),
+            "notebook": [{**n, "t": n["t"] - self.t0}
+                         for n in sorted(self.notes + list(self.sci.notebook), key=lambda n: n["t"])],
+            "mode": self.mode, "episode": {"phases": self.phases}, "relearn": self._relearn_state(),
         }
+
+    def _relearn_state(self) -> dict | None:
+        """The relearn overlay, held for a few seconds after it finishes."""
+        if self._relearn_t is None or (self._relearn_end and time.time() - self._relearn_end > 4):
+            return None
+        ran = [e for e in self.sci.notebook if e["t"] >= self._relearn_t and e["kind"] == "result"]
+        return {"phase": "done" if self._relearn_end else "testing" if ran else "changed",
+                "elapsed_s": (self._relearn_end or time.time()) - self._relearn_t,
+                "probe": ran[-1].get("probe", "") if ran else "", "step": len(ran), "steps": RELEARN_PROBES}
 
     async def run(self, dash=None):
         """Consume commands, keep the rig ticking while idle, publish at ~10 Hz. "stop" always wins."""
@@ -258,3 +299,4 @@ class Mission:
                 dash.publish(self.state())
                 if (frame := self.rig.frame()) is not None and self.rig.H is not None:
                     dash.set_frame(topdown(frame, self.rig.H, self.rig.floor))
+                    dash.set_view(frame)

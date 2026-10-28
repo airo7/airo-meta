@@ -31,12 +31,15 @@ class Thing:
 
 
 def world() -> list[Thing]:
-    """A 2.0 x 1.4 m floor: two stations, two boxes and the parcel, labelled with planner.scan's concepts."""
-    return [Thing("red paper", (1.7, 1.1), (0.297, 0.21), (60, 60, 210)),
-            Thing("blue paper", (0.35, 0.3), (0.297, 0.21), (190, 110, 40)),
-            Thing("cardboard box", (1.0, 0.95), (0.3, 0.2), (80, 125, 170)),
-            Thing("cardboard box", (0.45, 1.05), (0.16, 0.16), (80, 125, 170)),
-            Thing(PARCEL, (1.3, 0.6), (0.1, 0.1), (110, 160, 205))]
+    """A 2.0 x 1.4 m floor with two stations, two boxes and the parcel, labelled with planner.scan's concepts.
+
+    Everything sits outside the band y 0.45-1.05 m that learning from the default start pose sweeps.
+    """
+    return [Thing("red paper", (1.6, 1.2), (0.297, 0.21), (60, 60, 210)),
+            Thing("blue paper", (1.7, 0.3), (0.297, 0.21), (190, 110, 40)),
+            Thing("cardboard box", (1.3, 1.2), (0.14, 0.14), (80, 125, 170)),
+            Thing("cardboard box", (0.9, 1.2), (0.16, 0.16), (80, 125, 170)),
+            Thing(PARCEL, (0.5, 0.32), (0.1, 0.1), (110, 160, 205))]
 
 
 class SimRig(BaseRig):

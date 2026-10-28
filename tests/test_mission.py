@@ -10,6 +10,7 @@ from airo.body import KEY
 from airo.mission import Mission
 from airo.sim import PARCEL, SimRig, world
 
+BLUE = (1.7, 0.3)
 HEAVY = replace(KEY, g_l=KEY.g_l * 0.6, g_r=KEY.g_r * 0.6, eta=KEY.eta * 0.7)
 
 
@@ -26,14 +27,14 @@ class FakeScientist:
     async def learn(self):
         self.best = self.rig.truth
 
-    async def relearn(self, seg):
+    async def relearn(self, seg, budget=3):
         self.best, self.n = self.rig.truth, self.n + 1
         return 1.0
 
 
 @pytest.fixture
 def mission(monkeypatch):
-    rig = SimRig(KEY, floor=(2.0, 1.4), objects=world(), pose0=(0.3, 0.6, 0.0), log_dir=None)
+    rig = SimRig(KEY, floor=(2.0, 1.4), objects=world(), pose0=(1.0, 0.7, math.pi), log_dir=None)
     monkeypatch.setattr(planner.meta_api, "segment", rig.sam)
     return Mission(rig, FakeScientist(rig))
 
@@ -48,9 +49,9 @@ async def until(rig, t):
 
 
 def test_delivers_without_false_surprise(mission):
-    assert asyncio.run(mission.deliver("red"))
+    assert asyncio.run(mission.deliver("blue"))
     assert mission.sci.n == 1 and max(mission.values) < 3
-    assert math.dist(parcel(mission.rig), (1.7, 1.1)) < 0.1
+    assert math.dist(parcel(mission.rig), BLUE) < 0.1
 
 
 def test_body_change_triggers_relearn_then_delivers(mission):
@@ -60,17 +61,20 @@ def test_body_change_triggers_relearn_then_delivers(mission):
             mission.rig.truth = HEAVY
 
         asyncio.create_task(add_weight())
-        return await mission.deliver("red")
+        return await mission.deliver("blue")
 
     assert asyncio.run(run())
     assert mission.sci.n == 2 and mission.relearned_s == 1.0
-    assert [n["kind"] for n in mission.notes] == ["alert", "conclusion", "result"]
-    assert math.dist(parcel(mission.rig), (1.7, 1.1)) < 0.1
+    assert [n["kind"] for n in mission.notes] == ["conclusion", "result"]
+    state = mission.state()
+    assert [p["kind"] for p in state["episode"]["phases"]][:3] == ["drive", "surprise", "relearn"]
+    assert state["relearn"]["phase"] == "done" and state["body"]["params"][0]["key"] is None
+    assert math.dist(parcel(mission.rig), BLUE) < 0.1
 
 
 def test_stop_wins_and_state_serialises(mission):
     async def run():
-        await mission.handle("deliver the parcel to red")
+        await mission.handle("deliver the parcel to blue")
         await until(mission.rig, 1.0)
         state = mission.state()
         await mission.handle("stop")
@@ -99,6 +103,25 @@ def test_push_leg_is_watched_only_on_request(mission, watch_push, relearns):
             mission.rig.truth = HEAVY
 
         asyncio.create_task(add_weight())
-        return await mission.deliver("red")
+        return await mission.deliver("blue")
 
     assert asyncio.run(run()) and mission.sci.n == 1 + relearns
+
+
+@pytest.mark.parametrize("reach, moved", [(0.6, False), (1.0, True)])
+def test_relearn_moves_clear_of_a_nearby_parcel(mission, monkeypatch, reach, moved):
+    calls = []
+
+    async def recentre(rig):
+        calls.append(rig)
+
+    monkeypatch.setattr("airo.mission.PROBE_REACH", reach)
+    mission.sci.recentre = recentre
+
+    async def run():
+        mission.scene = await mission.scan()
+        await mission.rig.step(0, 0)
+        await mission.relearn("test")
+
+    asyncio.run(run())
+    assert bool(calls) == moved and mission.sci.n == 2
