@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from airo.body import KEY, Body
-from airo.control import follow, goto
+from airo.control import face, follow, goto
 from airo.sim import SimRig
 
 DRIFTY = Body(g_l=0.0029, g_r=0.0034, dz=28, eta=0.27, tau=0.25, lag=0.12, kappa=-0.15)
@@ -33,3 +33,15 @@ def test_follow_sparse_path():
     assert err < 0.05
     assert track[:, 1].max() < 0.8 + 0.08 and track[:, 0].max() < 1.6 + 0.08
     assert math.dist(track[-1, :2], path[-1]) < 0.05
+
+
+@pytest.mark.parametrize("theta", [math.pi / 2, -2.5, 0.1])
+def test_face_turns_in_place(theta):
+    async def run():
+        rig = SimRig(DRIFTY, log_dir=None)
+        await face(rig, KEY, theta)
+        return rig
+
+    rig = asyncio.run(run())
+    assert abs((rig.pose.theta - theta + math.pi) % (2 * math.pi) - math.pi) < math.radians(10)
+    assert math.dist((rig.pose.x, rig.pose.y), (1.0, 0.6)) < 0.05
