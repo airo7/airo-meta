@@ -1,5 +1,6 @@
-"""Meta Model API: SAM 3.1 segmentation and Muse Spark vision, via the OpenAI-compatible endpoint."""
+"""Meta Model API: SAM 3.1, Muse Spark, Muse Wonder and Muse Image, via the OpenAI-compatible endpoint."""
 
+import asyncio
 import base64
 import os
 from dataclasses import dataclass
@@ -74,3 +75,17 @@ async def describe(image_bgr: np.ndarray, prompt: str, model: str = "muse-spark-
         {"type": "image_url", "image_url": {"url": url}},
     ]}])
     return resp.choices[0].message.content or ""
+
+
+async def wonder(messages: list[dict], tools: list[dict], model: str = "muse-wonder-1.0", timeout: float = 20):
+    """One chat.completions turn with function tools; returns the assistant message (may carry tool_calls)."""
+    resp = await asyncio.wait_for(client().chat.completions.create(model=model, messages=messages, tools=tools),
+                                  timeout)
+    return resp.choices[0].message
+
+
+async def image(prompt: str, model: str = "muse-image-1.0") -> bytes:
+    # output_format defaults to webp: https://dev.meta.ai/docs/api-reference/images/schemas
+    resp = await client().images.generate(model=model, prompt=prompt, n=1, output_format="png",
+                                          response_format="b64_json")
+    return base64.b64decode(resp.data[0].b64_json)
