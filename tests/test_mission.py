@@ -1,4 +1,5 @@
 import asyncio
+import time
 import json
 import math
 from dataclasses import replace
@@ -9,6 +10,7 @@ from airo import planner
 from airo.body import KEY
 from airo.control import V_MAX
 from airo.mission import Mission
+from airo.rig import RigAbort
 from airo.sim import PARCEL, SimRig, world
 
 BLUE = (1.7, 0.3)
@@ -139,3 +141,15 @@ def test_unconfirmed_body_drives_slower(monkeypatch):
 
     (v_ok, t_ok), (v_slow, t_slow) = deliver(True), deliver(False)
     assert v_ok == V_MAX and v_slow < V_MAX and t_slow > 1.2 * t_ok
+
+
+def test_inconsistent_relearn_stops_with_a_fault(mission):
+    async def broken(seg, budget=3):
+        mission.sci.notebook.append({"t": time.time(), "kind": "result", "z": {"turn_deg": 9.0}})
+        mission.sci.verified = False
+        return 1.0
+
+    mission.sci.relearn = broken
+    with pytest.raises(RigAbort, match="hardware fault"):
+        asyncio.run(mission.relearn("test"))
+    assert mission.notes[-1]["text"].startswith("Hardware fault")

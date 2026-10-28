@@ -124,3 +124,19 @@ def test_unexcited_parameters_keep_their_prior_spread():
     sd = np.sqrt(np.diag(posterior(straight, fit(straight, KEY, taus=()))))
     assert sd[3] == pytest.approx(PRIOR_SD[3]) and sd[6] == pytest.approx(PRIOR_SD[6])
     assert sd[2] == pytest.approx(PRIOR_SD[2]) and sd[0] < PRIOR_SD[0] / 10
+
+
+def test_sign_search_finds_a_reversed_motor():
+    flipped = replace(TRUTH, g_l=-TRUTH.g_l)
+    got = fit(data(flipped)[:9], KEY, taus=(), signs=True)
+    assert got.g_l == pytest.approx(flipped.g_l, rel=0.1) and got.g_r == pytest.approx(flipped.g_r, rel=0.1)
+
+
+@pytest.mark.parametrize("v, om", [(0.2, 0), (0.2, 0.4), (0, 1.5)])
+def test_inverse_with_a_reversed_motor(v, om):
+    flipped = replace(TRUTH, g_l=-TRUTH.g_l)
+    t = np.arange(0, 3, 0.01)
+    pose = rollout(flipped, t, [0], [inverse(flipped, v, om)], (0, 0, 0), wheels0=(0, 0))[-101:]
+    step = np.diff(pose, axis=0)
+    fwd = step[:, 0] * np.cos(pose[1:, 2]) + step[:, 1] * np.sin(pose[1:, 2])
+    assert fwd.sum() == pytest.approx(v, abs=0.01) and step[:, 2].sum() == pytest.approx(om, abs=0.03)

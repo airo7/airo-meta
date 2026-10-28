@@ -40,7 +40,7 @@ class Body:
 
 PRIOR = Body(g_l=0.0025, g_r=0.0025, dz=10, eta=1.0, tau=0.1, lag=0.1, kappa=0.0)
 KEY = Body(g_l=0.00316, g_r=0.00316, dz=25, eta=0.3, tau=0.2, lag=0.1, kappa=-0.05)
-LOWER = Body(1e-4, 1e-4, 0, 0.05, 0, 0.01, -2)
+LOWER = Body(-0.02, -0.02, 0, 0.05, 0, 0.01, -2)
 UPPER = Body(0.02, 0.02, 120, 1.5, 0.6, 0.6, 2)
 SCALE = np.array([1e-3, 1e-3, 10, 0.3, 0.1, 0.1, 0.1])
 PRIOR_SD = np.array([1.5e-3, 1.5e-3, 15, 0.4, 0.15, 0.1, 0.2])
@@ -105,11 +105,12 @@ def _residual(body: Body, s: Segment) -> np.ndarray:
 
 
 def fit(segments: list[Segment], x0: Body = PRIOR, taus: tuple[float, ...] = (0.05, 0.15, 0.3),
-        anchor: Body | None = None, weight: float = ANCHOR_W) -> Body:
+        anchor: Body | None = None, weight: float = ANCHOR_W, signs: bool = False) -> Body:
     """Least squares from x0, plus restarts at each tau in taus: tau and lag trade off into local minima.
 
     anchor adds a weak pull toward a previous body, per SCALE unit, so parameters the segments say little about
-    (the dead zone after a few pivots) stay put instead of wandering.
+    (the dead zone after a few pivots) stay put instead of wandering. signs also restarts from the best fit with
+    each motor reversed: gradient descent cannot pass a gain through zero, where that side stops responding.
     """
     lo, hi = np.array(astuple(LOWER)), np.array(astuple(UPPER))
 
@@ -119,11 +120,15 @@ def fit(segments: list[Segment], x0: Body = PRIOR, taus: tuple[float, ...] = (0.
             r.append(weight * (x - astuple(anchor)) / SCALE)
         return np.concatenate(r)
 
-    best = None
-    for start in [x0, *(replace(x0, tau=t) for t in taus)]:
-        r = least_squares(residuals, np.clip(astuple(start), lo + 1e-9, hi - 1e-9), bounds=(lo, hi), x_scale=SCALE)
-        if best is None or r.cost < best.cost:
-            best = r
+    def run(start: Body):
+        return least_squares(residuals, np.clip(astuple(start), lo + 1e-9, hi - 1e-9), bounds=(lo, hi),
+                             x_scale=SCALE)
+
+    best = min((run(s) for s in [x0, *(replace(x0, tau=t) for t in taus)]), key=lambda r: r.cost)
+    if signs:
+        b = Body(*best.x)
+        flips = [replace(b, g_l=-b.g_l), replace(b, g_r=-b.g_r), replace(b, g_l=-b.g_l, g_r=-b.g_r)]
+        best = min([best, *map(run, flips)], key=lambda r: r.cost)
     return Body(*map(float, best.x))
 
 
@@ -215,10 +220,10 @@ def inverse(body: Body, v: float, omega: float, bump: float = 3) -> tuple[int, i
     """PWM for steady-state (v, omega); non-zero sides are bumped just past the dead zone."""
     d = (omega - body.kappa * v) * TRACK / body.eta
     w = np.array([v - d / 2, v + d / 2])
-    speed = body.wheel_target(np.column_stack([_P, _P]))
+    speed = np.abs(body.wheel_target(np.column_stack([_P, _P])))
     p = np.array([np.interp(abs(w[i]), speed[:, i], _P) for i in range(2)])
     p = np.where(np.abs(w) > 1e-3, np.maximum(p, body.dz + bump), 0)
-    l, r = np.clip(np.sign(w) * p, -PWM_MAX, PWM_MAX).round().astype(int)
+    l, r = np.clip(np.sign(w) * np.sign([body.g_l, body.g_r]) * p, -PWM_MAX, PWM_MAX).round().astype(int)
     return int(l), int(r)
 
 

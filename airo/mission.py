@@ -26,6 +26,7 @@ NEAR_PARCEL = 0.35
 STANDOFF = 0.22
 PROBE_REACH = 0.6
 RELEARN_PROBES = 5
+FAULT_Z = 5.0
 CAUTION = 0.6
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
           "surprised": ("surprise", "reality left the cloud"), "relearning": ("relearn", "relearn"),
@@ -209,6 +210,13 @@ class Mission:
             await recentre(self.rig)
         self.relearned_s = await self.sci.relearn(seg, RELEARN_PROBES)
         self._relearn_end = time.time()
+        z = [abs(v) for e in self.sci.notebook if e["t"] >= self._relearn_t and e["kind"] == "result"
+             for v in e["z"].values()]
+        if not getattr(self.sci, "verified", True) and z and max(z) > FAULT_Z:
+            await self.rig.stop()
+            self.note("alert", f"Hardware fault: no body I can fit explains these probes (|z| up to {max(z):.0f}). "
+                               "Stopping; check the motors and wiring.")
+            raise RigAbort("hardware fault")
         self._quiet_until = self.rig.pose.t + QUIET_S
         self.note("conclusion", f"Body #{self.sci.n}, relearned in {self.relearned_s:.1f} s.")
 

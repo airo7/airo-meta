@@ -229,7 +229,7 @@ class Scientist:
 
     async def refit(self) -> dict:
         if self._stale and self.segments:
-            self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor)
+            self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor, signs=True)
             self.members = await asyncio.to_thread(ensemble, self.segments, self.best, self.k, anchor=self._anchor)
             self._stale = False
             await self._emit()
@@ -245,6 +245,8 @@ class Scientist:
             return {"error": "not confirmed yet: refit, then run a probe whose |z| stays under "
                              f"{CONFIRM_Z:g}, or use up the probe budget"}
         await self.refit()
+        text += "".join(f" The {side} motor runs backwards: g_{side[0]} = {g:.4f}."
+                        for side, g in (("left", self.best.g_l), ("right", self.best.g_r)) if g < 0)
         if self._verify:
             self.verified = self._confirmed is not None
             text += f" Confirmed: {self._confirmed}." if self.verified else " Partial fit, continuing with caution."
