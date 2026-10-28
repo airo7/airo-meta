@@ -56,8 +56,8 @@ def cal():
 
 
 def test_model_loads():
-    rig = MjRig(log_dir=None)
-    assert rig.m.body_subtreemass[rig.m.body("car").id] == pytest.approx(0.94)
+    assert MjRig(objects=(), log_dir=None).m.body_subtreemass[1] == pytest.approx(0.94)
+    rig = MjRig(bumper=True, log_dir=None)
     assert rig.m.nu == 4 and {o.concept for o in rig.objects} >= {"red paper", "blue paper", "cardboard box"}
     assert rig.frame().shape == (1080, 1920, 3)
     assert rig.view(320, 180).shape == (180, 320, 3)

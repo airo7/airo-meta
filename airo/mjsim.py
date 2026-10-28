@@ -98,7 +98,8 @@ class MjRig(BaseRig):
 
     def __init__(self, floor=(2.0, 1.2), pose0=None, objects=None, source: str = "truth",
                  noise=(0.002, math.radians(0.3)), delay: float = DELAY, realtime: bool = False, seed: int = 0,
-                 size=(1920, 1080), weight: float = 0.0, tow=None, patch=None, flip: str | None = None, **kw):
+                 size=(1920, 1080), bumper: bool = False, weight: float = 0.0, tow=None, patch=None,
+                 flip: str | None = None, **kw):
         super().__init__(floor, **kw)
         self.objects = list(world() if objects is None else objects)
         self.noise, self.delay, self.realtime, self.size = noise, delay, realtime, size
@@ -116,6 +117,8 @@ class MjRig(BaseRig):
         x, y, th = pose0 or (floor[0] / 2, floor[1] / 2, 0.0)
         car = self.spec.body("car")
         car.pos, car.quat = [x, y, 0.0005], _quat(th)
+        if bumper:
+            self.add_bumper()
         if weight:
             self.add_weight(weight)
         if tow:
@@ -155,6 +158,14 @@ class MjRig(BaseRig):
                    material="iron", contype=0, conaffinity=0, mass=kg, group=1)
         b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.007, w / 2 + 0.0006, 0.0112], material="velcro", contype=0,
                    conaffinity=0, mass=0, group=1)
+        self._rebuild()
+
+    def add_bumper(self):
+        """The V-shaped cardboard pusher on the nose; it cups the parcel toward the centre line."""
+        b = self.spec.body("car").add_body(name="bumper", pos=[0.142, 0, 0.042])
+        for side in (1, -1):
+            b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.045, 0.0015, 0.025], pos=[0, side * 0.04, 0],
+                       euler=[0, 0, side * 63.4], material="cardboard", mass=0.015, group=1)
         self._rebuild()
 
     def attach_tow(self, box=(0.12, 0.1, 0.08), mass: float = 0.15, length: float = 0.25):
