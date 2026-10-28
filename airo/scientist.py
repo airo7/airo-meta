@@ -16,7 +16,8 @@ from airo.body import PRIOR, Body, Segment, ensemble, fit, surprise
 from airo.probes import FLOOR, QTY, LIBRARY, SCHEDULE, Recentre, halt, measure, outcome, predict, run, safe, valid, zscore
 from airo.rig import BaseRig, RigAbort
 
-RELEARN = ["pivot_l_100", "step_80", "pivot_r_150", "step_back_60", "pivot_l_60"]
+# A forward step first: it tests the refit in the regime the delivery drives in, so it confirms or refutes soonest.
+RELEARN = ["step_80", "pivot_l_100", "pivot_r_150", "step_back_60", "pivot_l_60"]
 CONFIRM_Z = 2.0
 # A vague prediction confirms anything, so the tolerance (sd and z floor combined) must also be tight.
 CONFIRM_TOL = np.array([3.0, 3.0, 6.0])
