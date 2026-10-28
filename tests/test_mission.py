@@ -86,3 +86,19 @@ def test_stop_wins_and_state_serialises(mission):
 def test_unknown_station_is_rejected(mission):
     asyncio.run(mission.handle("deliver to green"))
     assert not mission.busy and "Stations" in mission.notes[-1]["text"]
+
+
+@pytest.mark.parametrize("watch_push, relearns", [(False, 0), (True, 1)])
+def test_push_leg_is_watched_only_on_request(mission, watch_push, relearns):
+    mission.watch_push = watch_push
+
+    async def run():
+        async def add_weight():
+            while mission.status != "pushing":
+                await asyncio.sleep(0)
+            mission.rig.truth = HEAVY
+
+        asyncio.create_task(add_weight())
+        return await mission.deliver("red")
+
+    assert asyncio.run(run()) and mission.sci.n == 1 + relearns

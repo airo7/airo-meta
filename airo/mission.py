@@ -55,8 +55,10 @@ class _Watched:
 class Mission:
     """sci follows the scientist contract: best, members, n, name, notebook, learn(), relearn(seg) -> seconds."""
 
-    def __init__(self, rig: BaseRig, sci, inbox: asyncio.Queue | None = None, scan=None, threshold=THRESHOLD):
+    def __init__(self, rig: BaseRig, sci, inbox: asyncio.Queue | None = None, scan=None, threshold=THRESHOLD,
+                 watch_push: bool = False):
         self.rig, self.sci = rig, sci
+        self.watch_push = watch_push
         self.inbox = inbox or asyncio.Queue()
         self.scan = scan or (lambda: planner.scan(rig.frame(), rig.H, rig.floor))
         self.threshold = threshold
@@ -146,7 +148,8 @@ class Mission:
         goal = target - STANDOFF * d / np.linalg.norm(d)
         self._plan(tuple(goal), ignore=("parcel",))
         self.status = "pushing"
-        drive = asyncio.create_task(follow(_Watched(self), self.body, self.path))
+        rig = _Watched(self) if self.watch_push else self.rig
+        drive = asyncio.create_task(follow(rig, self.body, self.path))
         try:
             while not (await asyncio.wait({drive}, timeout=RESCAN_S))[0]:
                 self.scene = await self.scan()
