@@ -7,6 +7,7 @@ import pytest
 
 from airo import planner
 from airo.body import KEY
+from airo.control import V_MAX
 from airo.mission import Mission
 from airo.sim import PARCEL, SimRig, world
 
@@ -125,3 +126,16 @@ def test_relearn_moves_clear_of_a_nearby_parcel(mission, monkeypatch, reach, mov
 
     asyncio.run(run())
     assert bool(calls) == moved and mission.sci.n == 2
+
+
+def test_unconfirmed_body_drives_slower(monkeypatch):
+    def deliver(verified):
+        rig = SimRig(KEY, floor=(2.0, 1.4), objects=world(), pose0=(1.0, 0.7, math.pi), log_dir=None)
+        monkeypatch.setattr(planner.meta_api, "segment", rig.sam)
+        m = Mission(rig, FakeScientist(rig))
+        m.sci.verified = verified
+        assert asyncio.run(m.deliver("blue"))
+        return m.v_max, rig.t
+
+    (v_ok, t_ok), (v_slow, t_slow) = deliver(True), deliver(False)
+    assert v_ok == V_MAX and v_slow < V_MAX and t_slow > 1.2 * t_ok

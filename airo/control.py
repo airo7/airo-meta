@@ -41,7 +41,7 @@ async def _settle(rig: BaseRig, seconds: float = 0.5):
         await rig.step(0, 0)
 
 
-async def goto(rig: BaseRig, body: Body, xy, tol: float = 0.04, timeout: float = 30) -> float:
+async def goto(rig: BaseRig, body: Body, xy, tol: float = 0.04, timeout: float = 30, v_max: float = V_MAX) -> float:
     """Drive to xy and stop; returns the final distance once the car has settled."""
     goal = np.asarray(xy, float)
     pivoting = False
@@ -49,7 +49,7 @@ async def goto(rig: BaseRig, body: Body, xy, tol: float = 0.04, timeout: float =
         if math.dist(predict(rig, body, body.tau + 3 * body.lag, stop=True)[:2], goal) < tol / 2:
             break
         pose = predict(rig, body)
-        v = float(np.clip(V_MAX * math.dist(pose[:2], goal) / SLOW_R, V_MIN, V_MAX))
+        v = float(np.clip(v_max * math.dist(pose[:2], goal) / SLOW_R, V_MIN, v_max))
         v, om, pivoting = _steer(pose, goal, v, pivoting)
         await rig.step(*inverse(body, v, om))
     await _settle(rig)
@@ -73,7 +73,7 @@ def _densify(path: np.ndarray, step: float = 0.02) -> np.ndarray:
 
 
 async def follow(rig: BaseRig, body: Body, path, tol: float = 0.04, lookahead: float = LOOKAHEAD,
-                 timeout: float = 60) -> float:
+                 timeout: float = 60, v_max: float = V_MAX) -> float:
     """Pure pursuit along path with a fixed lookahead, then goto its last point."""
     path = _densify(np.asarray(path, float))
     i, pivoting = 0, False
@@ -84,6 +84,6 @@ async def follow(rig: BaseRig, body: Body, path, tol: float = 0.04, lookahead: f
         ahead = np.nonzero(dist[dist.argmin():] >= lookahead)[0]
         if math.dist(pose[:2], path[-1]) < lookahead or not len(ahead):
             break
-        v, om, pivoting = _steer(pose, path[i + ahead[0]], V_MAX, pivoting)
+        v, om, pivoting = _steer(pose, path[i + ahead[0]], v_max, pivoting)
         await rig.step(*inverse(body, v, om))
-    return await goto(rig, body, path[-1], tol, timeout)
+    return await goto(rig, body, path[-1], tol, timeout, v_max)

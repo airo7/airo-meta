@@ -11,7 +11,7 @@ import numpy as np
 
 from airo import planner
 from airo.body import KEY, Body, cloud, surprise
-from airo.control import follow
+from airo.control import V_MAX, follow
 from airo.rig import DT, BaseRig, RigAbort
 from airo.server import topdown
 from airo.voice import parse_intent
@@ -25,7 +25,8 @@ RUN_IN = 0.4
 NEAR_PARCEL = 0.35
 STANDOFF = 0.22
 PROBE_REACH = 0.6
-RELEARN_PROBES = 3
+RELEARN_PROBES = 5
+CAUTION = 0.6
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
           "surprised": ("surprise", "reality left the cloud"), "relearning": ("relearn", "relearn"),
           "learning": ("probe", "learn the body")}
@@ -100,6 +101,11 @@ class Mission:
     def body(self) -> Body:
         return self.sci.best
 
+    @property
+    def v_max(self) -> float:
+        """Slower after a relearn the scientist could not confirm."""
+        return V_MAX * (1 if getattr(self.sci, "verified", True) else CAUTION)
+
     def note(self, kind: str, text: str):
         self.notes.append({"t": time.time(), "kind": kind, "text": text})
 
@@ -161,7 +167,7 @@ class Mission:
         self.status = "delivering"
         self._near = (x, y)
         self.path = self._plan(run_in) + [(x, y)]
-        await follow(_Watched(self), self.body, self.path)
+        await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
         return True
 
     async def _push(self, station: str) -> bool:
@@ -171,7 +177,7 @@ class Mission:
         self._plan(tuple(goal), ignore=("parcel",))
         self.status = "pushing"
         rig = _Watched(self) if self.watch_push else self.rig
-        drive = asyncio.create_task(follow(rig, self.body, self.path))
+        drive = asyncio.create_task(follow(rig, self.body, self.path, v_max=self.v_max))
         try:
             while not (await asyncio.wait({drive}, timeout=RESCAN_S))[0]:
                 self.scene = await self.scan()
