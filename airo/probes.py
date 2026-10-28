@@ -35,8 +35,8 @@ LIBRARY = {p.name: p for p in [
     Probe("pulse_100", "pulse", 100, 100, 0.3),
 ]}
 
-# The arc comes early: only arcs separate drift kappa from the gain imbalance, so the cloud shrinks steadily.
-SCHEDULE = ["ramp_120", "step_110", "arc_r", "pivot_l_100", "step_60", "step_150", "step_back_110", "pivot_r_150",
+# An arc comes by the fifth probe: only arcs separate drift kappa from the gain imbalance.
+SCHEDULE = ["ramp_120", "step_110", "pivot_l_100", "step_60", "arc_r", "step_150", "step_back_110", "pivot_r_150",
             "pivot_l_60", "pulse_100"]
 
 
