@@ -16,6 +16,7 @@ TRACK = 0.145
 DT = 0.01
 WARMUP = 2.5
 HEADING_W = 0.1
+ANCHOR_W = 0.03
 
 
 @dataclass(frozen=True)
@@ -37,7 +38,7 @@ PRIOR = Body(g_l=0.0025, g_r=0.0025, dz=10, eta=1.0, tau=0.1, lag=0.1, kappa=0.0
 KEY = Body(g_l=0.00316, g_r=0.00316, dz=25, eta=0.3, tau=0.2, lag=0.1, kappa=-0.05)
 LOWER = Body(1e-4, 1e-4, 0, 0.05, 0, 0.01, -2)
 UPPER = Body(0.02, 0.02, 120, 1.5, 0.6, 0.6, 2)
-SCALE = (1e-3, 1e-3, 10, 0.3, 0.1, 0.1, 0.1)
+SCALE = np.array([1e-3, 1e-3, 10, 0.3, 0.1, 0.1, 0.1])
 
 
 @dataclass
@@ -93,22 +94,33 @@ def _residual(body: Body, s: Segment) -> np.ndarray:
     return np.concatenate([d[:, :2].ravel(), HEADING_W * wrap(d[:, 2])])
 
 
-def fit(segments: list[Segment], x0: Body = PRIOR, taus: tuple[float, ...] = (0.05, 0.15, 0.3)) -> Body:
-    """Least squares from x0, plus restarts at each tau in taus: tau and lag trade off into local minima."""
+def fit(segments: list[Segment], x0: Body = PRIOR, taus: tuple[float, ...] = (0.05, 0.15, 0.3),
+        anchor: Body | None = None, weight: float = ANCHOR_W) -> Body:
+    """Least squares from x0, plus restarts at each tau in taus: tau and lag trade off into local minima.
+
+    anchor adds a weak pull toward a previous body, per SCALE unit, so parameters the segments say little about
+    (the dead zone after a few pivots) stay put instead of wandering.
+    """
     lo, hi = np.array(astuple(LOWER)), np.array(astuple(UPPER))
+
+    def residuals(x):
+        r = [_residual(Body(*x), s) for s in segments]
+        if anchor is not None:
+            r.append(weight * (x - astuple(anchor)) / SCALE)
+        return np.concatenate(r)
+
     best = None
     for start in [x0, *(replace(x0, tau=t) for t in taus)]:
-        r = least_squares(lambda x: np.concatenate([_residual(Body(*x), s) for s in segments]),
-                          np.clip(astuple(start), lo + 1e-9, hi - 1e-9), bounds=(lo, hi), x_scale=SCALE)
+        r = least_squares(residuals, np.clip(astuple(start), lo + 1e-9, hi - 1e-9), bounds=(lo, hi), x_scale=SCALE)
         if best is None or r.cost < best.cost:
             best = r
     return Body(*map(float, best.x))
 
 
-def ensemble(segments: list[Segment], best: Body, k: int = 20, seed: int = 0) -> list[Body]:
+def ensemble(segments: list[Segment], best: Body, k: int = 20, seed: int = 0, anchor: Body | None = None) -> list[Body]:
     rng = np.random.default_rng(seed)
     n = len(segments)
-    return [fit([segments[i] for i in rng.integers(n, size=n)], best, taus=()) for _ in range(k)]
+    return [fit([segments[i] for i in rng.integers(n, size=n)], best, taus=(), anchor=anchor) for _ in range(k)]
 
 
 def cloud(members: list[Body], t, cmd_t, cmd, pose0, wheels0=None) -> np.ndarray:

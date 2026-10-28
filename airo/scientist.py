@@ -79,12 +79,13 @@ class Scientist:
         self.on_update = on_update
         self.k = k
         self._start = body
+        self._anchor: Body | None = None
         self._budget = 0
         self._ran: list[str] = []
         self._stale = self._done = self._fallback = False
 
     async def learn(self, budget: int = 10):
-        self.segments = []
+        self.segments, self._anchor = [], None
         await self._session(f"Learn this car's body from scratch with {budget} probes. A reasonable schedule is "
                             f"{SCHEDULE[:budget]}, but order the probes to cut the largest uncertainty first.",
                             SCHEDULE, budget)
@@ -101,7 +102,7 @@ class Scientist:
         what = (f"surprise {np.median(s[-3:]) if len(s) else math.nan:.1f} over the last {t[-1] - t[0]:.1f} s: "
                 f"predicted {_fmt(pred)}; measured {_fmt(meas)}")
         await self._note("alert", f"Body changed, {what}. Camera: {seen}", predicted=pred, measured=meas, seen=seen)
-        self.segments, self._stale = [window_seg], True
+        self.segments, self._stale, self._anchor = [window_seg], True, self.best
         await self._session(f"The body just changed while driving, {what}. Muse Spark sees: \"{seen}\". You have "
                             f"{budget} probes and little floor, so prefer pivots. Find out what changed.",
                             RELEARN, budget)
@@ -197,8 +198,8 @@ class Scientist:
 
     async def refit(self) -> dict:
         if self._stale:
-            self.best = await asyncio.to_thread(fit, self.segments, self.best)
-            self.members = await asyncio.to_thread(ensemble, self.segments, self.best, self.k)
+            self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor)
+            self.members = await asyncio.to_thread(ensemble, self.segments, self.best, self.k, anchor=self._anchor)
             self._stale = False
             await self._emit()
         before = asdict(self._start)

@@ -79,3 +79,12 @@ def test_surprise_low_on_own_body_high_on_changed_body():
     assert np.nanmedian(np.concatenate([surprise(members, s) for s in segs[:5]])) < 3
     heavy = data(replace(TRUTH, g_l=TRUTH.g_l * 0.6, g_r=TRUTH.g_r * 0.6), seed=1)
     assert np.nanmedian(np.concatenate([surprise(members, s) for s in heavy[:5]])) > 3
+
+
+def test_anchor_holds_what_pivots_cannot_see():
+    heavy = replace(TRUTH, g_l=TRUTH.g_l * 0.7, g_r=TRUTH.g_r * 0.7)
+    rng = np.random.default_rng(0)
+    segs = [probe(heavy, *p, rng) for p in [(100, -100, 1), (-100, 100, 1), (140, 140, 1)]]
+    got = fit(segs, TRUTH, anchor=TRUTH)
+    assert got.dz == pytest.approx(TRUTH.dz, abs=2)
+    assert got.g_l == pytest.approx(heavy.g_l, rel=0.05) and got.g_r == pytest.approx(heavy.g_r, rel=0.05)
