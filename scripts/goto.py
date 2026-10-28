@@ -1,8 +1,12 @@
-"""D2 gate: click a floor point in the window, the car drives there and the final error is printed."""
+"""D2 gate: click a floor point in the window, the car drives there and the final error is printed.
+
+--dry only shows the pose and prints the floor coordinates of each click, to check the camera and markers.
+"""
 
 import argparse
 import asyncio
 import math
+import sys
 
 import cv2
 import numpy as np
@@ -33,7 +37,7 @@ async def main(args):
     print(f"body: {saved[2] if saved else 'answer key'}")
     rig = await open_rig(args)
     scale = min(1.0, 1280 / rig.frame().shape[1])
-    clicks, errors, goal, task = [], [], None, None
+    clicks, errors, goal, task, last_abort = [], [], None, None, ""
     cv2.namedWindow(WIN)
     cv2.setMouseCallback(WIN, lambda ev, u, v, *_: ev == cv2.EVENT_LBUTTONDOWN and clicks.append((u, v)))
     try:
@@ -42,15 +46,22 @@ async def main(args):
             if task is None and clicks:
                 xy = to_floor(rig.H, np.array([clicks.pop()]) / scale)[0]
                 clicks.clear()
-                if rig.inside(*xy):
+                if args.dry:
+                    p = rig.pose
+                    print(f"click ({xy[0]:.3f}, {xy[1]:.3f}) m, car ({p.x:.3f}, {p.y:.3f}) m "
+                          f"heading {math.degrees(p.theta):.0f}°, inside inset: {rig.inside(*xy)}")
+                elif rig.inside(*xy):
                     goal, task = xy, asyncio.create_task(goto(rig, body, xy))
                 else:
                     print(f"({xy[0]:.2f}, {xy[1]:.2f}) is outside the floor inset")
             if task is None:
                 try:
                     await rig.step(0, 0)
+                    last_abort = ""
                 except RigAbort as e:
-                    print(e)
+                    if str(e) != last_abort:
+                        print(e)
+                    last_abort = str(e)
                 continue
             await asyncio.sleep(0.03)
             if task.done():
@@ -71,4 +82,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     add_args(p)
     p.add_argument("--body", help="body json; default is the learned body if saved, else the answer key")
-    asyncio.run(main(p.parse_args()))
+    try:
+        asyncio.run(main(p.parse_args()))
+    except RigAbort as e:
+        sys.exit(f"airo: {e}")

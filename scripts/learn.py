@@ -3,13 +3,14 @@
 import argparse
 import asyncio
 import math
+import sys
 from dataclasses import astuple
 
 import numpy as np
 
 from airo.body import BODY_PATH, KEY, SIM_BODY_PATH, Body, cloud, ensemble, posterior, save
 from airo.control import recentre
-from airo.rig import add_args, open_rig
+from airo.rig import RigAbort, add_args, open_rig
 from airo.scientist import Scientist
 
 UNITS = {"g_l": ("mm/s/PWM", 1000), "g_r": ("mm/s/PWM", 1000), "dz": ("PWM", 1), "eta": ("", 1),
@@ -81,4 +82,10 @@ if __name__ == "__main__":
     p.add_argument("--budget", type=int, default=10)
     p.add_argument("-k", type=int, default=12, help="ensemble size")
     p.add_argument("--out", help="default data/body.json, or data/body_sim.json with --sim")
-    asyncio.run(main(p.parse_args()))
+    args = p.parse_args()
+    if args.dry:
+        p.error("learning drives the car; use goto.py --dry to check the camera")
+    try:
+        asyncio.run(main(args))
+    except RigAbort as e:
+        sys.exit(f"airo: {e}")

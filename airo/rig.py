@@ -1,6 +1,7 @@
 """20 Hz drive loop over the car and the overhead camera, with a safety envelope and a per-tick jsonl log."""
 
 import asyncio
+import contextlib
 import json
 import math
 import os
@@ -8,11 +9,12 @@ import threading
 import time
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from airo.body import Segment
-from airo.camera import Pose, PoseTracker, floor_layout, open_camera
-from airo.car import Car
+from airo.camera import Pose, PoseTracker, detect, floor_layout, open_camera
+from airo.car import Car, CarLost
 
 HZ = 20
 DT = 1 / HZ
@@ -32,6 +34,7 @@ def add_args(p):
     p.add_argument("--marker-h", type=float, default=0.0, help="car marker height above floor (m)")
     p.add_argument("--cam-h", type=float, default=1.8, help="camera height above floor (m)")
     p.add_argument("--address", help="BLE address; default scans for the HM-10 by name")
+    p.add_argument("--dry", action="store_true", help="camera and pose only: no BLE, nothing drives")
 
 
 async def open_rig(args, **sim):
@@ -41,13 +44,14 @@ async def open_rig(args, **sim):
         from airo.sim import SimRig
 
         return SimRig(KEY, floor=tuple(args.floor), realtime=True, **sim)
-    return await Rig.open(tuple(args.floor), args.camera, args.marker_h, args.cam_h, args.address)
+    return await Rig.open(tuple(args.floor), args.camera, args.marker_h, args.cam_h, args.address, args.dry)
 
 
 class BaseRig:
     """step() sends a command, waits one tick and returns the pose that arrived during it, if any."""
 
     H: np.ndarray | None = None
+    safety = True
 
     def __init__(self, floor: tuple[float, float], log_dir: str | None = "data/runs", inset: float = INSET):
         self.floor = floor
@@ -87,6 +91,8 @@ class BaseRig:
             p = dict(x=fresh.x, y=fresh.y, theta=fresh.theta, pose_t=fresh.t) if fresh else \
                 dict.fromkeys(("x", "y", "theta", "pose_t"))
             self._log.write(json.dumps(dict(t=t, pwm_l=pwm_l, pwm_r=pwm_r, sent=sent, **p)) + "\n")
+        if not self.safety:
+            return fresh
         if self.pose is None or t + DT - self.pose.t > LOST_S:
             await self._abort("pose lost")
         if not self.inside(self.pose.x, self.pose.y):
@@ -107,9 +113,12 @@ class BaseRig:
 
 
 class Rig(BaseRig):
-    def __init__(self, car: Car, cap, tracker: PoseTracker, floor, **kw):
+    """With car=None (dry run) nothing is sent and the safety checks are off."""
+
+    def __init__(self, car: Car | None, cap, tracker: PoseTracker, floor, **kw):
         super().__init__(floor, **kw)
         self.car, self._cap, self._tracker = car, cap, tracker
+        self.safety = car is not None
         self._latest: Pose | None = None
         self._frame: np.ndarray | None = None
         self._next = 0.0
@@ -119,17 +128,37 @@ class Rig(BaseRig):
 
     @classmethod
     async def open(cls, floor, camera: int = 0, marker_h: float = 0.0, cam_h: float = 1.8,
-                   address: str | None = None, timeout: float = 5.0, **kw) -> "Rig":
+                   address: str | None = None, dry: bool = False, timeout: float = 5.0, **kw) -> "Rig":
+        """Checks the camera, then the markers, then BLE, so each failure names its own fix."""
         cap = open_camera(camera)
-        rig = cls(await Car.connect(address), cap, PoseTracker(floor_layout(*floor), marker_h, cam_h), floor, **kw)
-        end = time.monotonic() + timeout
-        while rig._latest is None:
-            if time.monotonic() > end:
-                await rig.close()
-                raise RigAbort("no car pose: check that markers 0-4 are visible")
-            await asyncio.sleep(0.05)
-        rig.pose = rig._latest
+        if not cap.isOpened() or not cap.read()[0]:
+            cap.release()
+            raise RigAbort(f"camera {camera} gives no frames: try --camera 1 (or set AIRO_CAMERA_INDEX), check the "
+                           "phone is attached via Continuity Camera, and allow camera access for this terminal")
+        rig = cls(None, cap, PoseTracker(floor_layout(*floor), marker_h, cam_h), floor, **kw)
+        try:
+            await rig._first_pose(timeout)
+            if not dry:
+                rig.car = await Car.connect(address)
+                rig.safety = True
+        except CarLost as e:
+            await rig.close()
+            raise RigAbort(str(e)) from e
+        except BaseException:
+            await rig.close()
+            raise
         return rig
+
+    async def _first_pose(self, timeout: float):
+        end = time.monotonic() + timeout
+        while self._latest is None:
+            if time.monotonic() > end:
+                seen = sorted(detect(cv2.cvtColor(self._frame, cv2.COLOR_BGR2GRAY))) if self._frame is not None else []
+                missing = [i for i in (0, 1, 2, 3, 4) if i not in seen]
+                raise RigAbort(f"no car pose after {timeout:.0f} s: markers seen {seen or 'none'}, missing {missing} "
+                               "(1-4 are the floor corners, 0 is the car)")
+            await asyncio.sleep(0.05)
+        self.pose = self._latest
 
     def _camera(self):
         while self._running:
@@ -153,21 +182,29 @@ class Rig(BaseRig):
 
     async def step(self, pwm_l: int, pwm_r: int) -> Pose | None:
         now = time.monotonic()
-        sent = self.car.drive(pwm_l, pwm_r)
+        try:
+            sent = self.car is not None and self.car.drive(pwm_l, pwm_r)
+        except CarLost as e:
+            raise RigAbort(f"{e}; the firmware stops the car within 500 ms") from e
         self._next = max(self._next + DT, now + DT / 2)
         await asyncio.sleep(self._next - time.monotonic())
         latest = self._latest
         return await self._tick(now, pwm_l, pwm_r, sent, latest if latest is not self.pose else None)
 
     async def stop(self):
-        await self.car.stop()
+        if self.car is None:
+            return
+        with contextlib.suppress(CarLost):
+            await self.car.stop()
         self._cmd_t.append(time.monotonic())
         self._cmd.append((0, 0))
 
     async def close(self):
         self._running = False
         try:
-            await self.car.close()
+            if self.car:
+                with contextlib.suppress(CarLost):
+                    await self.car.close()
         finally:
             self._thread.join(timeout=1)
             self._cap.release()

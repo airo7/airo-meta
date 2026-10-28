@@ -13,9 +13,16 @@ UART_CHAR = "0000ffe1-0000-1000-8000-00805f9b34fb"
 DEFAULT_NAME = "HC-05"
 
 
+class CarLost(RuntimeError):
+    pass
+
+
 class Car:
-    def __init__(self, client: BleakClient):
-        self._client = client
+    """drive() raises CarLost once a write has failed even after one reconnect."""
+
+    def __init__(self, address: str):
+        self.address = address
+        self._client: BleakClient | None = None
         self._buf = bytearray()
         self._write: asyncio.Task | None = None
         self.sens: Sens | None = None
@@ -28,13 +35,20 @@ class Car:
         if not address:
             dev = await BleakScanner.find_device_by_name(DEFAULT_NAME, timeout=timeout)
             if dev is None:
-                raise RuntimeError(f"no BLE device named {DEFAULT_NAME}")
+                raise CarLost(f"no BLE device named {DEFAULT_NAME} within {timeout:.0f} s: is the car switched on and "
+                              "not connected to another app? Set AIRO_BLE_ADDRESS to skip the scan.")
             address = dev.address
-        client = BleakClient(address, timeout=timeout)
-        await client.connect()
-        car = cls(client)
-        await client.start_notify(UART_CHAR, car._on_notify)
+        car = cls(address)
+        await car._open(timeout)
         return car
+
+    async def _open(self, timeout: float = 20):
+        try:
+            self._client = BleakClient(self.address, timeout=timeout)
+            await self._client.connect()
+            await self._client.start_notify(UART_CHAR, self._on_notify)
+        except Exception as e:
+            raise CarLost(f"could not connect to the car at {self.address}: {e}") from e
 
     def _on_notify(self, _char, data: bytearray):
         self._buf.extend(data)
@@ -46,13 +60,21 @@ class Car:
         """Send without blocking; returns False if the previous write is still in flight."""
         if self._write and not self._write.done():
             return False
+        if self._write and not self._write.cancelled() and (e := self._write.exception()):
+            raise CarLost(f"BLE link lost: {e}") from e
         self._write = asyncio.create_task(self._send(cmd_packet(pwm_l, pwm_r)))
         return True
 
     async def _send(self, pkt: bytes):
         t0 = time.perf_counter()
-        # FFE1 silently drops write-without-response.
-        await self._client.write_gatt_char(UART_CHAR, pkt, response=True)
+        try:
+            # FFE1 silently drops write-without-response.
+            await self._client.write_gatt_char(UART_CHAR, pkt, response=True)
+        except Exception:
+            if self._client.is_connected:
+                raise
+            await self._open()
+            await self._client.write_gatt_char(UART_CHAR, pkt, response=True)
         self.ack_ms.append((time.perf_counter() - t0) * 1000)
 
     async def stop(self):
@@ -64,7 +86,8 @@ class Car:
         try:
             await self.stop()
         finally:
-            await self._client.disconnect()
+            if self._client:
+                await self._client.disconnect()
 
     async def __aenter__(self):
         return self

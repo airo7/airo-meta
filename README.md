@@ -41,6 +41,7 @@ On the phone, turn off Center Stage, Portrait and Studio Light; auto-cropping br
 | Check | Command | Pass |
 |---|---|---|
 | Pose | `uv run scripts/pose_check.py --floor W H --marker-h 0.1 --show` | ≥15 Hz, residual and still-car jitter ≤10 mm |
+| Dry run | `uv run scripts/goto.py --floor W H --marker-h 0.1 --dry` | pose arrow on the car; clicks print floor coordinates that match a tape measure |
 | BLE | `uv run scripts/drive_check.py` | drives straight then pivots, ack ≈66 ms, SENS ≈25 Hz |
 | Meta API | `uv run --env-file .env scripts/bench_api.py --concept box` | latency printed, overlay in `data/` looks right |
 | Offline | `uv run pytest` | geometry, protocol and SAM parsing tests pass |
