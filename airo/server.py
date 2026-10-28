@@ -1,4 +1,4 @@
-"""Live dashboard: state over a websocket, the rectified floor as MJPEG, commands back over POST.
+"""Live dashboard: state over a websocket, the rectified floor and a cinematic view as MJPEG, commands over POST.
 
 State contract, published as one dict (numpy values are fine, they are converted with .tolist()):
 
@@ -13,7 +13,15 @@ State contract, published as one dict (numpy values are fine, they are converted
      "surprise": {"values": [float], "threshold": float},
      "notebook": [{"t": float, "kind": "alert|hypothesis|prediction|result|conclusion|fallback", "text": str}]}
 
-Floor frame: x right, y up, origin at corner marker 1. The video frame covers exactly floor w x h.
+Optional fields:
+
+    "mode": "sim" | "real",
+    "episode": {"phases": [{"t": float, "kind": "drive|surprise|probe|refit|relearn", "label": str}]},
+    "relearn": {"phase": "changed|testing|done", "elapsed_s": float, "probe": str, "step": int, "steps": int} | None,
+    notebook result entries: "predicted", "sd", "measured", "unit" draw a prediction-vs-measurement gauge.
+
+Floor frame: x right, y up, origin at corner marker 1. /video (set_frame) covers exactly floor w x h;
+/view (set_view) is the hero view: a 3/4 sim render with ghost cars, or the raw phone frame on hardware.
 """
 
 import asyncio
@@ -29,6 +37,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 WEB = Path(__file__).resolve().parent.parent / "web"
+MJPEG = "multipart/x-mixed-replace; boundary=frame"
+
+
+def _encode(bgr: np.ndarray) -> bytes:
+    return cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
 
 
 class Command(BaseModel):
@@ -47,24 +60,27 @@ class Dashboard:
         self.state: dict = {}
         self.commands: asyncio.Queue[str] = asyncio.Queue()
         self.period = 1 / hz
-        self._jpeg: bytes | None = None
+        self._jpeg: dict[str, bytes] = {}
         self.app = self._routes(FastAPI())
 
     def publish(self, state: dict) -> None:
         self.state = state
 
     def set_frame(self, bgr: np.ndarray) -> None:
-        self._jpeg = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, 85])[1].tobytes()
+        self._jpeg["video"] = _encode(bgr)
+
+    def set_view(self, bgr: np.ndarray) -> None:
+        self._jpeg["view"] = _encode(bgr)
 
     async def serve(self, host: str = "127.0.0.1", port: int = 8000) -> None:
         await uvicorn.Server(uvicorn.Config(self.app, host=host, port=port, log_level="warning")).serve()
 
-    async def _mjpeg(self):
+    async def _mjpeg(self, name: str):
         last = None
         while True:
-            if self._jpeg is not last:
-                last = self._jpeg
-                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + last + b"\r\n"
+            if (jpeg := self._jpeg.get(name)) is not last:
+                last = jpeg
+                yield b"--frame\r\nContent-Type: image/jpeg\r\n\r\n" + jpeg + b"\r\n"
             await asyncio.sleep(1 / 30)
 
     def _routes(self, app: FastAPI) -> FastAPI:
@@ -81,7 +97,11 @@ class Dashboard:
 
         @app.get("/video")
         def video():
-            return StreamingResponse(self._mjpeg(), media_type="multipart/x-mixed-replace; boundary=frame")
+            return StreamingResponse(self._mjpeg("video"), media_type=MJPEG)
+
+        @app.get("/view")
+        def view():
+            return StreamingResponse(self._mjpeg("view"), media_type=MJPEG)
 
         @app.websocket("/ws")
         async def ws(sock: WebSocket):
