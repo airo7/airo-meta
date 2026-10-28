@@ -19,7 +19,7 @@ HEAVY = replace(TRUTH, g_l=TRUTH.g_l * 0.75, g_r=TRUTH.g_r * 0.75, eta=TRUTH.eta
 
 async def teleport(rig):
     rig._truth.append((rig.t, 1.0, 0.6, 0.0))
-    rig.pose = rig._measure()
+    await rig.step(0, 0)
 
 
 def fake_wonder(monkeypatch, calls, fail_after=None):

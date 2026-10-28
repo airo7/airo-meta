@@ -67,7 +67,8 @@ async def run(rig: BaseRig, probe: Probe) -> Segment:
     t0 = rig.pose.t
     for l, r in commands(probe):
         await rig.step(int(l), int(r))
-    return rig.segment(t0)
+    # Start at the first pose after the first command, as predict() assumes; the pose at t0 may predate a recentre.
+    return rig.segment(t0 + DT / 2)
 
 
 def _local(start, end) -> np.ndarray:
