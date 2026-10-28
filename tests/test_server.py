@@ -1,3 +1,6 @@
+import asyncio
+
+import cv2
 import numpy as np
 from fastapi.testclient import TestClient
 
@@ -34,3 +37,21 @@ def test_topdown_known_homography():
     assert out.shape == (300, 400, 3)
     v, u = np.argwhere(out[..., 0] > 128).mean(axis=0)
     assert abs(u - x * 200) < 1.5 and abs(v - (1.5 - y) * 200) < 1.5
+
+
+def test_view_stream_serves_latest_frame():
+    dash = Dashboard()
+    assert {"/video", "/view"} <= {r.path for r in dash.app.routes}
+    dash.set_frame(np.zeros((10, 20, 3), np.uint8))
+    dash.set_view(np.full((90, 160, 3), 200, np.uint8))
+
+    async def first(name):
+        stream = dash._mjpeg(name)
+        chunk = await anext(stream)
+        await stream.aclose()
+        return chunk
+
+    chunk = asyncio.run(first("view"))
+    assert chunk.startswith(b"--frame\r\nContent-Type: image/jpeg")
+    jpeg = chunk.split(b"\r\n\r\n", 1)[1].removesuffix(b"\r\n")
+    assert cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR).shape == (90, 160, 3)
