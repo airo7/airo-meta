@@ -26,13 +26,20 @@ def radius_cm(segments, best: Body) -> float:
     return 100 * math.sqrt(((end - end.mean(axis=0)) ** 2).sum(axis=1).mean())
 
 
-def gates(b: Body, radii: list[float]) -> list[tuple[str, bool]]:
-    return [("gains within 20% of 3.16 mm/s/PWM", all(abs(g / KEY.g_l - 1) <= 0.2 for g in (b.g_l, b.g_r))),
-            ("dead zone within ±8 PWM", abs(b.dz - KEY.dz) <= 8),
-            ("delay 150-250 ms", 0.15 <= b.tau <= 0.25),
-            ("drift to the right (kappa < 0)", b.kappa < 0),
-            ("cloud radius shrinks, at most one bump over 10%",
-             len(radii) > 1 and radii[-1] < radii[0] and sum(b > 1.1 * a for a, b in zip(radii, radii[1:])) <= 1)]
+PASS, FAIL, UNSURE = "PASS", "FAIL", "\033[33mUNDETERMINED\033[0m"
+
+
+def gates(b: Body, kappa_sd: float, radii: list[float]) -> list[tuple[str, str]]:
+    """A drift too small to tell from zero at 2σ is undetermined, not a failed model."""
+    drift = UNSURE if abs(b.kappa) < 2 * kappa_sd else PASS if b.kappa < 0 else FAIL
+    return [(PASS if all(abs(g / KEY.g_l - 1) <= 0.2 for g in (b.g_l, b.g_r)) else FAIL,
+             "gains within 20% of 3.16 mm/s/PWM"),
+            (PASS if abs(b.dz - KEY.dz) <= 8 else FAIL, "dead zone within ±8 PWM"),
+            (PASS if 0.15 <= b.tau <= 0.25 else FAIL, "delay 150-250 ms"),
+            (drift, f"drift to the right (kappa {b.kappa:+.3f} ± {2 * kappa_sd:.3f} at 2σ)"),
+            (PASS if len(radii) > 1 and radii[-1] < radii[0] and
+             sum(b > 1.1 * a for a, b in zip(radii, radii[1:])) <= 1 else FAIL,
+             "cloud radius shrinks, at most one bump over 10%")]
 
 
 async def main(args):
@@ -68,9 +75,8 @@ async def main(args):
     for (name, (unit, k)), v, s, key in zip(UNITS.items(), astuple(b), sd, astuple(KEY)):
         print(f"{name:>6} {v * k:9.3g} {2 * s * k:8.2g} {key * k:9.3g} {100 * (v / key - 1):+6.0f}  {unit}")
     print()
-    results = gates(b, radii)
-    for what, ok in results:
-        print(f"{'PASS' if ok else 'FAIL'}  {what}")
+    for status, what in gates(b, sd[6], radii):
+        print(f"{status}  {what}")
     out = args.out or (SIM_BODY_PATH if args.sim else BODY_PATH)
     save(b, sci.members, sci.name, out)
     print(f"\nsaved {out}")
