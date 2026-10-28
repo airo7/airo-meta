@@ -65,6 +65,23 @@ are available.
 
 ## Measured numbers
 
+**Simulation** (`uv run scripts/eval.py --n 10 --rig sim|mujoco`, scripted scientist, no API; hardware numbers to
+follow). Each seed learns once, then delivers with the body changed 0.3 m into the transit.
+
+| | SimRig (model-exact) | MuJoCo twin (physics) |
+|---|---|---|
+| Learn: 10 probes, cloud radius | 0.3 cm, parameters within 6% of truth | 1.1 cm |
+| Held-out probes within 2σ | 100% | 100% |
+| False surprise triggers (50 runs) | 0 | 0 |
+| Weight: detected / confirmed / delivered | 10/10 at 1.0 s, 9/10, 10/10 (gains −35%) | 0/10, –, 10/10 (0.4 kg is only ~−8% gain) |
+| Tow: detected / confirmed / delivered | 0/10, –, 10/10 (gains −15%, lag ×2) | 10/10 at 1.6 s, 1/10, 10/10 |
+| Slippery floor | 0/10 detected, 10/10 delivered | 0/10 detected, 10/10 delivered |
+| Flipped motor | 10/10 detected at 1.0 s, 0/10 confirmed, safety stop 10/10 | same |
+| Parcel within 10 cm of the station | 5.8 cm median (clean) | 8.2 cm median (clean) |
+
+A towed box is a drag force the body model has no term for, and a flipped motor needs a negative gain; relearning
+reports both as partial fits instead of claiming a confirmed body.
+
 ## License
 
 MIT
