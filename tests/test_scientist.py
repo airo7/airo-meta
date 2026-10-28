@@ -122,7 +122,8 @@ def test_relearn_after_heavy_load(monkeypatch):
     assert "weight pack" in prompt and "surprise" in prompt
     assert "budget" in results(seen)[-1]["error"]
     assert sci.notebook[[e["kind"] for e in sci.notebook].index("alert")]["seen"].startswith("a weight")
-    assert len(sci.segments) == 1 + 3
+    assert len(sci.segments) == 1 + len(RELEARN)
+    assert sci.verified and "Confirmed: pivot_l_100 predicted" in sci.notebook[-1]["text"]
 
     asyncio.run(teleport(rig))
     after = asyncio.run(drive(rig, mission))
@@ -143,3 +144,41 @@ def test_rejects_unsafe_and_unknown_probes(monkeypatch):
     assert [e["probe"] for e in sci.notebook if e["kind"] == "result"] == ["pivot_l_100"]
     assert any(e["kind"] == "alert" and "step_150" in e["text"] for e in sci.notebook)
     assert rig.true_pose[0] < 1.7 and sci.n == 1
+
+
+@pytest.fixture
+def surprised(monkeypatch):
+    """A learned scientist, the car made heavier, and the driving window that shows it."""
+    rig = SimRig(TRUTH, log_dir=None)
+    sci = Scientist(rig, teleport, k=4)
+    fake_wonder(monkeypatch, [], fail_after=0)
+    asyncio.run(sci.learn())
+    rig.truth = HEAVY
+    asyncio.run(teleport(rig))
+    return sci, asyncio.run(drive(rig, [(140, 140, 15), (80, 140, 20), (140, 80, 20)]))
+
+
+def test_scripted_relearn_stops_once_confirmed(surprised):
+    sci, window = surprised
+    asyncio.run(sci.relearn(window))
+    alert = max(i for i, e in enumerate(sci.notebook) if e["kind"] == "alert")
+    ran = [e for e in sci.notebook[alert:] if e["kind"] == "result"]
+    assert ran[-1]["confirmed"] and len(ran) < len(RELEARN) and sci.verified
+    assert "Confirmed:" in sci.notebook[-1]["text"] and "g_l -2" in sci.notebook[-1]["text"]
+
+
+def test_relearn_without_confirmation_says_so(surprised, monkeypatch):
+    monkeypatch.setattr("airo.scientist.CONFIRM_Z", 0.01)
+    sci, window = surprised
+    asyncio.run(sci.relearn(window))
+    assert len(sci.segments) == 1 + len(RELEARN) and not sci.verified
+    assert sci.notebook[-1]["text"].endswith("Partial fit, continuing with caution.")
+
+
+def test_wonder_cannot_conclude_unconfirmed(surprised, monkeypatch):
+    monkeypatch.setattr("airo.scientist.CONFIRM_Z", 0.01)
+    sci, window = surprised
+    seen = fake_wonder(monkeypatch, [probe("pivot_l_100"), ("conclude", {"text": "Done.", "body_name": "x"})],
+                       fail_after=2)
+    asyncio.run(sci.relearn(window))
+    assert "not confirmed" in results(seen)[-1]["error"] and not sci.verified

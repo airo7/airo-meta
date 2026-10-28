@@ -13,10 +13,11 @@ import numpy as np
 
 from airo import meta_api
 from airo.body import PRIOR, Body, Segment, ensemble, fit, surprise
-from airo.probes import LIBRARY, SCHEDULE, Recentre, halt, measure, outcome, predict, run, safe, valid, zscore
+from airo.probes import FLOOR, QTY, LIBRARY, SCHEDULE, Recentre, halt, measure, outcome, predict, run, safe, valid, zscore
 from airo.rig import BaseRig, RigAbort
 
-RELEARN = ["pivot_l_100", "step_80", "pivot_r_100"]
+RELEARN = ["pivot_l_100", "step_80", "pivot_r_150", "step_back_60", "pivot_l_60"]
+CONFIRM_Z = 2.0
 MEASURES = {"step": "per-side gain, drift kappa, delay", "ramp": "dead zone", "pivot": "pivot efficiency eta",
             "arc": "mixing law, side gains", "pulse": "delay tau, coast"}
 UNITS = ("cm forward", "cm lateral", "deg turn")
@@ -57,6 +58,12 @@ def _r(x: float) -> float:
     return float(f"{x:.3g}")
 
 
+def _verdict(probe: str, pred: dict, meas: dict) -> str:
+    i = max(range(len(QTY)), key=lambda i: abs(pred[QTY[i]][0]))
+    (m, sd), u = pred[QTY[i]], "°" if QTY[i] == "turn_deg" else " cm"
+    return f"{probe} predicted {m:.0f}{u} ± {math.hypot(sd, FLOOR[i]):.0f}, measured {meas[QTY[i]]:.0f}{u}"
+
+
 def _fmt(d: dict) -> str:
     return ", ".join(f"{v[0]:.1f} ± {v[1]:.1f} {u}" if isinstance(v, tuple) else f"{v:.1f} {u}"
                      for u, v in zip(UNITS, d.values()))
@@ -64,7 +71,11 @@ def _fmt(d: dict) -> str:
 
 class Scientist:
     """Notebook entries are {"t", "kind", "text", ...}, kind in alert|hypothesis|prediction|result|conclusion|
-    fallback; entries written by the scripted policy also carry "fallback": True."""
+    fallback; entries written by the scripted policy also carry "fallback": True.
+
+    A relearn ends once a probe run after a refit lands within |z| < 2 on every quantity, or when the budget runs
+    out; `verified` says which.
+    """
 
     def __init__(self, rig: BaseRig, recentre: Recentre | None = None, body: Body = PRIOR, k: int = 12,
                  on_update: Callable | None = None):
@@ -82,15 +93,17 @@ class Scientist:
         self._anchor: Body | None = None
         self._budget = 0
         self._ran: list[str] = []
-        self._stale = self._done = self._fallback = False
+        self._stale = self._done = self._fallback = self._verify = False
+        self._confirmed: str | None = None
+        self.verified = True
 
     async def learn(self, budget: int = 10):
-        self.segments, self._anchor = [], None
+        self.segments, self._anchor, self._verify, self.verified = [], None, False, True
         await self._session(f"Learn this car's body from scratch with {budget} probes. A reasonable schedule is "
                             f"{SCHEDULE[:budget]}, but order the probes to cut the largest uncertainty first.",
                             SCHEDULE, budget)
 
-    async def relearn(self, window_seg: Segment, budget: int = 3) -> float:
+    async def relearn(self, window_seg: Segment, budget: int = len(RELEARN)) -> float:
         """window_seg holds only motion since the body changed; it seeds the refit and older segments are dropped."""
         t0 = time.monotonic()
         s = surprise(self.members, window_seg)
@@ -102,10 +115,14 @@ class Scientist:
         what = (f"surprise {np.median(s[-3:]) if len(s) else math.nan:.1f} over the last {t[-1] - t[0]:.1f} s: "
                 f"predicted {_fmt(pred)}; measured {_fmt(meas)}")
         await self._note("alert", f"Body changed, {what}. Camera: {seen}", predicted=pred, measured=meas, seen=seen)
-        self.segments, self._stale, self._anchor = [window_seg], True, self.best
-        await self._session(f"The body just changed while driving, {what}. Muse Spark sees: \"{seen}\". You have "
-                            f"{budget} probes and little floor, so prefer pivots. Find out what changed.",
-                            RELEARN, budget)
+        before = self.best
+        self.segments, self._stale, self._anchor, self._verify = [window_seg], True, self.best, True
+        await self.refit()
+        await self._session(f"The body just changed while driving, {what}. Muse Spark sees: \"{seen}\". The body "
+                            f"is already refitted on that window. You have up to {budget} probes and little floor, "
+                            f"so prefer pivots. Refit after each probe; the next probe then confirms the refit. Stop "
+                            f"once a probe is confirmed (|z| < {CONFIRM_Z:g} on every quantity).", RELEARN, budget,
+                            start=before)
         return time.monotonic() - t0
 
     async def _look(self) -> str:
@@ -117,9 +134,10 @@ class Scientist:
         except Exception:
             return "camera description unavailable"
 
-    async def _session(self, prompt: str, plan: list[str], budget: int):
-        self._start, self._budget, self._ran = self.best, budget, []
+    async def _session(self, prompt: str, plan: list[str], budget: int, start: Body | None = None):
+        self._start, self._budget, self._ran = start or self.best, budget, []
         self._done = self._fallback = False
+        self._confirmed = None
         msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
         try:
             for _ in range(2 * budget + 6):
@@ -144,6 +162,10 @@ class Scientist:
         left = [p for p in plan if p not in self._ran][:self._budget - len(self._ran)]
         await self._note("fallback", f"Wonder unavailable ({why}); scripted probes: {', '.join(left) or 'none'}.")
         for name in left:
+            if self._confirmed:
+                break
+            if self._verify:
+                await self.refit()
             await self.run_probe(name, f"Scripted {name} for {MEASURES[LIBRARY[name].kind]}.")
         moved = [f"{k} {v:+.0f}%" for k, v in (await self.refit())["change_pct"].items() if abs(v) >= 10]
         await self.conclude(f"Scripted refit: {', '.join(moved) or 'no parameter moved 10% or more'}.",
@@ -185,6 +207,7 @@ class Scientist:
             await self._note("alert", f"Rejected {probe}: not enough free floor from here.", probe=probe)
             return {"error": f"{probe} would leave the floor from here; pick one that needs less space"}
         pred = predict(self.members, p, self._pose())
+        confirming = self._verify and not self._stale
         await self._note("hypothesis", hypothesis, probe=probe)
         await self._note("prediction", f"{probe}: {_fmt(pred)}", probe=probe, predicted=pred)
         self.segments.append(await run(self.rig, p))
@@ -192,9 +215,14 @@ class Scientist:
         self._stale = True
         meas = measure(self.segments[-1])
         z = zscore(pred, meas)
-        await self._note("result", f"{probe}: {_fmt(meas)}; z {', '.join(f'{v:+.1f}' for v in z.values())}",
-                         probe=probe, hypothesis=hypothesis, predicted=pred, measured=meas, z=z)
-        return {"predicted": pred, "measured": meas, "z": z, "probes_left": self._budget - len(self._ran)}
+        confirmed = confirming and max(map(abs, z.values())) < CONFIRM_Z
+        if confirmed:
+            self._confirmed = _verdict(probe, pred, meas)
+        await self._note("result", f"{probe}: {_fmt(meas)}; z {', '.join(f'{v:+.1f}' for v in z.values())}"
+                         + ("; confirms the refit" if confirmed else ""),
+                         probe=probe, hypothesis=hypothesis, predicted=pred, measured=meas, z=z, confirmed=confirmed)
+        return {"predicted": pred, "measured": meas, "z": z, "confirmed": confirmed,
+                "probes_left": self._budget - len(self._ran)}
 
     async def refit(self) -> dict:
         if self._stale:
@@ -210,7 +238,13 @@ class Scientist:
     async def conclude(self, text: str, body_name: str) -> dict:
         if not self._ran and not self._fallback:
             return {"error": "run at least one probe first"}
+        if self._verify and not self._confirmed and len(self._ran) < self._budget and not self._fallback:
+            return {"error": "not confirmed yet: refit, then run a probe whose |z| stays under "
+                             f"{CONFIRM_Z:g}, or use up the probe budget"}
         await self.refit()
+        if self._verify:
+            self.verified = self._confirmed is not None
+            text += f" Confirmed: {self._confirmed}." if self.verified else " Partial fit, continuing with caution."
         self.n += 1
         self.name = body_name
         self._done = True
