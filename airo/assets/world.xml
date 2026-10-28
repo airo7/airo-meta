@@ -1,0 +1,38 @@
+<mujoco model="airo-floor">
+  <include file="car.xml"/>
+  <compiler autolimits="true"/>
+  <option timestep=".002" integrator="implicitfast" cone="elliptic" impratio=".016"/>
+  <statistic center="1 .6 .1" extent="1.6"/>
+
+  <visual>
+    <global offwidth="1920" offheight="1080" fovy="40"/>
+    <quality shadowsize="8192" offsamples="8"/>
+    <headlight ambient=".22 .24 .28" diffuse=".3 .3 .32" specular=".15 .15 .15"/>
+    <rgba haze=".07 .13 .22 1"/>
+    <map znear=".005" zfar="40" shadowclip="1.2" haze=".35"/>
+  </visual>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1=".24 .42 .62" rgb2="0 .015 .05" width="512" height="3072"/>
+    <texture name="checker" type="2d" builtin="checker" mark="edge" rgb1=".2 .3 .41" rgb2=".11 .2 .3"
+             markrgb=".78 .82 .86" width="512" height="512"/>
+    <material name="floor" texture="checker" texrepeat="5 5" texuniform="true" reflectance=".18" specular=".3"
+              shininess=".4"/>
+    <material name="paper" rgba=".96 .96 .94 1" specular=".05" shininess=".1"/>
+    <material name="cardboard" rgba=".69 .5 .31 1" specular=".08" shininess=".12"/>
+    <material name="tape" rgba=".58 .4 .2 .85" specular=".7" shininess=".8"/>
+    <material name="glossy" rgba=".7 .85 .95 .45" specular="1" shininess="1" reflectance=".4"/>
+    <material name="iron" rgba=".46 .47 .5 1" specular=".9" shininess=".8"/>
+    <material name="velcro" rgba=".75 .1 .1 1" specular=".05" shininess=".05"/>
+    <material name="string" rgba=".95 .93 .85 1"/>
+  </asset>
+
+  <worldbody>
+    <light name="key" pos="-.4 -1 3" dir=".45 .55 -1" directional="true" castshadow="true" softness=".35"
+           diffuse=".75 .73 .7" specular=".6 .6 .6"/>
+    <light name="fill" pos="2.5 2 2.5" dir="-.6 -.5 -1" directional="true" castshadow="false"
+           diffuse=".22 .26 .32" specular=".05 .05 .05"/>
+    <geom name="floor" type="plane" size="8 8 .05" pos="1 .6 0" material="floor" friction=".3 .001 .00001"/>
+    <camera name="overhead" pos="1 .6 1.8" fovy="46"/>
+  </worldbody>
+</mujoco>
