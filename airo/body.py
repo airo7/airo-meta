@@ -199,6 +199,15 @@ def surprise(members: list[Body], seg: Segment, window: float = 0.5) -> np.ndarr
     return np.array(out)
 
 
+def cloud_radius_cm(segments: list[Segment], best: Body, anchor: Body | None = None) -> float:
+    """Spread of where the posterior puts the car after 1.5 s of a gentle left arc from rest; 200 draws keep the
+    Monte Carlo noise well under the changes between probes."""
+    t = np.linspace(0, 1.5, 16)
+    end = cloud(ensemble(segments, best, 200, anchor=anchor), t, [0], [(100, 140)], (0, 0, 0), wheels0=(0, 0))
+    end = end[:, -1, :2]
+    return 100 * math.sqrt(((end - end.mean(axis=0)) ** 2).sum(axis=1).mean())
+
+
 _P = np.linspace(0, PWM_MAX, 4 * PWM_MAX + 1)
 
 

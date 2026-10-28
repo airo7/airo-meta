@@ -2,28 +2,18 @@
 
 import argparse
 import asyncio
-import math
 import sys
 from dataclasses import astuple
 
 import numpy as np
 
-from airo.body import BODY_PATH, KEY, SIM_BODY_PATH, Body, cloud, ensemble, posterior, save
+from airo.body import BODY_PATH, KEY, SIM_BODY_PATH, Body, cloud_radius_cm, posterior, save
 from airo.control import recentre
 from airo.rig import RigAbort, add_args, open_rig
 from airo.scientist import Scientist
 
 UNITS = {"g_l": ("mm/s/PWM", 1000), "g_r": ("mm/s/PWM", 1000), "dz": ("PWM", 1), "eta": ("", 1),
          "tau": ("ms", 1000), "lag": ("ms", 1000), "kappa": ("rad/m", 1)}
-
-
-def radius_cm(segments, best: Body) -> float:
-    """Spread of where the posterior puts the car after 1.5 s of a gentle left arc from rest; 200 draws keep the
-    Monte Carlo noise well under the changes between probes."""
-    members = ensemble(segments, best, k=200)
-    t = np.linspace(0, 1.5, 16)
-    end = cloud(members, t, [0], [(100, 140)], (0, 0, 0), wheels0=(0, 0))[:, -1, :2]
-    return 100 * math.sqrt(((end - end.mean(axis=0)) ** 2).sum(axis=1).mean())
 
 
 PASS, FAIL, UNSURE = "PASS", "FAIL", "\033[33mUNDETERMINED\033[0m"
@@ -57,12 +47,12 @@ async def main(args):
         seen = len(sci.notebook)
         if sci.members is not members and len(sci.segments):
             members = sci.members
-            radii.append(radius_cm(sci.segments, sci.best))
+            radii.append(cloud_radius_cm(sci.segments, sci.best))
             print(f"{'refit':>14}  {len(sci.segments)} probes, cloud {radii[-1]:.1f} cm")
 
     sci = Scientist(rig, recentre=lambda r: recentre(r, sci.best), k=args.k, on_update=on_update)
     members = sci.members
-    radii.append(radius_cm([], sci.best))
+    radii.append(cloud_radius_cm([], sci.best))
     print(f"{'prior':>14}  cloud {radii[-1]:.1f} cm")
     try:
         await sci.learn(args.budget)

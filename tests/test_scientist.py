@@ -170,8 +170,10 @@ def test_scripted_relearn_stops_once_confirmed(surprised):
     assert "Confirmed:" in sci.notebook[-1]["text"] and "g_l -2" in sci.notebook[-1]["text"]
 
 
-def test_relearn_without_confirmation_says_so(surprised, monkeypatch):
-    monkeypatch.setattr("airo.scientist.CONFIRM_Z", 0.01)
+@pytest.mark.parametrize("name, value", [("CONFIRM_Z", 0.01), ("CONFIRM_TOL", np.full(3, 0.5))])
+def test_relearn_without_confirmation_says_so(surprised, monkeypatch, name, value):
+    """Neither an inaccurate nor a vague prediction confirms."""
+    monkeypatch.setattr(f"airo.scientist.{name}", value)
     sci, window = surprised
     asyncio.run(sci.relearn(window))
     assert len(sci.segments) == 1 + len(RELEARN) and not sci.verified

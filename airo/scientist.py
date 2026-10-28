@@ -18,6 +18,8 @@ from airo.rig import BaseRig, RigAbort
 
 RELEARN = ["pivot_l_100", "step_80", "pivot_r_150", "step_back_60", "pivot_l_60"]
 CONFIRM_Z = 2.0
+# A vague prediction confirms anything, so the tolerance (sd and z floor combined) must also be tight.
+CONFIRM_TOL = np.array([3.0, 3.0, 6.0])
 MEASURES = {"step": "per-side gain, drift kappa, delay", "ramp": "dead zone", "pivot": "pivot efficiency eta",
             "arc": "mixing law, side gains", "pulse": "delay tau, coast"}
 UNITS = ("cm forward", "cm lateral", "deg turn")
@@ -121,7 +123,8 @@ class Scientist:
         await self._session(f"The body just changed while driving, {what}. Muse Spark sees: \"{seen}\". The body "
                             f"is already refitted on that window. You have up to {budget} probes and little floor, "
                             f"so prefer pivots. Refit after each probe; the next probe then confirms the refit. Stop "
-                            f"once a probe is confirmed (|z| < {CONFIRM_Z:g} on every quantity).", RELEARN, budget,
+                            f"once a probe is confirmed (|z| < {CONFIRM_Z:g} on every quantity, with a tight "
+                            f"prediction).", RELEARN, budget,
                             start=before)
         return time.monotonic() - t0
 
@@ -214,7 +217,8 @@ class Scientist:
         self._stale = True
         meas = measure(self.segments[-1])
         z = zscore(pred, meas)
-        confirmed = confirming and max(map(abs, z.values())) < CONFIRM_Z
+        tol = np.hypot([pred[q][1] for q in QTY], FLOOR)
+        confirmed = confirming and max(map(abs, z.values())) < CONFIRM_Z and bool((tol <= CONFIRM_TOL).all())
         if confirmed:
             self._confirmed = _verdict(probe, pred, meas)
         await self._note("result", f"{probe}: {_fmt(meas)}; z {', '.join(f'{v:+.1f}' for v in z.values())}"
