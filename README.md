@@ -51,6 +51,7 @@ On the phone, turn off Center Stage, Portrait and Studio Light; auto-cropping br
 - `airo/car.py`: asyncio BLE link
 - `airo/camera.py`: ArUco floor homography and car pose
 - `airo/meta_api.py`: SAM 3.1 and Muse Spark
+- `airo/mjsim.py`: MuJoCo twin of the rig: contact physics, rendered overhead camera, 3D ghost cloud (`scripts/mjshow.py`)
 
 ## Measured numbers
 

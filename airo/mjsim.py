@@ -312,12 +312,12 @@ class MjRig(BaseRig):
     def _follow(self) -> mujoco.MjvCamera:
         """A trailing 3/4 camera that eases toward the car on the sim clock."""
         x, y, th = self.true_pose
-        target = np.array([x + 0.22 * math.cos(th), y + 0.22 * math.sin(th), 0.04])
-        az = math.degrees(th) + 28
+        target = np.array([x + 0.25 * math.cos(th), y + 0.25 * math.sin(th), 0.03])
+        az = math.degrees(th) + 30
         c = self._chase
         if c is None:
             c = self._chase = mujoco.MjvCamera()
-            c.lookat[:], c.azimuth, c.distance, c.elevation = target, az, 0.9, -24
+            c.lookat[:], c.azimuth, c.distance, c.elevation = target, az, 1.15, -27
             self._chase_t = self.t
         k = 1 - math.exp(-(self.t - self._chase_t) / 0.6)
         self._chase_t = self.t
@@ -337,8 +337,9 @@ _WHEEL = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], float)
 
 def _draw_ghosts(scn, poses: np.ndarray, alpha: float):
     paths = poses if poses.ndim == 3 else poses[:, None]
-    end = paths[:, -1]
-    n = paths.shape[1]
+    end, n = paths[:, -1], paths.shape[1]
+    # ghosts fade as they converge on the car, so a parked car is not tinted by its own cloud
+    fade = np.clip(np.linalg.norm(end[:, :2] - paths[:, 0, :2], axis=1) / 0.08, 0, 1) if n > 1 else np.ones(len(end))
     for p in paths if n > 1 else ():
         for j in range(n - 1):
             if g := _geom(scn, GEOM.mjGEOM_CAPSULE, min(1.0, 2 * alpha) * (0.25 + 0.75 * j / n), 0.9):
@@ -346,13 +347,13 @@ def _draw_ghosts(scn, poses: np.ndarray, alpha: float):
     if n > 1 and len(end) > 2:
         w, v = np.linalg.eigh(np.cov(end[:, :2].T) + np.eye(2) * 1e-6)
         rot = np.array([[v[0, 1], v[0, 0], 0], [v[1, 1], v[1, 0], 0], [0, 0, 1]])
-        _geom(scn, GEOM.mjGEOM_ELLIPSOID, 0.5 * alpha, 0.45, (2 * w[1] ** 0.5 + 0.12, 2 * w[0] ** 0.5 + 0.08, 6e-4),
-              (*end[:, :2].mean(axis=0), 0.0012), rot)
-    for pose in end:
-        _ghost(scn, pose, _PARTS[:3], alpha)
+        _geom(scn, GEOM.mjGEOM_ELLIPSOID, 0.5 * alpha * fade.mean(), 0.45,
+              (2 * w[1] ** 0.5 + 0.12, 2 * w[0] ** 0.5 + 0.08, 6e-4), (*end[:, :2].mean(axis=0), 0.0012), rot)
+    for pose, f in zip(end, fade):
+        _ghost(scn, pose, _PARTS[:2], alpha * f)
     if len(end) > 1:
         mean = (*end[:, :2].mean(axis=0), math.atan2(np.sin(end[:, 2]).mean(), np.cos(end[:, 2]).mean()))
-        _ghost(scn, mean, _PARTS, min(0.55, 2.5 * alpha))
+        _ghost(scn, mean, _PARTS[:2] + _PARTS[3:], min(0.5, 2.5 * alpha) * fade.mean())
 
 
 def _ghost(scn, pose, parts, alpha: float):
