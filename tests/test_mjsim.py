@@ -74,8 +74,8 @@ def test_interface_matches_simrig(tmp_path):
             asyncio.run(drive(rig, [(200, 200)] * 200))
         assert tuple(rig.history[1][-1]) == (0, 0)
         asyncio.run(rig.close())
-    keys = [json.loads(next(p.glob("*.jsonl")).read_text().splitlines()[-1]).keys() for p in (tmp_path / "a", tmp_path / "b")]
-    assert keys[0] == keys[1]
+    last = [json.loads(next((tmp_path / d).glob("*.jsonl")).read_text().splitlines()[-1]) for d in "ab"]
+    assert last[0].keys() == last[1].keys()
 
 
 @pytest.mark.parametrize("pose0", [(1.0, 0.6, 0.0), (0.4, 0.3, 2.0), (1.7, 0.95, -2.5)])
@@ -122,6 +122,10 @@ def test_hidden_fault_tow_and_patch():
     asyncio.run(drive(rig, [(120, 120)] * 30))
     gap = np.linalg.norm(rig.d.body("tow").xpos[:2] - rig.true_pose[:2])
     assert rig.d.body("tow").xpos[0] - x0 > 0.25 and gap < 0.118 + 0.25 + 0.07
+    before = rig.true_pose
+    rig.add_weight(0.4)
+    assert np.allclose(rig.true_pose, before) and rig.m.body_subtreemass[1] == pytest.approx(0.94 + 0.4)
+    asyncio.run(drive(rig, [(120, 120)] * 2))
 
     pivot = [rates(probe(-100, 100, 1.5, **kw), 1.0, 1.7)[1] for kw in ({}, {"patch": (0.5, 0.2, 1.5, 1.0)})]
     assert pivot[1] > 1.3 * pivot[0]

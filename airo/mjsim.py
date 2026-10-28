@@ -30,14 +30,11 @@ GEOM = mujoco.mjtGeom
 GHOST = (0.38, 0.84, 1.0)
 
 
-def _png(img: np.ndarray) -> bytes:
-    return cv2.imencode(".png", img if img.ndim == 3 else cv2.cvtColor(img, cv2.COLOR_GRAY2BGR))[1].tobytes()
-
-
-def _marker(i: int, cell: int = 40) -> bytes:
+def _marker(i: int, cell: int = 40) -> np.ndarray:
     """Marker i with a one-cell white quiet zone: a geom of side 8/6 m carries a marker of side m."""
-    return _png(cv2.copyMakeBorder(cv2.aruco.generateImageMarker(DICT, i, 6 * cell), *[cell] * 4,
-                                   cv2.BORDER_CONSTANT, value=255))
+    img = cv2.copyMakeBorder(cv2.aruco.generateImageMarker(DICT, i, 6 * cell), *[cell] * 4, cv2.BORDER_CONSTANT,
+                             value=255)
+    return np.repeat(img[..., None], 3, axis=2)
 
 
 def _yaw(q) -> float:
@@ -59,9 +56,10 @@ def _rounded(spec, name: str, half) -> str:
 
 def scene(floor, objects) -> mujoco.MjSpec:
     spec = mujoco.MjSpec.from_file(str(ASSETS / "world.xml"))
-    spec.assets = {f"aruco{i}.png": _marker(i) for i in range(5)}
     for i in range(5):
-        spec.add_texture(name=f"aruco{i}", type=mujoco.mjtTexture.mjTEXTURE_2D, file=f"aruco{i}.png")
+        img = _marker(i)
+        spec.add_texture(name=f"aruco{i}", type=mujoco.mjtTexture.mjTEXTURE_2D, width=img.shape[1],
+                         height=img.shape[0], nchannel=3, data=img.ravel())
     wb = spec.worldbody
     side = CORNER_MARKER_M * 8 / 6
     for i, (x, y) in floor_layout(*floor).items():
@@ -340,10 +338,10 @@ class MjRig(BaseRig):
 _PARTS = [  # ghost silhouette: kind, half size, offset in the car frame
     (GEOM.mjGEOM_BOX, (0.115, 0.056, 0.0016), (0, 0, 0.0455)),
     (GEOM.mjGEOM_BOX, (0.115, 0.056, 0.0016), (0, 0, 0.0735)),
-    (GEOM.mjGEOM_BOX, (0.0633, 0.0633, 0.0006), (0, 0, 0.0995)),
     (GEOM.mjGEOM_BOX, (0.006, 0.0225, 0.0105), (0.108, 0, 0.109)),
 ] + [(GEOM.mjGEOM_CYLINDER, (0.0325, 0.013, 0), (sx * 0.065, sy * 0.0725, 0.0325)) for sx in (1, -1) for sy in (1, -1)]
 _WHEEL = np.array([[1, 0, 0], [0, 0, -1], [0, 1, 0]], float)
+_EYE = np.eye(3)
 
 
 def _draw_ghosts(scn, poses: np.ndarray, alpha: float):
@@ -364,7 +362,7 @@ def _draw_ghosts(scn, poses: np.ndarray, alpha: float):
         _ghost(scn, pose, _PARTS[:2], alpha * f)
     if len(end) > 1:
         mean = (*end[:, :2].mean(axis=0), math.atan2(np.sin(end[:, 2]).mean(), np.cos(end[:, 2]).mean()))
-        _ghost(scn, mean, _PARTS[:2] + _PARTS[3:], min(0.5, 2.5 * alpha) * fade.mean())
+        _ghost(scn, mean, _PARTS, min(0.5, 2.5 * alpha) * fade.mean())
 
 
 def _ghost(scn, pose, parts, alpha: float):
@@ -372,10 +370,11 @@ def _ghost(scn, pose, parts, alpha: float):
     c, s = math.cos(th), math.sin(th)
     rot = np.array([[c, -s, 0], [s, c, 0], [0, 0, 1]])
     for kind, size, off in parts:
-        _geom(scn, kind, alpha, 0.45, size, rot @ off + (x, y, 0), rot @ _WHEEL if kind == GEOM.mjGEOM_CYLINDER else rot)
+        mat = rot @ _WHEEL if kind == GEOM.mjGEOM_CYLINDER else rot
+        _geom(scn, kind, alpha, 0.45, size, rot @ off + (x, y, 0), mat)
 
 
-def _geom(scn, kind, alpha: float, emission: float, size=(0, 0, 0), pos=(0, 0, 0), mat=np.eye(3)):
+def _geom(scn, kind, alpha: float, emission: float, size=(0, 0, 0), pos=(0, 0, 0), mat=_EYE):
     if scn.ngeom >= scn.maxgeom:
         return None
     g = scn.geoms[scn.ngeom]
