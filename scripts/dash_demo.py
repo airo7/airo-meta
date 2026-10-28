@@ -14,7 +14,7 @@ from airo.server import Dashboard
 
 W, H, PPM = 2.0, 1.4, 500
 SPEED, CYCLE, K = 0.25, 40.0, 18
-T_HIT, T_STOP, T_BODY, T_GO = 14.0, 17.0, 24.8, 25.0
+T_HIT, T_STOP, T_BODY, T_GO = 14.0, 17.0, 24.8, 26.0
 
 PARAMS = [("Gain left", "mm/s/PWM", 0, 5), ("Gain right", "mm/s/PWM", 0, 5), ("Dead zone", "PWM", 0, 80),
           ("Pivot efficiency", "", 0, 1), ("Delay", "ms", 0, 400), ("Drift", "rad/m", 0, 0.15)]
@@ -23,16 +23,24 @@ BODIES = {
     3: ("Carrying a 400 g pack", [2.47, 2.41, 46, 0.55, 238, 0.047], [2.52, 2.45, 44, 0.57, 230, 0.05]),
 }
 NOTES = [
-    (0.5, "result", "Ramp probe: wheels start turning at 41 PWM. The hand-measured key says 38."),
+    (0.3, "hypothesis", "Wheels need a minimum PWM before they turn at all."),
+    (0.5, "result", "Ramp probe: wheels start turning at 41 PWM.", dict(predicted=35, sd=6, measured=41, unit=" PWM")),
     (1.0, "conclusion", "Body #2 fitted from 9 probes. Cloud radius 3 cm at 1.5 s ahead."),
     (16.0, "alert", "Reality left the cloud: surprise 4.9 for three windows. Delivery paused."),
     (17.6, "hypothesis", "Something heavy was added. Both gains should drop and the delay should grow."),
-    (18.4, "prediction", "Pivot at +100 PWM for 1 s. Body #2 says 96° ± 7°; if I am heavier, under 80°."),
-    (20.6, "result", "Measured 71°, z = −3.6 against Body #2. Refitting with the pivot data."),
-    (21.4, "prediction", "Pivot back at −100 PWM. The refit says 70° ± 4°."),
-    (23.4, "result", "Measured 69°, inside the refit cloud."),
-    (24.8, "conclusion", "Heavier body confirmed: gains −22 %, delay +42 ms. Saved as Body #3."),
+    (18.4, "prediction", "Pivot at +100 PWM for 1 s. Body #2 says 96°\u00a0±\u00a07°; if I am heavier, under 80°."),
+    (20.6, "result", "Measured 71°, z = −3.6 against Body #2.", dict(predicted=96, sd=7, measured=71, unit="°")),
+    (21.0, "conclusion", "Heavier. Refitting gains and delay from the pivot."),
+    (21.3, "hypothesis", "The refit body explains the turn, so it should predict the way back."),
+    (21.6, "prediction", "Pivot back at −100 PWM. The refit says 70°\u00a0±\u00a04°."),
+    (23.4, "result", "Measured 69°, inside the refit cloud.", dict(predicted=70, sd=4, measured=69, unit="°")),
+    (24.8, "conclusion", "Heavier body confirmed: gains −22\u00a0%, delay +42 ms. Saved as Body #3."),
 ]
+PHASES = [(-40, "probe", "Learning Body #2"), (0, "drive", "Delivering"), (15.5, "surprise", "Surprise"),
+          (17, "probe", "Pivot +100"), (20.6, "refit", "Refit"), (21.4, "probe", "Pivot −100"),
+          (23.4, "refit", "Refit"), (24.8, "relearn", "Body #3"), (26, "drive", "Delivering")]
+CLOCK = 300
+VIEW_WH, MARGIN = (1600, 900), 1.0
 
 
 def make_loop(cx=1.0, cy=0.7, a=0.68, b=0.42, n=2000):
@@ -114,10 +122,47 @@ def draw_car(img, x, y, theta):
     stamp(img, 0, rect((x, y), (CAR_MARKER_M, CAR_MARKER_M), deg - 90)[[3, 2, 1, 0]])
 
 
+def world_bg():
+    """Checker floor around the arena, in the same pixel scale as the top-down frame."""
+    m = int(MARGIN * PPM)
+    hh, ww = int(H * PPM) + 2 * m, int(W * PPM) + 2 * m
+    yy, xx = np.mgrid[:hh, :ww] // (PPM // 4)
+    img = np.where(((xx + yy) % 2 == 0)[..., None], (74, 50, 32), (92, 64, 42)).astype(np.uint8)
+    yy, xx = np.mgrid[:VIEW_WH[1], :VIEW_WH[0]] / np.array(VIEW_WH[::-1])[:, None, None]
+    shade = (0.35 + 0.65 * np.clip(yy * 1.6, 0, 1)) * (1 - 0.45 * ((xx - 0.5) ** 2 + (yy - 0.55) ** 2) * 2.2)
+    return img, shade[..., None].astype(np.float32)
+
+
+def chase_view(world, shade, target, az, dist=1.55, height=1.0, f=1250):
+    """Pinhole camera orbiting the target; the floor plane maps to the view by a homography."""
+    c = np.array([target[0] + dist * math.cos(az), target[1] + dist * math.sin(az), height])
+    fwd = np.array([*target, 0.0]) - c
+    fwd /= np.linalg.norm(fwd)
+    right = np.cross(fwd, [0, 0, 1])
+    right /= np.linalg.norm(right)
+    R = np.array([right, np.cross(fwd, right), fwd])
+    K = np.array([[f, 0, VIEW_WH[0] / 2], [0, f, VIEW_WH[1] / 2], [0, 0, 1]])
+    to_world_px = np.array([[PPM, 0, MARGIN * PPM], [0, -PPM, (H + MARGIN) * PPM], [0, 0, 1]])
+    Hv = K @ np.c_[R[:, 0], R[:, 1], -R @ c] @ np.linalg.inv(to_world_px)
+    view = cv2.warpPerspective(world, Hv, VIEW_WH, flags=cv2.INTER_LINEAR, borderValue=(40, 26, 16))
+    return (view * shade).astype(np.uint8)
+
+
+def draw_ghosts(img, poses):
+    layer = img.copy()
+    for x, y, th in poses:
+        pts = np.int32([px(p) for p in rect((x, y), (0.26, 0.17), math.degrees(th))])
+        cv2.fillPoly(layer, [pts], (255, 200, 150), cv2.LINE_AA)
+        cv2.polylines(img, [pts], True, (255, 215, 175), 1, cv2.LINE_AA)
+    cv2.addWeighted(layer, 0.22, img, 0.78, 0, img)
+
+
 class Episode:
     def __init__(self, seed=3):
         self.rng = np.random.default_rng(seed)
         self.bg = background(self.rng)
+        self.world, self.shade = world_bg()
+        self.cam = None
         self.dv, self.dk = self.rng.normal(size=(2, K))
         self.polys = [{"label": lb, "points": (rect(c, np.add(sz, 0.03), deg) + self.rng.normal(0, 0.006, (4, 2))).round(3)}
                       for lb, c, sz, deg, _ in OBJECTS]
@@ -172,21 +217,49 @@ class Episode:
         name, values, keys = BODIES[n]
         status = ("surprised" if T >= 16 else "delivering") if T < T_STOP else "relearning" if T < T_GO else "delivering"
         path = self.path(T, s)
+        cloud = self.cloud(T, s, off, xy, heading)
         frame = self.bg.copy()
         draw_car(frame, *xy, theta)
-        return frame, {
-            "t": T, "status": status, "command": self.command or self.goal,
+        return frame, self.view(frame, cloud, xy, T), {
+            "t": CLOCK + T, "mode": "sim", "status": status, "command": self.command or self.goal,
             "floor": {"w": W, "h": H},
             "pose": {"x": xy[0], "y": xy[1], "theta": theta},
-            "cloud": self.cloud(T, s, off, xy, heading),
+            "cloud": cloud,
             "path": path,
             "polygons": self.polys,
             "body": {"n": n, "name": name, "relearned_s": round(T_BODY - T_STOP, 1) if n == 3 else None,
                      "params": [{"name": nm, "value": v, "key": k, "unit": u, "lo": lo, "hi": hi}
                                 for (nm, u, lo, hi), v, k in zip(PARAMS, values, keys)]},
             "surprise": {"values": list(self.surprise), "threshold": 3.0},
-            "notebook": [{"t": 300 + t, "kind": k, "text": x} for t, k, x in NOTES if t <= T],
+            "notebook": [{"t": CLOCK + t, "kind": k, "text": x, **(d[0] if d else {})} for t, k, x, *d in NOTES if t <= T],
+            "episode": {"phases": [{"t": CLOCK + t, "kind": k, "label": lb} for t, k, lb in PHASES if t <= T]},
+            "relearn": self.relearn(T),
         }
+
+    def relearn(self, T):
+        if 16 <= T < T_STOP:
+            return {"phase": "changed", "elapsed_s": 0.0, "probe": "", "step": 0, "steps": 2}
+        if T_STOP <= T < T_BODY:
+            step = 1 if T < 20.6 else 2
+            return {"phase": "testing", "elapsed_s": T - T_STOP, "probe": ["Pivot +100 PWM", "Pivot −100 PWM"][step - 1],
+                    "step": step, "steps": 2}
+        if T_BODY <= T < T_BODY + 4.5:
+            return {"phase": "done", "elapsed_s": T_BODY - T_STOP, "probe": "", "step": 2, "steps": 2}
+        return None
+
+    def view(self, frame, cloud, xy, T):
+        ends = cloud[:, -1] if T_STOP <= T < T_GO else cloud[:, len(cloud[0]) // 2]
+        prev = cloud[:, -2] if T_STOP <= T < T_GO else cloud[:, len(cloud[0]) // 2 - 1]
+        if T_STOP <= T < T_GO:
+            prev = np.broadcast_to(xy, ends.shape)
+        heads = np.arctan2(*(ends - prev).T[::-1])
+        ghost = frame.copy()
+        draw_ghosts(ghost, [(*xy, th) for th in heads] if T_STOP <= T < T_GO else np.c_[ends, heads])
+        world = self.world.copy()
+        m = int(MARGIN * PPM)
+        world[m:m + ghost.shape[0], m:m + ghost.shape[1]] = ghost
+        self.cam = np.array(xy) if self.cam is None else self.cam + 0.25 * (np.array(xy) - self.cam)
+        return chase_view(world, self.shade, self.cam, -1.95 + 0.2 * math.sin(T / 7))
 
 
 async def run(dash: Dashboard, start: float):
@@ -199,8 +272,9 @@ async def run(dash: Dashboard, start: float):
         last = T
         while not dash.commands.empty():
             ep.command = dash.commands.get_nowait()
-        frame, state = ep.state(T)
+        frame, view, state = ep.state(T)
         dash.set_frame(frame)
+        dash.set_view(view)
         dash.publish(state)
         await asyncio.sleep(0.05)
 
