@@ -66,6 +66,13 @@ async def face(rig: BaseRig, body: Body, theta: float, tol: float = math.radians
     await _settle(rig)
 
 
+async def recentre(rig: BaseRig, body: Body):
+    """Floor centre, then face along the long axis in whichever direction is nearer: the long probes fit there."""
+    await goto(rig, body, (rig.floor[0] / 2, rig.floor[1] / 2))
+    axis = 0.0 if rig.floor[0] >= rig.floor[1] else math.pi / 2
+    await face(rig, body, axis if abs(wrap(rig.pose.theta - axis)) <= math.pi / 2 else axis + math.pi)
+
+
 def _densify(path: np.ndarray, step: float = 0.02) -> np.ndarray:
     s = np.r_[0, np.cumsum(np.hypot(*np.diff(path, axis=0).T))]
     q = np.linspace(0, s[-1], max(2, math.ceil(s[-1] / step) + 1))

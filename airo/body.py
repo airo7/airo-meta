@@ -1,8 +1,10 @@
 """Learned body of the skid-steer car: per-side gain with a soft dead zone, wheel lag, command delay, an
 effective track (eta) and drift (kappa)."""
 
+import json
 import math
-from dataclasses import astuple, dataclass, replace
+from dataclasses import asdict, astuple, dataclass, replace
+from pathlib import Path
 
 import numpy as np
 from scipy.integrate import cumulative_trapezoid
@@ -12,6 +14,8 @@ from scipy.special import expit
 
 from airo.protocol import PWM_MAX
 
+BODY_PATH = Path("data/body.json")
+SIM_BODY_PATH = Path("data/body_sim.json")
 TRACK = 0.145
 DT = 0.01
 WARMUP = 2.5
@@ -158,3 +162,16 @@ def inverse(body: Body, v: float, omega: float, bump: float = 3) -> tuple[int, i
     p = np.where(np.abs(w) > 1e-3, np.maximum(p, body.dz + bump), 0)
     l, r = np.clip(np.sign(w) * p, -PWM_MAX, PWM_MAX).round().astype(int)
     return int(l), int(r)
+
+
+def save(body: Body, members: list[Body], name: str, path: Path = BODY_PATH):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"name": name, "body": asdict(body), "members": [asdict(m) for m in members]}, indent=1))
+
+
+def load(path: Path = BODY_PATH) -> tuple[Body, list[Body], str] | None:
+    if not Path(path).exists():
+        return None
+    d = json.loads(Path(path).read_text())
+    return Body(**d["body"]), [Body(**m) for m in d["members"]] or [Body(**d["body"])], d["name"]

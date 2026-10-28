@@ -88,3 +88,11 @@ def test_anchor_holds_what_pivots_cannot_see():
     got = fit(segs, TRUTH, anchor=TRUTH)
     assert got.dz == pytest.approx(TRUTH.dz, abs=2)
     assert got.g_l == pytest.approx(heavy.g_l, rel=0.05) and got.g_r == pytest.approx(heavy.g_r, rel=0.05)
+
+
+def test_save_load_roundtrip(tmp_path):
+    from airo.body import load, save
+
+    assert load(tmp_path / "none.json") is None
+    save(TRUTH, [TRUTH, KEY], "stock", tmp_path / "b.json")
+    assert load(tmp_path / "b.json") == (TRUTH, [TRUTH, KEY], "stock")

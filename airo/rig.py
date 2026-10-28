@@ -3,6 +3,7 @@
 import asyncio
 import json
 import math
+import os
 import threading
 import time
 from pathlib import Path
@@ -21,6 +22,26 @@ LOST_S = 0.3
 
 class RigAbort(RuntimeError):
     pass
+
+
+def add_args(p):
+    p.add_argument("--sim", action="store_true", help="simulated car and camera")
+    p.add_argument("--floor", nargs=2, type=float, default=(2.0, 1.4), metavar=("W", "H"),
+                   help="corner marker centre distances in metres")
+    p.add_argument("--camera", type=int, default=int(os.getenv("AIRO_CAMERA_INDEX", "0")))
+    p.add_argument("--marker-h", type=float, default=0.0, help="car marker height above floor (m)")
+    p.add_argument("--cam-h", type=float, default=1.8, help="camera height above floor (m)")
+    p.add_argument("--address", help="BLE address; default scans for the HM-10 by name")
+
+
+async def open_rig(args, **sim):
+    """The hardware rig, or with --sim a SimRig on the KEY body (keyword args go to SimRig)."""
+    if args.sim:
+        from airo.body import KEY
+        from airo.sim import SimRig
+
+        return SimRig(KEY, floor=tuple(args.floor), realtime=True, **sim)
+    return await Rig.open(tuple(args.floor), args.camera, args.marker_h, args.cam_h, args.address)
 
 
 class BaseRig:

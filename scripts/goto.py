@@ -2,18 +2,15 @@
 
 import argparse
 import asyncio
-import json
 import math
-import os
 
 import cv2
 import numpy as np
 
-from airo.body import KEY, Body
+from airo.body import BODY_PATH, KEY, SIM_BODY_PATH, load
 from airo.camera import to_floor
 from airo.control import goto
-from airo.rig import Rig, RigAbort
-from airo.sim import SimRig
+from airo.rig import RigAbort, add_args, open_rig
 
 WIN = "airo goto"
 
@@ -31,9 +28,10 @@ def draw(frame, rig, goal, scale):
 
 
 async def main(args):
-    body = Body(**json.load(open(args.body))) if args.body else KEY
-    rig = SimRig(KEY, floor=args.floor, realtime=True) if args.sim else \
-        await Rig.open(args.floor, int(args.camera), args.marker_h, args.cam_h)
+    saved = load(args.body or (SIM_BODY_PATH if args.sim else BODY_PATH))
+    body = saved[0] if saved else KEY
+    print(f"body: {saved[2] if saved else 'answer key'}")
+    rig = await open_rig(args)
     scale = min(1.0, 1280 / rig.frame().shape[1])
     clicks, errors, goal, task = [], [], None, None
     cv2.namedWindow(WIN)
@@ -70,11 +68,7 @@ async def main(args):
 
 
 if __name__ == "__main__":
-    p = argparse.ArgumentParser()
-    p.add_argument("--sim", action="store_true")
-    p.add_argument("--floor", nargs=2, type=float, default=(2.0, 1.2), metavar=("W", "H"))
-    p.add_argument("--body", help="body json; default is the answer key")
-    p.add_argument("--camera", default=os.getenv("AIRO_CAMERA_INDEX", "0"))
-    p.add_argument("--marker-h", type=float, default=0.0)
-    p.add_argument("--cam-h", type=float, default=1.8)
+    p = argparse.ArgumentParser(description=__doc__)
+    add_args(p)
+    p.add_argument("--body", help="body json; default is the learned body if saved, else the answer key")
     asyncio.run(main(p.parse_args()))

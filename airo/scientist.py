@@ -164,8 +164,7 @@ class Scientist:
         for name in left:
             if self._confirmed:
                 break
-            if self._verify:
-                await self.refit()
+            await self.refit()
             await self.run_probe(name, f"Scripted {name} for {MEASURES[LIBRARY[name].kind]}.")
         moved = [f"{k} {v:+.0f}%" for k, v in (await self.refit())["change_pct"].items() if abs(v) >= 10]
         await self.conclude(f"Scripted refit: {', '.join(moved) or 'no parameter moved 10% or more'}.",
@@ -225,7 +224,7 @@ class Scientist:
                 "probes_left": self._budget - len(self._ran)}
 
     async def refit(self) -> dict:
-        if self._stale:
+        if self._stale and self.segments:
             self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor)
             self.members = await asyncio.to_thread(ensemble, self.segments, self.best, self.k, anchor=self._anchor)
             self._stale = False

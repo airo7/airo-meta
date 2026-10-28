@@ -6,39 +6,26 @@ or "weight" / "tow" to change the simulated body mid-run.
 
 import argparse
 import asyncio
-import math
-import os
 import sys
 from dataclasses import replace
 
 from airo import meta_api
-from airo.body import KEY, wrap
-from airo.control import face, goto
+from airo.body import BODY_PATH, SIM_BODY_PATH, load
+from airo.control import recentre
 from airo.mission import Mission
-from airo.rig import Rig
+from airo.rig import add_args, open_rig
 from airo.scientist import Scientist
 from airo.server import Dashboard
 from airo.sim import SimRig, world
 
 
-async def open_rig(args):
-    if args.sim:
-        rig = SimRig(KEY, floor=(2.0, 1.4), objects=world(), pose0=(0.4, 0.7, 0.0), realtime=True)
-        meta_api.segment = rig.sam
-        return rig
-    return await Rig.open(args.floor, int(args.camera), args.marker_h, args.cam_h)
-
-
-def scientist(rig) -> Scientist:
-    """Recentring ends facing along the floor's long axis, where the long steps fit."""
-    centre = (rig.floor[0] / 2, rig.floor[1] / 2)
-    axis = 0.0 if rig.floor[0] >= rig.floor[1] else math.pi / 2
-
-    async def recentre(r):
-        await goto(r, sci.best, centre)
-        await face(r, sci.best, axis if abs(wrap(r.pose.theta - axis)) <= math.pi / 2 else axis + math.pi)
-
-    sci = Scientist(rig, recentre=recentre)
+def scientist(rig, path) -> Scientist:
+    """Starts from the saved body when there is one, so learning carries over between runs."""
+    sci = Scientist(rig, recentre=lambda r: recentre(r, sci.best))
+    if saved := load(path):
+        sci.best, sci.members, sci.name = saved
+        sci.n = 1
+        print(f"loaded {path}: {sci.name}")
     return sci
 
 
@@ -72,9 +59,13 @@ async def listen(inbox: asyncio.Queue):
 
 
 async def main(args):
-    rig = await open_rig(args)
+    rig = await open_rig(args, objects=world(), pose0=(0.4, 0.7, 0.0), log_dir="data/runs")
+    if args.sim:
+        meta_api.segment = rig.sam
+    path = SIM_BODY_PATH if args.sim else BODY_PATH
     dash = Dashboard()
-    mission = Mission(rig, scientist(rig), inbox=dash.commands, mode="sim" if args.sim else "real")
+    mission = Mission(rig, scientist(rig, path), inbox=dash.commands, mode="sim" if args.sim else "real",
+                      body_path=path)
     print(f"dashboard on http://{args.host}:{args.port}")
     jobs = [dash.serve(args.host, args.port), mission.run(dash), console(rig, dash.commands)]
     if args.voice:
@@ -87,12 +78,8 @@ async def main(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    p.add_argument("--sim", action="store_true")
+    add_args(p)
     p.add_argument("--voice", action="store_true")
-    p.add_argument("--floor", nargs=2, type=float, default=(2.0, 1.4), metavar=("W", "H"))
-    p.add_argument("--camera", default=os.getenv("AIRO_CAMERA_INDEX", "0"))
-    p.add_argument("--marker-h", type=float, default=0.0)
-    p.add_argument("--cam-h", type=float, default=1.8)
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
     try:

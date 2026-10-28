@@ -10,7 +10,7 @@ from contextlib import suppress
 import numpy as np
 
 from airo import planner
-from airo.body import KEY, Body, cloud, surprise
+from airo.body import KEY, Body, cloud, save, surprise
 from airo.control import V_MAX, follow
 from airo.rig import DT, BaseRig, RigAbort
 from airo.server import topdown
@@ -63,10 +63,11 @@ class Mission:
     """sci follows the scientist contract: best, members, n, name, notebook, learn(), relearn(seg) -> seconds."""
 
     def __init__(self, rig: BaseRig, sci, inbox: asyncio.Queue | None = None, scan=None, threshold=THRESHOLD,
-                 watch_push: bool = False, mode: str = "real"):
+                 watch_push: bool = False, mode: str = "real", body_path=None):
         self.rig, self.sci = rig, sci
         self.watch_push = watch_push
         self.mode = mode
+        self.body_path = body_path
         self.phases: list[dict] = []
         self._relearn_t: float | None = None
         self._relearn_end: float | None = None
@@ -214,6 +215,8 @@ class Mission:
     async def learn(self):
         self.status = "learning"
         await self.sci.learn()
+        if self.body_path:
+            save(self.sci.best, self.sci.members, self.sci.name, self.body_path)
 
     async def handle(self, text: str):
         intent = parse_intent(text)
