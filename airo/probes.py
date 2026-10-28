@@ -35,9 +35,9 @@ LIBRARY = {p.name: p for p in [
     Probe("pulse_100", "pulse", 100, 100, 0.3),
 ]}
 
-# An arc comes by the fifth probe: only arcs separate drift kappa from the gain imbalance.
-SCHEDULE = ["ramp_120", "step_110", "pivot_l_100", "step_60", "arc_r", "step_150", "step_back_110", "pivot_r_150",
-            "pivot_l_60", "pulse_100"]
+# Arcs both ways, the first by the fifth probe: only arcs separate drift kappa from the gain imbalance.
+SCHEDULE = ["ramp_120", "step_110", "pivot_l_100", "step_60", "arc_r", "step_150", "arc_l", "pivot_r_150",
+            "step_back_110", "pulse_100"]
 
 
 def commands(probe: Probe, dt: float = DT) -> np.ndarray:

@@ -7,7 +7,7 @@ from dataclasses import astuple
 
 import numpy as np
 
-from airo.body import BODY_PATH, KEY, SIM_BODY_PATH, Body, cloud, ensemble, save
+from airo.body import BODY_PATH, KEY, SIM_BODY_PATH, Body, cloud, ensemble, posterior, save
 from airo.control import recentre
 from airo.rig import add_args, open_rig
 from airo.scientist import Scientist
@@ -62,9 +62,10 @@ async def main(args):
         await rig.close()
 
     b = sci.best
-    print(f"\n{'':>6} {'learned':>9} {'key':>9} {'Δ%':>6}")
-    for (name, (unit, k)), v, key in zip(UNITS.items(), astuple(b), astuple(KEY)):
-        print(f"{name:>6} {v * k:9.3g} {key * k:9.3g} {100 * (v / key - 1):+6.0f}  {unit}")
+    sd = np.sqrt(np.diag(posterior(sci.segments, b)))
+    print(f"\n{'':>6} {'learned':>9} {'± 2σ':>8} {'key':>9} {'Δ%':>6}")
+    for (name, (unit, k)), v, s, key in zip(UNITS.items(), astuple(b), sd, astuple(KEY)):
+        print(f"{name:>6} {v * k:9.3g} {2 * s * k:8.2g} {key * k:9.3g} {100 * (v / key - 1):+6.0f}  {unit}")
     print()
     results = gates(b, radii)
     for what, ok in results:
