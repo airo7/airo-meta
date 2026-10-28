@@ -28,12 +28,29 @@ an iPhone as an overhead camera (~1.8 m) via Continuity Camera.
 
 ```sh
 uv sync
-cp .env.example .env   # add MODEL_API_KEY
+cp .env.example .env              # add MODEL_API_KEY
+uv run scripts/markers.py         # A4 pages in data/markers, print at 100%
 ```
+
+Floor frame: tape corner markers 1–4 counter-clockwise (1 → 2 is +x, 1 → 4 is +y), all with their top edge
+toward +y, and measure the centre-to-centre distances W and H. Tape marker 0 flat on the car, top edge forward.
+On the phone, turn off Center Stage, Portrait and Studio Light; auto-cropping breaks the floor homography.
 
 ## Day-1 checks
 
+| Check | Command | Pass |
+|---|---|---|
+| Pose | `uv run scripts/pose_check.py --floor W H --marker-h 0.1 --show` | ≥15 Hz, residual and still-car jitter ≤10 mm |
+| BLE | `uv run scripts/drive_check.py` | drives straight then pivots, ack ≈66 ms, SENS ≈25 Hz |
+| Meta API | `uv run --env-file .env scripts/bench_api.py --concept box` | latency printed, overlay in `data/` looks right |
+| Offline | `uv run pytest` | geometry, protocol and SAM parsing tests pass |
+
 ## Architecture
+
+- `airo/protocol.py`: CMD/SENS bytes
+- `airo/car.py`: asyncio BLE link
+- `airo/camera.py`: ArUco floor homography and car pose
+- `airo/meta_api.py`: SAM 3.1 and Muse Spark
 
 ## Measured numbers
 
