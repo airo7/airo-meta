@@ -11,6 +11,8 @@ dependencies = [
     "meta-sam-parser>=0.1",
     "pillow>=11",
     "scipy>=1.18.1",
+    "websockets>=17.3",
+    "sounddevice>=0.5.6",
 ]
 
 [dependency-groups]
