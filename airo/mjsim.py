@@ -15,7 +15,8 @@ from airo import meta_api
 from airo.body import wrap
 from airo.camera import CORNER_MARKER_M, DICT, Pose, PoseTracker, floor_layout
 from airo.rig import DT, BaseRig
-from airo.sim import PARCEL, world
+from airo.planner import PARCEL, STATIONS
+from airo.sim import world
 
 ASSETS = Path(__file__).parent / "assets"
 DELAY = 0.17
@@ -70,7 +71,7 @@ def scene(floor, objects) -> mujoco.MjSpec:
                     material=f"aruco{i}", contype=0, conaffinity=0)
     for i, o in enumerate(objects):
         sx, sy = np.array(o.size) / 2
-        if "paper" in o.concept:
+        if o.concept in STATIONS.values():
             spec.add_material(name=f"sheet{i}", rgba=_rgba(o.colour), specular=0.15, shininess=0.2)
             wb.add_geom(name=f"thing{i}", type=GEOM.mjGEOM_BOX, size=[sx, sy, 0.0002], pos=[*o.xy, 0.0002],
                         material=f"sheet{i}")
@@ -78,7 +79,10 @@ def scene(floor, objects) -> mujoco.MjSpec:
         h = float(np.clip(0.6 * max(o.size), 0.06, 0.15)) / 2
         b = wb.add_body(name=f"thing{i}", pos=[*o.xy, h])
         b.add_freejoint()
-        b.add_geom(type=GEOM.mjGEOM_MESH, meshname=_rounded(spec, f"thing{i}", (sx, sy, h)), material="cardboard",
+        if o.concept == PARCEL:
+            spec.add_material(name=f"box{i}", rgba=_rgba(o.colour), specular=0.1, shininess=0.15)
+        b.add_geom(type=GEOM.mjGEOM_MESH, meshname=_rounded(spec, f"thing{i}", (sx, sy, h)),
+                   material=f"box{i}" if o.concept == PARCEL else "cardboard",
                    mass=0.12 if o.concept == PARCEL else 0.35, friction=[0.45, 0.005, 0.0001])
         b.add_geom(type=GEOM.mjGEOM_BOX, size=[sx + 0.0004, 0.024, h + 0.0004], material="tape", contype=0,
                    conaffinity=0, mass=0)
@@ -239,7 +243,7 @@ class MjRig(BaseRig):
             self.m.dof_damping[self._dofs] = LOAD_DAMPING * self.d.sensordata[:4]
             mujoco.mj_step(self.m, self.d)
         for i, o in enumerate(self.objects):
-            if "paper" not in o.concept:
+            if o.concept not in STATIONS.values():
                 o.xy = tuple(self.d.body(f"thing{i}").xpos[:2])
 
     async def step(self, pwm_l: int, pwm_r: int) -> Pose | None:

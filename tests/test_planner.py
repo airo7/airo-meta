@@ -84,10 +84,10 @@ def test_scan_with_fake_sam(monkeypatch):
         return Segment((0, 0, 0, 0), m, score)
 
     fake = {
-        "cardboard box": [seg(0.8, 0.2, 1.0, 0.6), seg(1.4, 0.8, 1.6, 1.0)],
-        "small parcel": [seg(0.3, 0.3, 0.4, 0.4, 0.4), seg(0.5, 1.0, 0.6, 1.1, 0.8)],
-        "red paper": [seg(1.6, 0.1, 1.9, 0.5)],
-        "blue paper": [],
+        "box": [seg(0.8, 0.2, 1.0, 0.6), seg(1.4, 0.8, 1.6, 1.0), seg(0.5, 1.0, 0.6, 1.1)],
+        "yellow box": [seg(0.3, 0.3, 0.4, 0.4, 0.4), seg(0.5, 1.0, 0.6, 1.1, 0.8)],
+        "red rectangle": [seg(1.6, 0.1, 1.9, 0.5)],
+        "blue rectangle": [],
     }
 
     async def fake_segment(image, concept):

@@ -29,7 +29,8 @@ without it a scripted scientist runs a fixed probe schedule. Either way every nu
 a language model.
 
 Other entry points: `scripts/learn.py` (the learning gate: fit vs the hand-measured key, ±2σ, cloud radius per probe),
-`scripts/goto.py` (click a point, the car drives there), `scripts/eval.py` (the benchmark below).
+`scripts/goto.py` (click a point, the car drives there), `scripts/eval.py` (the benchmark below; `--wonder` runs it
+with the live scientist).
 
 ## Meta models
 
@@ -73,6 +74,8 @@ uv run scripts/markers.py         # A4 pages in data/markers, print at 100%
 
 Floor frame: tape corner markers 1–4 counter-clockwise (1 → 2 is +x, 1 → 4 is +y), all with their top edge
 toward +y, and measure the centre-to-centre distances W and H. Tape marker 0 flat on the car, top edge forward.
+Stations are a red and a blue A4 sheet, the parcel is a small box wrapped in yellow, obstacles are plain boxes; the
+planner asks SAM for "red rectangle", "blue rectangle", "yellow box" and "box".
 On the phone, turn off Center Stage, Portrait and Studio Light; auto-cropping breaks the floor homography.
 
 ## Day-1 checks
@@ -130,7 +133,9 @@ no fit can explain stops with a hardware-fault alert.
 - The uncertainty inflation is calibrated in simulation; on hardware only its autocorrelation factor adapts.
 - Probes check free floor, not obstacles, so learning needs a clear centre band; pushes are kept straight because a
   curved push slides the parcel off the bumper.
-- Wonder, Voice and Image are exercised against fake responses in tests; live runs are pending.
+- The benchmark uses the scripted scientist for repeatability. Live, on the twin: Wonder runs a 6-probe learn and a
+  weight relearn (confirmed in 2 probes) and names the body itself; SAM's scan puts the parcel within 1 cm; Voice
+  turns a spoken "deliver the parcel to blue" into the intent.
 
 ## Hackathon disclosure
 

@@ -11,12 +11,12 @@ import numpy as np
 from airo import meta_api
 from airo.body import Body, rollout, wrap
 from airo.camera import Pose, to_floor
+from airo.planner import OBSTACLE, PARCEL, STATIONS
 from airo.rig import DT, BaseRig
 
 PX = 300
 MARGIN = 40
 CAR = np.array([[0.13, 0.08], [0.13, -0.08], [-0.13, -0.08], [-0.13, 0.08]])
-PARCEL = "small parcel"
 
 
 @dataclass
@@ -35,11 +35,11 @@ def world() -> list[Thing]:
 
     Everything sits outside the band y 0.45-1.05 m that learning from the default start pose sweeps.
     """
-    return [Thing("red paper", (1.6, 1.2), (0.297, 0.21), (60, 60, 210)),
-            Thing("blue paper", (1.7, 0.3), (0.297, 0.21), (190, 110, 40)),
-            Thing("cardboard box", (1.3, 1.2), (0.14, 0.14), (80, 125, 170)),
-            Thing("cardboard box", (0.9, 1.2), (0.16, 0.16), (80, 125, 170)),
-            Thing(PARCEL, (0.5, 0.32), (0.1, 0.1), (110, 160, 205))]
+    return [Thing(STATIONS["red"], (1.6, 1.2), (0.297, 0.21), (60, 60, 210)),
+            Thing(STATIONS["blue"], (1.7, 0.3), (0.297, 0.21), (190, 110, 40)),
+            Thing(OBSTACLE, (1.3, 1.2), (0.14, 0.14), (80, 125, 170)),
+            Thing(OBSTACLE, (0.9, 1.2), (0.16, 0.16), (80, 125, 170)),
+            Thing(PARCEL, (0.5, 0.32), (0.1, 0.1), (40, 195, 235))]
 
 
 class SimRig(BaseRig):

@@ -58,7 +58,7 @@ def cal():
 def test_model_loads():
     assert MjRig(objects=(), log_dir=None).m.body_subtreemass[1] == pytest.approx(0.94)
     rig = MjRig(bumper=True, log_dir=None)
-    assert rig.m.nu == 4 and {o.concept for o in rig.objects} >= {"red paper", "blue paper", "cardboard box"}
+    assert rig.m.nu == 4 and {o.concept for o in rig.objects} >= {"red rectangle", "blue rectangle", "box"}
     assert rig.frame().shape == (1080, 1920, 3)
     assert rig.view(320, 180).shape == (180, 320, 3)
 
@@ -134,7 +134,7 @@ def test_hidden_fault_tow_and_patch():
 def test_sam_stand_in_and_ghosts():
     rig = MjRig(objects=world(), log_dir=None)
     frame = rig.frame()
-    boxes = asyncio.run(rig.sam(frame, "cardboard box"))
+    boxes = asyncio.run(rig.sam(frame, "box"))
     assert len(boxes) == 2 and all(s.mask.shape == frame.shape[:2] and s.mask.sum() > 1000 for s in boxes)
     plain = rig.view(320, 180)
     rig.render_ghosts(np.array([[[1.0, 0.6, 0.0], [1.3, 0.6 + dy, 0.0]] for dy in (-0.05, 0, 0.05)]), 0.2)

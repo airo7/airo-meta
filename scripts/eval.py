@@ -1,7 +1,7 @@
 """Benchmark: seeded, headless episodes of learn, then deliver with a body change mid-transit, relearn and finish.
 
-The scientist runs its scripted policy (no API). Each seed learns once; every condition then delivers on a fresh rig
-from the learned body. Prints a markdown table and writes data/eval.json.
+The scientist runs its scripted policy unless --wonder. Each seed learns once; every condition then delivers on a
+fresh rig from the learned body. Prints a markdown table and writes data/eval.json.
 """
 
 import argparse
@@ -19,6 +19,7 @@ from airo import meta_api
 from airo.body import KEY, Body, cloud_radius_cm, ensemble
 from airo.control import recentre
 from airo.mission import Mission
+from airo.planner import PARCEL, STATIONS
 from airo.probes import LIBRARY, halt, measure, predict, run, safe, zscore
 from airo.rig import RigAbort
 from airo.scientist import Scientist
@@ -127,8 +128,8 @@ async def episode(kind: str, seed: int, name: str, learned) -> dict:
     after = [t for t in surprises if t_change is not None and t >= t_change]
     relearn_s = [b - a for (a, s), (b, _) in zip(log, log[1:]) if s == "relearning"]
     alerts = [i for i, e in enumerate(sci.notebook) if e["kind"] == "alert" and e["text"].startswith("Body changed")]
-    parcel = next(o.xy for o in rig.objects if o.concept == "small parcel")
-    target = next(o.xy for o in rig.objects if o.concept == f"{STATION} paper")
+    parcel = next(o.xy for o in rig.objects if o.concept == PARCEL)
+    target = next(o.xy for o in rig.objects if o.concept == STATIONS[STATION])
     await rig.close()
     return {"seed": seed, "change": name, "changed_at": t_change, "false_triggers": len(before),
             "detected": bool(after), "latency_s": after[0] - t_change if after else None,
@@ -174,7 +175,8 @@ async def main(args):
     async def offline(*_, **__):
         raise TimeoutError("eval runs the scripted scientist")
 
-    meta_api.wonder = meta_api.describe = offline
+    if not args.wonder:
+        meta_api.wonder = meta_api.describe = offline
     learned, episodes = [], []
     for seed in range(args.n):
         row, body = await learn(args.rig, seed)
@@ -196,5 +198,6 @@ if __name__ == "__main__":
     p.add_argument("--n", type=int, default=10)
     p.add_argument("--rig", choices=("sim", "mujoco"), default="sim")
     p.add_argument("--changes", nargs="+", choices=list(SIM_CHANGES), default=list(SIM_CHANGES))
+    p.add_argument("--wonder", action="store_true", help="live Muse Wonder and Spark; needs MODEL_API_KEY")
     p.add_argument("--out", default="data/eval.json")
     asyncio.run(main(p.parse_args()))
