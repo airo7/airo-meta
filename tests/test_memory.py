@@ -138,7 +138,8 @@ def test_wrong_candidate_falls_back_to_relearn(library, monkeypatch, tmp_path):
     asyncio.run(sci.relearn(window))
 
     assert not since_alert(sci, "recall") and len(since_alert(sci, "result")) > 1
-    assert sci.n == 3 and vague.recalls == 0 and sci.memory.current.n == 3
+    # the relearn lands on the vague entry's body, so it refines that entry rather than minting a third
+    assert (sci.n, len(sci.memory.entries), vague.recalls, vague.verified) == (2, 2, 0, True)
 
 
 def test_wonder_gets_the_candidates_and_a_recall_tool(library, monkeypatch, tmp_path):
@@ -268,3 +269,14 @@ def test_two_bodies_that_fit_alike_get_a_second_pivot(carried):
     out = asyncio.run(carried.check_body("loaded a light tote"))
     ran = [e["probe"] for e in carried.notebook if e["kind"] == "result" and "probe" in e]
     assert ran == ["pivot_l_100", "pivot_r_150"] and out["result"] == "same" and twin.recalls == 0
+
+
+@pytest.mark.parametrize("current", [1, 2])
+def test_a_relearn_that_lands_on_a_known_body_refines_it(library, monkeypatch, tmp_path, current):
+    """Nothing changed (current 1), or the bare car is back but its recall probe was too loose to confirm (current 2):
+    the relearn ends on bare chassis either way, and refines #1 instead of minting an "unchanged" #3."""
+    monkeypatch.setattr("airo.scientist.CONFIRM_TOL", np.array([3.0, 3.0, 6.0]) if current == 1 else np.zeros(3))
+    sci, _ = scientist(library, monkeypatch, tmp_path, current, TRUTH)
+    asyncio.run(sci.relearn(asyncio.run(changed(sci.rig, TRUTH, library[current - 1].body))))
+    assert (sci.n, len(sci.memory.entries), sci.name) == (1, 2, "bare chassis")
+    assert "same body as #1" in sci.notebook[-1]["text"] and sci.memory.get(1).verified

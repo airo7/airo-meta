@@ -529,8 +529,21 @@ class Scientist:
             done = "; ".join(self._confirmed.values())
             text += (f" Confirmed: {done}." if self.verified else
                      f" Partial fit, continuing with caution{f' (confirmed only {done})' if done else ''}.")
+        # A relearn that lands on a body already in memory (the current one first) refines that entry: minting an
+        # "unchanged" twin would split one body's memory in two.
+        same = next((e for e in sorted(self.memory.entries, key=lambda e: e.n != self.n)
+                     if describe(e.body, self.best) == "unchanged"), None) if self._verify else None
         if self._merge and (e := self.memory.get(self._merge)):
             self.memory.update(e, body_name, self.best, self.members, self.verified)
+        elif same and self.verified:
+            e, body_name = same, same.name
+            self.memory.update(e, body_name, self.best, self.members, True)
+            text += f" The same body as #{e.n} ({e.name}), now refined."
+        elif same:
+            e, body_name = same, same.name
+            self.memory.recall(e)
+            self.adopt(e)
+            text += f" The same body as #{e.n} ({e.name}); keeping its confirmed fit."
         else:
             e = self.memory.add(body_name, self._cause if self._verify else "learned from scratch", self.best,
                                 self.members, self.verified, n=max(self.memory.next_n(), self.n + 1))

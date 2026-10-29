@@ -1,4 +1,5 @@
-"""D3 gate: the car learns its body from probes, saves data/body.json and prints the fit next to the answer key."""
+"""D3 gate: the car learns its body from probes, saves data/body.json and prints the fit next to the answer key.
+--factory learns the factory twin's car, which carries a tote tray, for the factory's own body library."""
 
 import argparse
 import asyncio
@@ -9,7 +10,7 @@ import numpy as np
 
 from airo.body import KEY, Body, cloud_radius_cm, posterior, save
 from airo.control import recentre
-from airo.rig import RigAbort, add_args, body_path, open_rig
+from airo.rig import FACTORY_BODY_PATH, RigAbort, add_args, body_path, open_rig
 from airo.scientist import Scientist
 
 UNITS = {"g_l": ("mm/s/PWM", 1000), "g_r": ("mm/s/PWM", 1000), "dz": ("PWM", 1), "eta": ("", 1),
@@ -33,7 +34,13 @@ def gates(b: Body, kappa_sd: float, radii: list[float]) -> list[tuple[str, str]]
 
 
 async def main(args):
-    rig = await open_rig(args, log_dir="data/runs")
+    if args.factory:
+        from airo.mjsim import fleet
+        from airo.site import FACTORY
+
+        rig = fleet(FACTORY, 1, log_dir="data/runs")[0]
+    else:
+        rig = await open_rig(args, log_dir="data/runs")
     radii: list[float] = []
     seen, members = 0, None
 
@@ -67,7 +74,7 @@ async def main(args):
     print()
     for status, what in gates(b, sd[6], radii):
         print(f"{status}  {what}")
-    out = args.out or body_path(args)
+    out = args.out or (FACTORY_BODY_PATH if args.factory else body_path(args))
     save(b, sci.members, sci.name, out)
     print(f"\nsaved {out}")
 
@@ -75,6 +82,7 @@ async def main(args):
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     add_args(p)
+    p.add_argument("--factory", action="store_true", help="the factory twin's car, saved to its own body file")
     p.add_argument("--budget", type=int, default=10)
     p.add_argument("-k", type=int, default=12, help="ensemble size")
     p.add_argument("--out", help="default: the body path for the chosen rig")

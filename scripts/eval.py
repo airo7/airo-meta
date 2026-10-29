@@ -70,8 +70,14 @@ CARRY_SPEED = 4.0
 
 
 def make_rig(kind: str, seed: int, pose0):
+    """kind "factory" is one car of the carry fleet, with its tote tray, at the first robot's start."""
     kw = dict(floor=FLOOR, objects=world(), pose0=pose0, log_dir=None, seed=seed)
-    if kind == "sim":
+    if kind == "factory":
+        from airo.mjsim import fleet
+        from airo.site import FACTORY
+
+        rig = fleet(FACTORY, 1, seed=seed, log_dir=None)[0]
+    elif kind == "sim":
         rig = SimRig(KEY, **kw)
     else:
         from airo.mjsim import MjRig
@@ -280,9 +286,9 @@ async def carry_episode(seed: int, learned, busy: str = "normal") -> tuple[list[
         """Status changes with poses, for the report of a car that leaves the floor."""
         while True:
             for r in f.robots:
-                p, t = r.rig.pose, trail[r.id]
-                if p and (not t or t[-1][1] != r.mission.status):
-                    t.append((round(r.rig.world.t, 1), r.mission.status, round(p.x, 2), round(p.y, 2)))
+                p, t, status = r.rig.pose, trail[r.id], r.mission.status.split(":")[0]
+                if p and (not t or t[-1][1] != status):
+                    t.append((round(r.rig.world.t, 1), status, round(p.x, 2), round(p.y, 2)))
                     del t[:-6]
             await asyncio.sleep(0.05)
 
@@ -308,9 +314,11 @@ async def carry_episode(seed: int, learned, busy: str = "normal") -> tuple[list[
                    for e in r.sci.notebook)
     stops = {r.id: (n["text"], trail[r.id]) for r in f.robots for n in r.mission.notes
              if n["text"].startswith("Safety stop")}
-    print(f"seed {seed} delivered {done}, {relearns} surprise relearns{f', stopped: {stops}' if stops else ''}",
-          flush=True)
-    return rows, {"seed": seed, "delivered": done, "stops": stops, "relearns": relearns}
+    short = {r.id: [n["text"] for n in r.mission.notes if n["kind"] == "alert"][-2:] for r in f.robots
+             if done[r.id] < len(CARRY[0]) and r.id not in stops}
+    print(f"seed {seed} delivered {done}, {relearns} surprise relearns{f', stopped: {stops}' if stops else ''}"
+          f"{f', short: {short}' if short else ''}", flush=True)
+    return rows, {"seed": seed, "delivered": done, "stops": stops, "short": short, "relearns": relearns}
 
 
 def _shoved(result: dict) -> bool:
@@ -396,7 +404,7 @@ async def main(args):
         if "recall" in args.changes:
             recalls += await recall_episode(args.rig, seed, body)
         if "carry" in args.changes and args.rig == "mujoco":
-            rows, summary = await carry_episode(seed, body, args.busy)
+            rows, summary = await carry_episode(seed, (await learn("factory", seed))[1], args.busy)
             carries, carry_runs = carries + rows, carry_runs + [summary]
         loaded = (await learn(args.rig, seed, loaded=True))[1] if set(LOADED) & set(args.changes) else None
         for name in (c for c in args.changes if c not in ("recall", "carry")):

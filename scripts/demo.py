@@ -26,7 +26,7 @@ from airo.fleet import Fleet, crew
 from airo.memory import Memory
 from airo.mjsim import fleet as fleet_rigs
 from airo.orbit import PARTS, VIEWS, Orbit
-from airo.rig import MJ_BODY_PATH, RigAbort, add_args, body_path, open_rig
+from airo.rig import FACTORY_BODY_PATH, RigAbort, add_args, body_path, open_rig
 from airo.scientist import Scientist
 from airo.server import Dashboard
 from airo.sim import world
@@ -127,8 +127,11 @@ async def main(args):
     sim = args.sim or args.mujoco or site.scene == "factory"
     if sim:
         meta_api.segment = live_sam(rigs[0].sam) if os.getenv("MODEL_API_KEY") else rigs[0].sam
-    path = MJ_BODY_PATH if site.scene == "factory" else body_path(args)
+    path = FACTORY_BODY_PATH if site.scene == "factory" else body_path(args)
     pool = Memory.open(path)
+    if not pool.entries:
+        print(f"no body learned for this car yet: run scripts/learn.py{' --factory' if site.scene == 'factory' else ''}"
+              f" first, or say \"learn\"")
     robots = crew(site, rigs, lambda rig, rid: scientist(rig, pool, rid), mode="sim" if sim else "real",
                   body_path=path if len(rigs) == 1 else None, real=not sim)
     fleet = Fleet(site, robots, mode="sim" if sim else "real", dry=args.dry and not sim)
