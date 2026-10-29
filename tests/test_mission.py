@@ -242,3 +242,11 @@ def test_recall_shows_the_remembered_portrait_and_memory(mission, tmp_path):
                                                                               (2, True, "/portraits/body_2.png")]
     assert state["memory"][1]["params"][0]["value"] == pytest.approx(HEAVY.g_l * 1000)
     assert state["episode"]["phases"][-1]["label"] == "heavier"
+
+
+def test_an_internal_error_stops_the_car_and_says_so(mission):
+    async def broken():
+        raise KeyError("boom")
+
+    asyncio.run(mission._run(broken()))
+    assert mission.status == "error" and "KeyError" in mission.notes[-1]["text"]

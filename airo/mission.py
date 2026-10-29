@@ -5,6 +5,7 @@ import asyncio
 import math
 import re
 import time
+import traceback
 from collections import deque
 from pathlib import Path
 from contextlib import suppress
@@ -520,6 +521,12 @@ class Mission:
         except RigAbort as e:
             self.status = "aborted"
             self.note("alert", f"Safety stop: {e}.")
+        except Exception as e:  # otherwise the task ends silently and the robot keeps a stale status
+            traceback.print_exc()
+            self.status = "error"
+            self.note("alert", f"Stopped on an internal error: {type(e).__name__}: {e}.")
+            with suppress(Exception):
+                await self.rig.stop()
 
     async def _cancel(self):
         if self._task and not self._task.done():
