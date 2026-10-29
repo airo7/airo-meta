@@ -1,0 +1,52 @@
+<mujoco model="airo-factory">
+  <compiler autolimits="true"/>
+  <option timestep=".002" integrator="implicitfast" cone="elliptic" impratio=".016"/>
+  <statistic center="1.5 1 .1" extent="2.4"/>
+
+  <visual>
+    <global offwidth="1920" offheight="1080" fovy="40"/>
+    <quality shadowsize="4096" offsamples="8"/>
+    <headlight ambient=".16 .16 .17" diffuse=".12 .12 .12" specular=".05 .05 .05"/>
+    <rgba haze=".035 .04 .045 1"/>
+    <map znear=".005" zfar="30" shadowclip="2.6" shadowscale=".6" haze=".5"/>
+  </visual>
+
+  <asset>
+    <texture name="sky" type="skybox" builtin="gradient" rgb1=".07 .075 .08" rgb2=".01 .012 .014" width="64"
+             height="384"/>
+    <material name="paper" rgba=".96 .96 .94 1" specular=".05" shininess=".1"/>
+    <material name="cardboard" rgba=".69 .5 .31 1" specular=".08" shininess=".12"/>
+    <material name="tape" rgba=".58 .4 .2 .85" specular=".7" shininess=".8"/>
+    <material name="iron" rgba=".46 .47 .5 1" specular=".9" shininess=".8"/>
+    <material name="velcro" rgba=".75 .1 .1 1" specular=".05" shininess=".05"/>
+    <material name="string" rgba=".95 .93 .85 1"/>
+    <material name="tote" rgba="1 .78 .1 1" specular=".35" shininess=".4"/>
+    <material name="upright" rgba=".09 .27 .58 1" specular=".5" shininess=".5"/>
+    <material name="beam" rgba=".95 .42 .06 1" specular=".5" shininess=".5"/>
+    <material name="deck" rgba=".55 .57 .6 1" specular=".6" shininess=".6"/>
+    <material name="steel" rgba=".5 .52 .55 1" specular=".8" shininess=".7"/>
+    <material name="roller" rgba=".72 .74 .77 1" specular="1" shininess=".9"/>
+    <material name="rubber" rgba=".05 .05 .055 1" specular=".2" shininess=".2"/>
+    <material name="wood" rgba=".72 .55 .34 1" specular=".05" shininess=".1"/>
+    <material name="wrap" rgba=".9 .93 .96 .28" specular="1" shininess="1"/>
+    <material name="concrete_col" rgba=".55 .55 .53 1" specular=".1" shininess=".1"/>
+    <material name="hazard_y" rgba="1 .78 .05 1" specular=".3" shininess=".3"/>
+    <material name="hazard_k" rgba=".04 .04 .04 1" specular=".3" shininess=".3"/>
+    <material name="crate_blue" rgba=".12 .35 .66 1" specular=".3" shininess=".3"/>
+    <material name="crate_grey" rgba=".33 .35 .37 1" specular=".3" shininess=".3"/>
+    <material name="tote_rim" rgba=".85 .62 .05 1" specular=".35" shininess=".4"/>
+    <material name="sign" rgba="1 .82 .05 1" specular=".4" shininess=".5"/>
+  </asset>
+
+  <worldbody>
+    <light name="key" pos="1 -1.2 3.2" dir=".1 .5 -1" directional="true" castshadow="true" softness=".5"
+           diffuse=".55 .54 .5" specular=".4 .4 .4"/>
+    <light name="bay1" pos=".8 1 2.6" dir="0 0 -1" cutoff="55" exponent="6" attenuation="1 0 .05"
+           castshadow="false" diffuse=".42 .41 .38" specular=".2 .2 .2"/>
+    <light name="bay2" pos="2.2 1 2.6" dir="0 0 -1" cutoff="55" exponent="6" attenuation="1 0 .05"
+           castshadow="false" diffuse=".42 .41 .38" specular=".2 .2 .2"/>
+    <light name="racks" pos="1.5 3.2 2" dir="0 -.4 -1" cutoff="60" exponent="4" castshadow="false"
+           diffuse=".25 .26 .3" specular=".05 .05 .05"/>
+    <camera name="overhead" pos="1.5 1 2.6" fovy="60"/>
+  </worldbody>
+</mujoco>
