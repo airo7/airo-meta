@@ -41,6 +41,7 @@ from airo import meta_api
 
 WEB = Path(__file__).resolve().parent.parent / "web"
 MJPEG = "multipart/x-mixed-replace; boundary=frame"
+PORTRAITS = Path("data/portraits")
 
 
 def _encode(bgr: np.ndarray) -> bytes:
@@ -91,6 +92,8 @@ class Dashboard:
 
     def _routes(self, app: FastAPI) -> FastAPI:
         app.mount("/static", StaticFiles(directory=WEB), name="static")
+        PORTRAITS.mkdir(parents=True, exist_ok=True)
+        app.mount("/portraits", StaticFiles(directory=PORTRAITS), name="portraits")
 
         @app.get("/")
         def index():
