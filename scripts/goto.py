@@ -11,10 +11,10 @@ import sys
 import cv2
 import numpy as np
 
-from airo.body import BODY_PATH, KEY, SIM_BODY_PATH, load
+from airo.body import KEY, load
 from airo.camera import to_floor
 from airo.control import goto
-from airo.rig import RigAbort, add_args, open_rig
+from airo.rig import RigAbort, add_args, body_path, open_rig
 
 WIN = "airo goto"
 
@@ -32,7 +32,7 @@ def draw(frame, rig, goal, scale):
 
 
 async def main(args):
-    saved = load(args.body or (SIM_BODY_PATH if args.sim else BODY_PATH))
+    saved = load(args.body or body_path(args))
     body = saved[0] if saved else KEY
     print(f"body: {saved[2] if saved else 'answer key'}")
     rig = await open_rig(args)

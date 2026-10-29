@@ -12,7 +12,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-from airo.body import Segment
+from airo.body import BODY_PATH, SIM_BODY_PATH, Segment
 from airo.camera import Pose, PoseTracker, detect, floor_layout, open_camera
 from airo.car import Car, CarLost
 
@@ -20,6 +20,7 @@ HZ = 20
 DT = 1 / HZ
 INSET = 0.15
 LOST_S = 0.3
+MJ_BODY_PATH = Path("data/body_mj.json")
 
 
 class RigAbort(RuntimeError):
@@ -28,6 +29,7 @@ class RigAbort(RuntimeError):
 
 def add_args(p):
     p.add_argument("--sim", action="store_true", help="simulated car and camera")
+    p.add_argument("--mujoco", action="store_true", help="MuJoCo twin: contact physics and a rendered camera")
     p.add_argument("--floor", nargs=2, type=float, default=(2.0, 1.4), metavar=("W", "H"),
                    help="corner marker centre distances in metres")
     p.add_argument("--camera", type=int, default=int(os.getenv("AIRO_CAMERA_INDEX", "0")))
@@ -37,8 +39,17 @@ def add_args(p):
     p.add_argument("--dry", action="store_true", help="camera and pose only: no BLE, nothing drives")
 
 
+def body_path(args) -> Path:
+    return MJ_BODY_PATH if args.mujoco else SIM_BODY_PATH if args.sim else BODY_PATH
+
+
 async def open_rig(args, **sim):
-    """The hardware rig, or with --sim a SimRig on the KEY body (keyword args go to SimRig)."""
+    """The hardware rig, or with --sim a SimRig on the KEY body, or with --mujoco an MjRig (keyword args go to
+    the simulated rig)."""
+    if args.mujoco:
+        from airo.mjsim import MjRig
+
+        return MjRig(floor=tuple(args.floor), source="aruco", realtime=True, bumper=True, **sim)
     if args.sim:
         from airo.body import KEY
         from airo.sim import SimRig

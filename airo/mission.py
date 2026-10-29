@@ -35,6 +35,17 @@ PARAMS = [("g_l", "Gain left", "mm/s/PWM", 1000, 0, 5), ("g_r", "Gain right", "m
           ("dz", "Dead zone", "PWM", 1, 0, 80), ("eta", "Turn efficiency", "", 1, 0, 1),
           ("tau", "Delay", "ms", 1000, 0, 400), ("lag", "Wheel lag", "ms", 1000, 0, 400),
           ("kappa", "Drift", "rad/m", 1, -0.3, 0.3)]
+GAUGE_UNITS = {"forward_cm": " cm", "lateral_cm": " cm", "turn_deg": "°"}
+
+
+def _gauge(entry: dict) -> dict:
+    """The scientist records outcomes per quantity; the dashboard gauge shows the one with the largest prediction."""
+    p, m = entry.get("predicted"), entry.get("measured")
+    if not (isinstance(p, dict) and isinstance(m, dict)):
+        return entry
+    q = max(p, key=lambda k: abs(p[k][0]))
+    return {**entry, "predicted": round(p[q][0], 1), "sd": round(p[q][1], 1), "measured": round(m[q], 1),
+            "unit": GAUGE_UNITS[q]}
 
 
 class Surprised(Exception):
@@ -284,7 +295,7 @@ class Mission:
                                  "unit": u,
                                  "lo": lo, "hi": hi} for f, nm, u, k, lo, hi in PARAMS]},
             "surprise": {"values": list(self.values), "threshold": self.threshold},
-            "notebook": [{**n, "t": n["t"] - self.t0}
+            "notebook": [_gauge({**n, "t": n["t"] - self.t0})
                          for n in sorted(self.notes + list(self.sci.notebook), key=lambda n: n["t"])],
             "mode": self.mode, "episode": {"phases": self.phases}, "relearn": self._relearn_state(),
         }
@@ -316,4 +327,5 @@ class Mission:
                 dash.publish(self.state())
                 if (frame := self.rig.frame()) is not None and self.rig.H is not None:
                     dash.set_frame(topdown(frame, self.rig.H, self.rig.floor))
-                    dash.set_view(frame)
+                    if not hasattr(self.rig, "view"):
+                        dash.set_view(frame)

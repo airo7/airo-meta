@@ -1,22 +1,31 @@
 """Demo entry point: dashboard, mission and optional voice on one event loop.
 
---sim rehearses on a simulated floor. Type a command on stdin ("deliver to red", "learn", "stop"),
-or "weight" / "tow" to change the simulated body mid-run.
+--sim rehearses on a simulated floor, --mujoco on the physics twin with the 3D ghost view. Type a command on stdin
+or in the dashboard ("deliver to red", "learn", "stop"), or change the simulated body mid-run: "weight" or "tow",
+and on --mujoco also "slippery" or "flip".
 """
 
 import argparse
 import asyncio
 import sys
+import time
 from dataclasses import replace
 
+import numpy as np
+
 from airo import meta_api
-from airo.body import BODY_PATH, SIM_BODY_PATH, load
+from airo.body import cloud, load
 from airo.control import recentre
 from airo.mission import Mission
-from airo.rig import add_args, open_rig
+from airo.mjsim import MjRig
+from airo.rig import add_args, body_path, open_rig
 from airo.scientist import Scientist
 from airo.server import Dashboard
 from airo.sim import SimRig, world
+
+WEIGHT_KG = 0.8
+FPS = 15
+HORIZON = 1.2
 
 
 def scientist(rig, path) -> Scientist:
@@ -30,6 +39,15 @@ def scientist(rig, path) -> Scientist:
 
 
 def change_body(rig, what: str) -> bool:
+    if isinstance(rig, MjRig):
+        change = {"weight": lambda: rig.add_weight(WEIGHT_KG), "tow": rig.attach_tow, "slippery": rig.slippery_patch,
+                  "flip": lambda: rig.flip_motor("l")}.get(what)
+        if change:
+            change()
+            print(f"physics: {what}")
+        return change is not None
+    if not isinstance(rig, SimRig):
+        return False
     b = rig.truth
     if what == "weight":
         rig.truth = replace(b, g_l=b.g_l * 0.65, g_r=b.g_r * 0.65, eta=b.eta * 0.7)
@@ -41,12 +59,33 @@ def change_body(rig, what: str) -> bool:
     return True
 
 
-async def console(rig, inbox: asyncio.Queue):
+async def console(commands: asyncio.Queue):
     loop = asyncio.get_running_loop()
     while line := await loop.run_in_executor(None, sys.stdin.readline):
-        text = line.strip()
-        if text and not (isinstance(rig, SimRig) and change_body(rig, text)):
+        if text := line.strip():
+            commands.put_nowait(text)
+
+
+async def route(rig, commands: asyncio.Queue, inbox: asyncio.Queue):
+    """Body changes go to the simulated rig, everything else to the mission."""
+    while True:
+        text = await commands.get()
+        if not change_body(rig, text.lower()):
             inbox.put_nowait(text)
+
+
+async def film(rig: MjRig, sci: Scientist, dash: Dashboard):
+    """Chase camera plus the ghost cloud over the next HORIZON seconds. Runs on the event loop: the rig's GL
+    context belongs to the thread that steps it."""
+    last = None
+    while True:
+        tick = time.monotonic()
+        if (p := rig.pose) and p.t != last:
+            last = p.t
+            t = np.linspace(p.t, p.t + HORIZON, 13)
+            rig.render_ghosts(cloud(sci.members, t, *rig.history, (p.x, p.y, p.theta)), 0.1)
+            dash.set_view(rig.view(1280, 720))
+        await asyncio.sleep(max(0.0, tick + 1 / FPS - time.monotonic()))
 
 
 async def listen(inbox: asyncio.Queue):
@@ -59,15 +98,21 @@ async def listen(inbox: asyncio.Queue):
 
 
 async def main(args):
-    rig = await open_rig(args, objects=world(), pose0=(0.4, 0.7, 0.0), log_dir="data/runs")
-    if args.sim:
+    # From the floor centre the drive to the parcel starts far enough out to be watched: the parcel approach is not.
+    pose0 = (1.0, 0.7, 0.0) if args.mujoco else (0.4, 0.7, 0.0)
+    rig = await open_rig(args, objects=world(), pose0=pose0, log_dir="data/runs")
+    sim = args.sim or args.mujoco
+    if sim:
         meta_api.segment = rig.sam
-    path = SIM_BODY_PATH if args.sim else BODY_PATH
+    path = body_path(args)
     dash = Dashboard()
-    mission = Mission(rig, scientist(rig, path), inbox=dash.commands, mode="sim" if args.sim else "real",
-                      body_path=path)
+    sci = scientist(rig, path)
+    mission = Mission(rig, sci, mode="sim" if sim else "real", body_path=path)
     print(f"dashboard on http://{args.host}:{args.port}")
-    jobs = [dash.serve(args.host, args.port), mission.run(dash), console(rig, dash.commands)]
+    jobs = [dash.serve(args.host, args.port), mission.run(dash), console(dash.commands),
+            route(rig, dash.commands, mission.inbox)]
+    if args.mujoco:
+        jobs.append(film(rig, sci, dash))
     if args.voice:
         jobs.append(listen(dash.commands))
     try:
