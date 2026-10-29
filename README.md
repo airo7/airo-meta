@@ -153,6 +153,10 @@ Built for the Meta Global AI Developer Hackathon, Oct 26 – Nov 4 2026.
   [airo7/sim2real-robot-car](https://github.com/airo7/sim2real-robot-car) (`hardware/arduino/main/main.ino`),
   used unchanged. `airo/protocol.py` reimplements its CMD/SENS byte layout so this repo can talk to it.
   Nothing else is copied.
+- **Third-party robot models:** the UR5e arm, Robotiq 2F-85 gripper and Unitree G1 humanoid in the factory scene come
+  from [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) under their own licences, fetched by
+  `uv run scripts/fetch_models.py` into the git-ignored `third_party/`; without them the scene falls back to our own arm.
+  The car model, the pick-cell arm, the warehouse and everything else in the scene were built for this project.
 - **Meta models:** `muse-wonder-1.0`, `muse-spark-1.3`, `sam-3.1`, `muse-voice-transcribe-1.0`, `muse-image-1.0`.
 
 ## License
