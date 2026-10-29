@@ -32,3 +32,39 @@ def test_segment_maps_box_local_mask_to_frame(monkeypatch):
     ys, xs = np.nonzero(s.mask)
     assert s.mask.shape == (334, 320) and len(xs) > 0
     assert xs.min() >= 211 and xs.max() < 271 and ys.min() >= 228 and ys.max() < 255
+
+
+def test_calls_land_in_the_feed_with_robot_image_tools_and_failures(monkeypatch):
+    fake = SimpleNamespace(responses=SimpleNamespace(create=fake_create))
+    monkeypatch.setattr(meta_api, "client", lambda: fake)
+    meta_api.FEED.clear()
+    meta_api.ROBOT.set("airo-2")
+    asyncio.run(meta_api.segment(np.zeros((334, 320, 3), np.uint8), "box"))
+    seg = meta_api.FEED[-1]
+    assert (seg["model"], seg["kind"], seg["robot"], seg["output"]) == ("sam-3.1", "segment", "airo-2", "1 × box")
+    assert meta_api.IMAGES[seg["id"]][:2] == b"\xff\xd8" and seg["image"] == f"/models/{seg['id']}.jpg"
+
+    call = SimpleNamespace(id="c1", function=SimpleNamespace(name="run_probe", arguments='{"probe": "step_80"}'))
+    msg = SimpleNamespace(content="Testing the gain.", tool_calls=[call])
+
+    async def chat(**_):
+        return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+    monkeypatch.setattr(meta_api, "client", lambda: SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=chat))))
+    asyncio.run(meta_api.wonder([{"role": "user", "content": "Learn the body."}], []))
+    meta_api.tool_result("c1", "z +0.4")
+    w = meta_api.FEED[-1]
+    assert w["input"] == "Learn the body."
+    assert (w["tools"][0]["name"], w["tools"][0]["result"]) == ("run_probe", "z +0.4")
+
+    async def down(**_):
+        raise ConnectionError("offline")
+
+    monkeypatch.setattr(meta_api, "client", lambda: SimpleNamespace(chat=SimpleNamespace(
+        completions=SimpleNamespace(create=down))))
+    try:
+        asyncio.run(meta_api.describe(np.zeros((10, 10, 3), np.uint8), "What is on the car?"))
+    except ConnectionError:
+        pass
+    assert meta_api.FEED[-1]["ok"] is False and "offline" in meta_api.FEED[-1]["output"]

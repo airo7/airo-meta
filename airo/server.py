@@ -37,6 +37,8 @@ from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+from airo import meta_api
+
 WEB = Path(__file__).resolve().parent.parent / "web"
 MJPEG = "multipart/x-mixed-replace; boundary=frame"
 
@@ -113,6 +115,11 @@ class Dashboard:
             except TimeoutError:
                 return {"camera": None, "part": None}
 
+        @app.get("/models/{i}.jpg")
+        def model_image(i: int):
+            jpg = meta_api.IMAGES.get(i)
+            return Response(jpg, media_type="image/jpeg") if jpg else Response(status_code=404)
+
         @app.get("/video")
         def video():
             return StreamingResponse(self._mjpeg("video"), media_type=MJPEG)
@@ -126,7 +133,8 @@ class Dashboard:
             await sock.accept()
             try:
                 while True:
-                    await sock.send_text(json.dumps({**self.state, "sim": self.sim}, default=lambda o: o.tolist()))
+                    state = {**self.state, "sim": self.sim, "models": list(meta_api.FEED)}
+                    await sock.send_text(json.dumps(state, default=lambda o: o.tolist()))
                     await asyncio.sleep(self.period)
             except WebSocketDisconnect:
                 pass

@@ -1,8 +1,16 @@
-"""Meta Model API: SAM 3.1, Muse Spark, Muse Wonder and Muse Image, via the OpenAI-compatible endpoint."""
+"""Meta Model API: SAM 3.1, Muse Spark, Muse Wonder and Muse Image, via the OpenAI-compatible endpoint.
+
+Every call lands in FEED (newest last) for the dashboard; ROBOT names the robot whose task made the call.
+"""
 
 import asyncio
 import base64
+import itertools
 import os
+import time
+from collections import deque
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import cache
 
@@ -13,6 +21,10 @@ from meta_sam_parser import (SegmentationBoxRecord, SegmentationMaskRecord, deco
 from openai import AsyncOpenAI
 
 BASE_URL = "https://api.meta.ai/v1"
+ROBOT: ContextVar[str | None] = ContextVar("robot", default=None)
+FEED: deque[dict] = deque(maxlen=40)
+IMAGES: dict[int, bytes] = {}
+_ids = itertools.count(1)
 
 
 @dataclass
@@ -20,6 +32,59 @@ class Segment:
     box: tuple[int, int, int, int]
     mask: np.ndarray
     score: float | None
+
+
+def record(model: str, kind: str, input: str, output: str, ms: float, ok: bool = True, image: bytes | None = None,
+           tools: list[dict] | None = None) -> dict:
+    i = next(_ids)
+    if len(FEED) == FEED.maxlen:
+        IMAGES.pop(FEED[0]["id"], None)
+    if image:
+        IMAGES[i] = image
+    e = {"id": i, "t": time.time(), "robot": ROBOT.get(), "model": model, "kind": kind, "input": input[:400],
+         "output": output[:800], "ms": round(ms), "ok": ok, "image": f"/models/{i}.jpg" if image else None,
+         "tools": tools}
+    FEED.append(e)
+    return e
+
+
+def tool_result(call_id: str, result: str):
+    """Fill in a Wonder tool call's result once the engine has run it."""
+    for e in reversed(FEED):
+        for t in e["tools"] or ():
+            if t.get("id") == call_id:
+                t["result"] = result[:200]
+                return
+
+
+@contextmanager
+def _call(model: str, kind: str, input: str):
+    """Yields a dict the caller fills with output/image/tools; failures are recorded and re-raised."""
+    out = {"output": "", "image": None, "tools": None}
+    t0 = time.perf_counter()
+    try:
+        yield out
+    except BaseException as e:
+        record(model, kind, input, f"{type(e).__name__}: {e}", (time.perf_counter() - t0) * 1000, ok=False)
+        raise
+    record(model, kind, input, out["output"], (time.perf_counter() - t0) * 1000, image=out["image"],
+           tools=out["tools"])
+
+
+def _thumb(image_bgr: np.ndarray | None, width: int = 360) -> bytes | None:
+    if image_bgr is None:
+        return None
+    small = cv2.resize(image_bgr, (width, round(image_bgr.shape[0] * width / image_bgr.shape[1])),
+                       interpolation=cv2.INTER_AREA)
+    return cv2.imencode(".jpg", small, [cv2.IMWRITE_JPEG_QUALITY, 80])[1].tobytes()
+
+
+def _overlay(image_bgr: np.ndarray, segs: list["Segment"]) -> np.ndarray:
+    out = image_bgr.copy()
+    for s in segs:
+        out[s.mask] = (0.45 * out[s.mask] + (140, 90, 0)).astype(np.uint8)
+        cv2.rectangle(out, s.box[:2], s.box[2:], (255, 170, 60), 3)
+    return out
 
 
 @cache
@@ -36,6 +101,15 @@ def _data_url(image_bgr: np.ndarray, max_side: int = 1024) -> tuple[str, float]:
 
 async def segment(image_bgr: np.ndarray, concept: str) -> list[Segment]:
     """All instances of one short noun phrase; boxes and masks in original frame pixels."""
+    with _call("sam-3.1", "segment", concept) as rec:
+        out = await _segment(image_bgr, concept)
+        scores = ", ".join(f"{s.score:.2f}" for s in out if s.score is not None)
+        rec["output"] = f"{len(out)} × {concept}" + (f" ({scores})" if scores else "")
+        rec["image"] = _thumb(_overlay(image_bgr, out))
+    return out
+
+
+async def _segment(image_bgr: np.ndarray, concept: str) -> list[Segment]:
     url, scale = _data_url(image_bgr)
     stream = await client().responses.create(
         model="sam-3.1",
@@ -69,23 +143,35 @@ async def segment(image_bgr: np.ndarray, concept: str) -> list[Segment]:
 
 
 async def describe(image_bgr: np.ndarray, prompt: str, model: str = "muse-spark-1.3") -> str:
-    url, _ = _data_url(image_bgr)
-    resp = await client().chat.completions.create(model=model, messages=[{"role": "user", "content": [
-        {"type": "text", "text": prompt},
-        {"type": "image_url", "image_url": {"url": url}},
-    ]}])
-    return resp.choices[0].message.content or ""
+    with _call(model, "describe", prompt) as rec:
+        url, _ = _data_url(image_bgr)
+        resp = await client().chat.completions.create(model=model, messages=[{"role": "user", "content": [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": url}},
+        ]}])
+        rec["output"], rec["image"] = resp.choices[0].message.content or "", _thumb(image_bgr)
+    return rec["output"]
 
 
 async def wonder(messages: list[dict], tools: list[dict], model: str = "muse-wonder-1.0", timeout: float = 20):
     """One chat.completions turn with function tools; returns the assistant message (may carry tool_calls)."""
-    resp = await asyncio.wait_for(client().chat.completions.create(model=model, messages=messages, tools=tools),
-                                  timeout)
-    return resp.choices[0].message
+    asked = messages[-1].get("content") if messages and isinstance(messages[-1], dict) else ""
+    with _call(model, "wonder", asked if isinstance(asked, str) else "") as rec:
+        resp = await asyncio.wait_for(client().chat.completions.create(model=model, messages=messages, tools=tools),
+                                      timeout)
+        msg = resp.choices[0].message
+        rec["output"] = msg.content or ""
+        rec["tools"] = [{"id": c.id, "name": c.function.name, "args": c.function.arguments, "result": None}
+                        for c in msg.tool_calls or []] or None
+    return msg
 
 
 async def image(prompt: str, model: str = "muse-image-1.0") -> bytes:
-    # output_format defaults to webp: https://dev.meta.ai/docs/api-reference/images/schemas
-    resp = await client().images.generate(model=model, prompt=prompt, n=1, output_format="png",
-                                          response_format="b64_json")
-    return base64.b64decode(resp.data[0].b64_json)
+    with _call(model, "image", prompt) as rec:
+        # output_format defaults to webp: https://dev.meta.ai/docs/api-reference/images/schemas
+        resp = await client().images.generate(model=model, prompt=prompt, n=1, output_format="png",
+                                              response_format="b64_json")
+        png = base64.b64decode(resp.data[0].b64_json)
+        rec["output"], rec["image"] = "self-portrait", _thumb(cv2.imdecode(np.frombuffer(png, np.uint8),
+                                                                           cv2.IMREAD_COLOR), 480)
+    return png

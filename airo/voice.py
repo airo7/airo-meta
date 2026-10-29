@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import re
+import time
 from collections.abc import AsyncIterator, Callable
 from contextlib import aclosing, suppress
 from dataclasses import dataclass
@@ -15,7 +16,10 @@ from typing import Literal
 from websockets.asyncio.client import ClientConnection, connect
 from websockets.exceptions import ConnectionClosed
 
+from airo import meta_api
+
 REALTIME_URL = "wss://api.meta.ai/v1/asr/realtime"
+MODEL = "muse-voice-transcribe-1.0"
 RATE = 24_000
 FRAME = RATE * 80 // 1000
 
@@ -36,17 +40,20 @@ def _handshake() -> dict:
     return {
         "authorization": {"accessToken": f"Bearer {os.environ['MODEL_API_KEY']}"},
         "audioEncoding": "PCM_24KHZ",
-        "model": "muse-voice-transcribe-1.0",
+        "model": MODEL,
         "mode": "ENDPOINTING",
         "emitAudioProgress": False,
     }
 
 
-def _on_event(ev: dict, on_text: Callable[[str, bool], None]) -> None:
+def _on_event(ev: dict, on_text: Callable[[str, bool], None], turn: dict) -> None:
     match ev.get("type"):
         case "transcript":
+            turn.setdefault("t0", time.perf_counter())
             on_text(ev["transcript"], False)
         case "speechComplete":
+            ms = (time.perf_counter() - turn.pop("t0", time.perf_counter())) * 1000
+            meta_api.record(MODEL, "transcribe", "microphone", ev["transcript"], ms)
             on_text(ev["transcript"], True)
         case "error":
             raise RuntimeError(f"ASR error: {ev.get('message')}")
@@ -68,11 +75,12 @@ async def transcribe(on_text: Callable[[str, bool], None], device=None) -> None:
         ack = json.loads(await ws.recv())
         if "sessionId" not in ack:
             raise RuntimeError(f"ASR handshake rejected: {ack}")
+        turn: dict = {}
         try:
             async with asyncio.TaskGroup() as tg:
                 tg.create_task(_send_audio(ws, device))
                 async for raw in ws:
-                    _on_event(json.loads(raw), on_text)
+                    _on_event(json.loads(raw), on_text, turn)
         except ExceptionGroup as eg:
             raise eg.exceptions[0] from None
 
