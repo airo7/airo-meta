@@ -16,6 +16,8 @@ the experiments, look at the scene and write the lab notebook; they are never in
 
 ```sh
 uv sync
+uv run scripts/fetch_models.py       # optional: UR5e, Robotiq and Unitree G1 for the factory (see disclosure)
+uv run --env-file .env scripts/demo.py --site factory --busy normal   # the warehouse fleet; http://127.0.0.1:8000
 uv run scripts/demo.py --mujoco      # physics twin with the 3D chase view; open http://127.0.0.1:8000
 uv run scripts/demo.py --sim         # lightweight model-exact simulator
 uv run scripts/demo.py --floor W H --marker-h 0.1           # the real car (see Setup)
@@ -25,6 +27,10 @@ uv run scripts/demo.py --floor W H --marker-h 0.1 --dry     # camera, pose and d
 On `--mujoco` the 3D view is interactive: drag to orbit, right- or shift-drag to pan, scroll to zoom, click a part
 to name it and double-click to fly to it; the bar above offers chase, iso, top and floor views, close-ups of the
 wheel, motor, battery, board, sensor and marker, pause and ¼–2× speed, and one-click body changes and missions.
+
+In the factory, three cars fetch totes that an arm loads onto them, feel their new body with one pivot (recalling it
+from the fleet's shared memory, or learning it the first time), drive them to a station and get unloaded. Say or type
+`airo 2 bring a heavy tote to packing`, `select airo 3`, `spill`, `drop a pallet`, `send a worker across`, `busy`.
 
 Type into the dashboard's command bar or the terminal: `learn`, `deliver to blue` (or `red`), `status`, `stop`; with
 `--voice`, say them. In simulation, `weight`, `tow`, and on `--mujoco` also `slippery` and `flip`, change the body
