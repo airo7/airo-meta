@@ -41,6 +41,48 @@ PHASES = [(-40, "probe", "Learning Body #2"), (0, "drive", "Delivering"), (15.5,
           (23.4, "refit", "Refit"), (24.8, "relearn", "Body #3"), (26, "drive", "Delivering")]
 CLOCK = 300
 VIEW_WH, MARGIN = (1600, 900), 1.0
+VIEWS = {"chase": (0.0, 1.55, 1.0), "iso": (0.8, 1.8, 1.8), "top": (0.0, 0.15, 2.6), "floor": (0.0, 1.2, 0.18)}
+PARTS = {"wheel": "65 mm rubber tyre on a TT gear motor", "motor": "TT gear motor, 1:48, driven by PWM",
+         "battery": "2 x 18650 pack, 7.4 V", "board": "ESP32 and the motor driver", "sensor": "phone camera overhead",
+         "marker": "ArUco tag the overhead camera tracks"}
+CHANGES = ("weight", "tow", "slippery", "flip")
+
+
+class View:
+    """Fake orbit camera answering /camera: azimuth offset, distance and height of the chase view."""
+
+    def __init__(self):
+        self.preset("chase")
+
+    def preset(self, name):
+        self.name = name
+        self.daz, self.dist, self.height = VIEWS.get(name, (0.0, 0.45, 0.3))
+
+    def handle(self, req):
+        part = None
+        if "preset" in req:
+            self.preset(req["preset"])
+            part = self.part(req["preset"])
+        elif "pick" in req:
+            u, v = req["pick"]
+            r, ang = math.hypot((u - 0.5) * 16 / 9, v - 0.5), math.atan2(v - 0.5, u - 0.5)
+            if r < 0.2:
+                part = self.part(list(PARTS)[int((ang + math.pi) / (2 * math.pi) * len(PARTS)) % len(PARTS)])
+                if req.get("focus"):
+                    self.name, self.dist, self.height = None, 0.45, 0.3
+        else:
+            self.name = None
+            if "orbit" in req:
+                self.daz += math.radians(req["orbit"][0])
+                self.height = min(max(self.height - math.radians(req["orbit"][1]) * self.dist, 0.1), 3.0)
+            if "zoom" in req:
+                self.dist = min(max(self.dist * req["zoom"], 0.15), 4.0)
+                self.height = min(max(self.height * req["zoom"], 0.1), 3.0)
+        return {"camera": {"preset": self.name, "follow": True}, "part": part}
+
+    @staticmethod
+    def part(name):
+        return {"name": name.capitalize(), "detail": PARTS[name]} if name in PARTS else None
 
 
 def make_loop(cx=1.0, cy=0.7, a=0.68, b=0.42, n=2000):
@@ -208,7 +250,7 @@ class Episode:
             base += 4.3 * smooth((T - T_HIT) / 2) * (1 if T < T_STOP else math.exp(-(T - T_STOP) * 1.5))
         return base
 
-    def state(self, T):
+    def state(self, T, cam):
         s, off, xy, heading, theta = self.pose(T)
         while self.next_window <= T:
             self.surprise.append(self.surprise_value(self.next_window))
@@ -220,7 +262,7 @@ class Episode:
         cloud = self.cloud(T, s, off, xy, heading)
         frame = self.bg.copy()
         draw_car(frame, *xy, theta)
-        return frame, self.view(frame, cloud, xy, T), {
+        return frame, self.view(frame, cloud, xy, T, cam), {
             "t": CLOCK + T, "mode": "sim", "status": status, "command": self.command or self.goal,
             "floor": {"w": W, "h": H},
             "pose": {"x": xy[0], "y": xy[1], "theta": theta},
@@ -247,7 +289,7 @@ class Episode:
             return {"phase": "done", "elapsed_s": T_BODY - T_STOP, "probe": "", "step": 2, "steps": 2}
         return None
 
-    def view(self, frame, cloud, xy, T):
+    def view(self, frame, cloud, xy, T, cam):
         ends = cloud[:, -1] if T_STOP <= T < T_GO else cloud[:, len(cloud[0]) // 2]
         prev = cloud[:, -2] if T_STOP <= T < T_GO else cloud[:, len(cloud[0]) // 2 - 1]
         if T_STOP <= T < T_GO:
@@ -259,20 +301,39 @@ class Episode:
         m = int(MARGIN * PPM)
         world[m:m + ghost.shape[0], m:m + ghost.shape[1]] = ghost
         self.cam = np.array(xy) if self.cam is None else self.cam + 0.25 * (np.array(xy) - self.cam)
-        return chase_view(world, self.shade, self.cam, -1.95 + 0.2 * math.sin(T / 7))
+        return chase_view(world, self.shade, self.cam, -1.95 + 0.2 * math.sin(T / 7) + cam.daz, cam.dist, cam.height)
+
+
+def command(sim, ep, text):
+    if text in ("pause", "resume"):
+        sim["paused"] = text == "pause"
+    elif text.startswith("speed "):
+        sim["speed"] = float(text.split()[1])
+    elif text in CHANGES:
+        if text not in sim["changes"]:
+            sim["changes"].append(text)
+    else:
+        ep.command = text
 
 
 async def run(dash: Dashboard, start: float):
-    t0 = time.monotonic() - start
-    ep, last = Episode(), 0.0
+    dash.sim = {"camera": True, "paused": False, "speed": 1, "presets": list(VIEWS), "parts": list(PARTS), "changes": []}
+    ep, cam, clock, last, wall = Episode(), View(), start, 0.0, time.monotonic()
     while True:
-        T = (time.monotonic() - t0) % CYCLE
+        now = time.monotonic()
+        clock += 0 if dash.sim["paused"] else (now - wall) * dash.sim["speed"]
+        wall = now
+        T = clock % CYCLE
         if T < last:
             ep = Episode()
         last = T
         while not dash.commands.empty():
-            ep.command = dash.commands.get_nowait()
-        frame, view, state = ep.state(T)
+            command(dash.sim, ep, dash.commands.get_nowait())
+        while not dash.camera.empty():
+            req, fut = dash.camera.get_nowait()
+            if not fut.done():
+                fut.set_result(cam.handle(req))
+        frame, view, state = ep.state(T, cam)
         dash.set_frame(frame)
         dash.set_view(view)
         dash.publish(state)
