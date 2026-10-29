@@ -71,6 +71,22 @@
     <material name="lamp_body" rgba=".3 .31 .33 1" specular=".5" shininess=".5"/>
     <material name="lamp_glow" rgba="1 .97 .9 1" emission="2"/>
     <material name="tray" rgba=".16 .17 .18 1" specular=".3" shininess=".3"/>
+    <material name="hivis" rgba=".86 1 .12 1" specular=".2" shininess=".2" emission=".15"/>
+    <material name="reflective" rgba=".92 .93 .95 1" specular="1" shininess="1" emission=".3"/>
+    <material name="forklift_body" rgba=".95 .62 .05 1" specular=".5" shininess=".55"/>
+    <material name="forklift_weight" rgba=".2 .21 .22 1" specular=".4" shininess=".4"/>
+    <material name="forklift_mast" rgba=".26 .27 .29 1" specular=".6" shininess=".6"/>
+    <material name="forklift_fork" rgba=".12 .12 .13 1" specular=".5" shininess=".5"/>
+    <material name="spot_blue" rgba=".15 .45 1 .55" emission="1.2"/>
+    <material name="cage" rgba=".62 .64 .66 1" specular=".8" shininess=".7"/>
+    <material name="lamp_green_on" rgba=".2 1 .35 1" emission="1.6"/>
+    <material name="lamp_amber_on" rgba="1 .62 .08 1" emission="1.6"/>
+    <material name="lamp_red_on" rgba="1 .12 .08 1" emission="1.8"/>
+    <material name="lamp_green_off" rgba=".1 .22 .12 1" specular=".6" shininess=".7"/>
+    <material name="lamp_amber_off" rgba=".3 .2 .06 1" specular=".6" shininess=".7"/>
+    <material name="lamp_red_off" rgba=".28 .07 .06 1" specular=".6" shininess=".7"/>
+    <material name="curtain_ok" rgba=".1 .5 .15 1" emission=".6"/>
+    <material name="curtain_tripped" rgba="1 .1 .05 1" emission="1.8"/>
   </asset>
 
   <worldbody>

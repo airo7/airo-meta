@@ -14,6 +14,19 @@ from airo.warehouse import BELT_Z, TABLE_Z, Cell, belt, cells, slots
 
 WALL_H = 1.6
 FENCE_H = 0.5
+RACK_DEPTH = 0.28
+# Building columns stand in the rack line, at these uprights; the forklift keeps a pallet at the ground level of
+# the rack bay at FORKLIFT_SLOT (x) and stages it at STAGE on the right of the hall.
+COLUMNS = (-0.13, 1.31, 3.47)
+FORKLIFT_SLOT = 3.11
+STAGE = (3.85, 0.25)
+CAGES = ((-0.22, 1.98, 0.0), (2.78, -0.42, 0.0))
+CROSSING = 1.27
+
+
+def rack_front(site) -> float:
+    """y of the racks' aisle face; their pallets sit RACK_DEPTH / 2 behind it."""
+    return site.floor[1] + MARGIN - 0.06 - RACK_DEPTH
 GREEN = (60, 150, 70)
 
 
@@ -55,11 +68,11 @@ def _walls(spec, site, rng):
     b.emit(spec)
 
 
-def _racks(spec, site, rng, bay=0.72, depth=0.28, levels=(0.0, 0.42, 0.84), top=1.3):
+def _racks(spec, site, rng, bay=0.72, depth=RACK_DEPTH, levels=(0.0, 0.42, 0.84), top=1.3):
     """Selective pallet racking: braced upright frames, beam pairs, pallets of stretch-wrapped cartons and crates,
-    column guards at the aisle."""
+    column guards at the aisle; no pallets beside the columns, nor in the forklift's slot."""
     w, h = site.floor
-    y0 = h + MARGIN - 0.06 - depth
+    y0 = rack_front(site)
     b = Batch("rack")
     xs = np.arange(-0.85, w + 0.9, bay)
     for x in xs:
@@ -78,9 +91,10 @@ def _racks(spec, site, rng, bay=0.72, depth=0.28, levels=(0.0, 0.42, 0.84), top=
                 b.box("label_card", (0.02, 0.001, 0.008), (x + bay / 2 + (k - 1) * 0.225, y0 - 0.0015, z))
         for z in levels:
             for k in range(3):
-                if rng.random() < 0.12:
-                    continue
                 px = x + bay / 2 + (k - 1) * 0.225
+                if (rng.random() < 0.12 or min(abs(px - c) for c in COLUMNS) < 0.17
+                        or (z == 0 and abs(px - FORKLIFT_SLOT) < 0.01)):
+                    continue
                 _pallet(b, rng, (px, y0 + depth / 2, z + (0.017 if z else 0)), lo=z == 0)
     b.emit(spec)
 
@@ -164,10 +178,7 @@ def _cells(spec, site, cs: dict[str, Cell]):
             kit.box("curtain_post", (0.007, 0.007, 0.2), (*p, 0.2))
             kit.box("fence_post", (0.0075, 0.0075, 0.01), (*p, 0.41))
             kit.box("curtain_lens", (0.0072, 0.0072, 0.17), (*p, 0.21))
-        beacon = c.at(c.rear, c.side)
-        for k, mat in enumerate(("led_green", "led_amber", "led_red")):
-            kit.cylinder(mat, 0.011, 0.012, (*beacon, FENCE_H + 0.03 + 0.025 * k), sides=12)
-        kit.cylinder("arm_dark", 0.012, 0.006, (*beacon, FENCE_H + 0.012), sides=12)
+        kit.cylinder("arm_dark", 0.012, 0.006, (*c.at(c.rear, c.side), FENCE_H + 0.012), sides=12)
         if name != "pick":
             _table(kit, c, name)
     f.emit(spec)
@@ -269,10 +280,11 @@ def _docks(spec, site):
 
 
 def _building(spec, site, rng):
-    """Columns with hazard wraps, high-bay lamps under the roof, a few pallets of goods along the edges."""
+    """Columns with hazard wraps, high-bay lamps under the roof, pallets of goods along the edges, roll cages."""
     w, h = site.floor
     b = Batch("pillar")
-    for x, y in [(w + 0.45, h + 0.4), (-0.35, h + 0.4), (1.5, h + 0.4)]:
+    y = rack_front(site) + RACK_DEPTH / 2
+    for x in COLUMNS:
         b.box("concrete_col", (0.07, 0.07, 1.1), (x, y, 1.1))
         for k in range(6):
             b.box("hazard_k" if k % 2 else "hazard_y", (0.074, 0.074, 0.0125), (x, y, 0.0125 + 0.025 * k))
@@ -285,9 +297,36 @@ def _building(spec, site, rng):
             lamps.box("steel", (0.002, 0.002, 0.15), (x, y, 2.12))
     lamps.emit(spec)
     goods = Batch("goods")
-    for x, y, th in [(w + 0.55, 1.95, 0.05), (w + 0.62, 1.55, -0.04), (-0.62, 0.35, 1.6)]:
-        _pallet(goods, rng, (x, y, 0.0))
+    for x, y, th in [(3.32, -0.4, 0.05), (3.45, 1.75, -0.04), (-0.62, 0.35, 1.6)]:
+        _pallet(goods, rng, (x, y, 0.0), yaw=th)
     goods.emit(spec)
+    cage = Batch("cage")
+    for x, y, th in CAGES:
+        _cage(cage, rng, (x, y), th)
+    cage.emit(spec)
+
+
+def _cage(b: Batch, rng, xy, yaw: float):
+    """A roll cage at 1:4: mesh sides on a castored base, part filled with cartons."""
+    x, y = xy
+    c, s = math.cos(yaw), math.sin(yaw)
+    put = lambda mat, half, dx, dy, dz: b.box(mat, half, (x + c * dx - s * dy, y + s * dx + c * dy, dz), yaw=yaw)
+    hx, hy, hz = 0.1, 0.085, 0.21
+    put("cage", (hx, hy, 0.005), 0, 0, 0.02)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            put("rubber", (0.008, 0.006, 0.008), sx * (hx - 0.012), sy * (hy - 0.012), 0.008)
+            put("cage", (0.004, 0.004, hz / 2), sx * hx, sy * hy, 0.025 + hz / 2)
+    for z in np.linspace(0.06, 0.025 + hz, 6):
+        for sy in (-1, 1):
+            put("cage", (hx, 0.0015, 0.0015), 0, sy * hy, z)
+        put("cage", (0.0015, hy, 0.0015), -hx, 0, z)
+    for i in np.linspace(-hx, hx, 7):
+        for sy in (-1, 1):
+            put("cage", (0.0012, 0.0012, hz / 2), i, sy * hy, 0.025 + hz / 2)
+    for k in range(int(rng.integers(3, 6))):
+        put(rng.choice(["carton", "carton_dark"]), (0.045, 0.038, 0.028), (k % 2 - 0.5) * 0.095 * 0.98,
+            ((k // 2) % 2 - 0.5) * 0.08, 0.025 + 0.028 + 0.056 * (k // 4))
 
 
 # textures
@@ -361,6 +400,14 @@ def workfloor(site, cs: dict[str, Cell], rng) -> np.ndarray:
     c.paint(YELLOW, lambda m: cv2.rectangle(m, p(door[0], door[1] + 0.16), p(door[0] + 0.32, door[1] - 0.16), 1, -1))
     c.paint(BLACK, lambda m: (cv2.rectangle(m, p(door[0], door[1] + 0.16), p(door[0] + 0.32, door[1] - 0.16), 1, -1),
                               m.__iand__(stripes)))
+    c.paint(WHITE, lambda m: [cv2.rectangle(m, p(CROSSING - 0.1, y), p(CROSSING + 0.1, y - 0.045), 1, -1)
+                              for y in np.arange(-0.1, walk[0], -0.09)])
+    sx, sy = STAGE
+    c.paint(YELLOW, lambda m: box(m, sx, sy, math.pi / 2, 0.19, 0.14))
+    c.text("PALLETS", (sx, sy - 0.27), 0.05, YELLOW)
+    c.paint(YELLOW, lambda m: [cv2.line(m, p(sx + s_, sy + 0.45), p(sx + s_, rack_front(site) - 0.25), 1, lw(0.012))
+                               for s_ in (-0.19, 0.19)])
+    c.text("FORKLIFTS", (sx, 1.3), 0.06, YELLOW, angle=90)
     _tyres(c, [(pick.x, pick.y, b.x, b.y) for b in site.drops.values()] +
            [(x, y, pick.x, pick.y) for x, y, _ in site.starts])
     _contact(c, site, cs)
