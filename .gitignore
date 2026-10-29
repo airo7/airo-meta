@@ -7,3 +7,4 @@ data/
 .pytest_cache/
 .ruff_cache/
 MUJOCO_LOG.TXT
+third_party/
