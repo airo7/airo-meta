@@ -242,6 +242,20 @@ class Warehouse:
         self._index()
         self._moving = True
 
+    def label(self, body: str) -> tuple[str, str] | None:
+        """A name for a picked part of the cell: "Pick cell arm · loading AIRO 2", "Tote · heavy"."""
+        for ld in self.loaders.values():
+            if body == ld.arm.name or body.startswith(ld.arm.name + "/"):
+                return f"{ld.title} · {ld.doing}", "six-axis arm, parallel gripper; scripted keyframes"
+        t = next((t for t in self.totes if body == t.name), None)
+        if t is None:
+            return None
+        where = (f"latched on {next(c.name for c in self.world.cars if c.prefix == t.latch[0])}'s tray" if t.latch
+                 else f"set down at {t.slot.station}" if t.slot else "in the gripper" if t.held
+                 else "waiting on the conveyor" if t.state == "belt" else "in stock")
+        what = "steel parts" if t.kind == "heavy" else "small parcels"
+        return f"Tote · {t.kind}", f"{KINDS[t.kind]:.1f} kg of {what}, {where}"
+
     # tote kinds and poses
 
     def set_kind(self, t: Tote, kind: str):

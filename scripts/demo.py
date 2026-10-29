@@ -2,7 +2,8 @@
 
 --site factory (MuJoCo, three robots by default, --robots N) runs a fleet on the factory floor; --site home is the
 real car's marker floor: --sim rehearses on a simulated floor, --mujoco on the physics twin, neither drives the car.
-Type a command on stdin or in the dashboard: "airo 2 deliver to packing", "select airo 3", "deliver to dock" (the
+Type a command on stdin or in the dashboard: "airo 2 deliver to packing" (on the factory: fetch a tote from the
+pick cell and bring it to packing), "airo 2 bring a heavy tote to qa", "select airo 3", "deliver to dock" (the
 selected robot), "learn", "stop", or change a body mid-run: "weight", "remove weight", "tow", "untow", "flip"; the
 place changes with "spill" and "clean"; "pause", "resume", "speed 0.5". --dry shows the camera, pose and dashboard
 without driving. In the 3D view drag to orbit, scroll to zoom, click a part.
@@ -46,7 +47,8 @@ def scientist(rig, pool: Memory, robot: str) -> Scientist:
 
 async def open_rigs(args, site) -> list:
     if site.scene == "factory":
-        return fleet_rigs(site, min(args.robots, len(site.starts)), realtime=True, bumper=True, log_dir="data/runs")
+        return fleet_rigs(site, min(args.robots, len(site.starts)), realtime=True, bumper=site.mode == "push",
+                          log_dir="data/runs")
     # From the floor centre the drive to the parcel starts far enough out to be watched: the parcel approach is not.
     pose0 = (1.0, 0.7, 0.0) if args.mujoco else (0.4, 0.7, 0.0)
     return [await open_rig(args, objects=world(), pose0=pose0, log_dir="data/runs")]

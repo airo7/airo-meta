@@ -49,14 +49,22 @@ LABELS = {
     "sensor": ("HC-SR04 on an SG90 servo", "ultrasonic eyes; AIRO doesn't use them"),
     "bumper": ("V bumper", "cardboard; cups the parcel toward the centre line"),
     "tow": ("Towed box", "on a 25 cm string from the rear hitch"),
+    "tray": ("Tote tray", "lipped deck; a latch holds the tote while it rides"),
 }
 DECOR = {
-    "rack": ("Pallet racking", "steel shelving with cartons and crates"),
-    "conveyor": ("Roller conveyor", "totes come in from the line here"),
+    "rack": ("Pallet racking", "selective racking, pallets of stretch-wrapped cartons and crates"),
+    "conveyor": ("Inbound conveyor", "powered rollers; totes arrive from the line"),
+    "portal": ("Conveyor portal", "strip curtain where the line comes through the wall"),
     "pillar": ("Column", "hazard-wrapped at the base"),
     "goods": ("Pallet of goods", "stretch-wrapped cartons waiting for the dock"),
     "spill_sign": ("Wet floor sign", "the spill has been flagged"),
-    "wall": ("Wall", "corrugated cladding"),
+    "wall": ("Wall", "insulated cladding"),
+    "fence": ("Safety fence", "mesh panels around a loader cell"),
+    "cell": ("Loader cell", "light curtain at the open side, stack light, the station's table"),
+    "charger": ("Charging dock", "contacts behind the parking bay"),
+    "lamp": ("High-bay lamp", "LED, under the roof"),
+    "door": ("Fire exit", "the hatched floor in front stays clear"),
+    "sign": ("Station sign", ""),
 }
 WHEELS = {"fl": "Front-left", "rl": "Rear-left", "fr": "Front-right", "rr": "Rear-right"}
 EASE = 0.15
@@ -168,7 +176,11 @@ class Orbit:
             label = self._thing(int((name if name.startswith("thing") else geom_name)[5:]))
         elif name in LABELS:
             label = LABELS[name]
+        elif world.cell is not None and (part := world.cell.label(name)):
+            label = part
         elif (kind := re.sub(r"(_back|_left|\d+)$", "", name if name != "world" else geom_name)) in DECOR:
+            label = DECOR[kind]
+        elif (kind := kind.split("_")[0]) in DECOR:
             label = DECOR[kind]
         else:
             mat = m.geom_matid[geom]

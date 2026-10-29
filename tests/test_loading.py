@@ -17,6 +17,8 @@ from airo.site import FACTORY, KINDS
 from airo.warehouse import CLEAR, TOTE, Line, cells
 
 TWIN = Body(g_l=0.00312, g_r=0.00305, dz=27.4, eta=0.303, tau=0.213, lag=0.128, kappa=-0.008)
+# a heavy tote costs the twin about 19% of its speed and 13% of its turn
+HEAVY = replace(TWIN, g_l=TWIN.g_l * 0.81, g_r=TWIN.g_r * 0.81, eta=TWIN.eta * 1.07)
 AT_PICK = replace(FACTORY, starts=(FACTORY.pick.pose,))
 
 
@@ -27,21 +29,24 @@ def scientist(rig, robot=None):
 
 
 class Feeling(Scientist):
-    """Answers check_body like the memory scientist: a new body on the first heavy load, the old one unloaded."""
+    """Answers check_body like the memory scientist: the heavy-tote body when loaded, the bare one unloaded. Its
+    cloud is tight, as after a real fit."""
 
     def __init__(self, rig, robot=None):
         super().__init__(rig)
-        self.best, self.members, self.name, self.n = TWIN, ensemble([], TWIN, 4), "twin", 1
+        self.best, self.members, self.name, self.n = TWIN, [TWIN], "twin", 1
         self.causes = []
 
     async def check_body(self, cause: str) -> dict:
         self.causes.append(cause)
         for _ in range(10):
             await self.rig.step(0, 0)
+        if cause == "loaded a light tote":
+            return {"result": "same", "n": self.n, "name": self.name, "seconds": 0.5}
         if cause.startswith("loaded"):
-            self.n, self.name = 2, "heavy tote"
+            self.best, self.members, self.n, self.name = HEAVY, [HEAVY], 2, "heavy tote"
             return {"result": "recalled", "n": 2, "name": "heavy tote", "seconds": 1.1}
-        self.n, self.name = 1, "twin"
+        self.best, self.members, self.n, self.name = TWIN, [TWIN], 1, "twin"
         return {"result": "recalled", "n": 1, "name": "twin", "seconds": 0.9}
 
 
@@ -252,3 +257,61 @@ def test_tote_kind_comes_from_the_command():
 
     assert [asyncio.run(run(t)) for t in ("bring a heavy tote to qa", "deliver a light one to dock",
                                            "deliver to packing")] == ["heavy", "light", None]
+
+
+def test_picking_names_loaders_and_totes():
+    from airo.orbit import Orbit
+
+    car = fleet(AT_PICK, 1, log_dir=None)[0]
+    cell = car.world.cell
+
+    async def run():
+        tote = cell.order("heavy")
+        task = asyncio.create_task(cell.pick.load(car, tote))
+        for _ in range(20):
+            await car.step(0, 0)
+        doing = cell.label("arm_pick/l3")
+        await task
+        return tote, doing
+
+    tote, doing = asyncio.run(run())
+    assert doing[0] == "Pick cell arm · loading AIRO 1"
+    assert cell.label(tote.name) == ("Tote · heavy", "0.8 kg of steel parts, latched on AIRO 1's tray")
+    assert cell.label("arm_qa") == ("QA arm · idle", doing[1]) and cell.label("rack_beam") is None
+    m = car.world.m
+    orbit = Orbit(car)
+    assert orbit._label(0, m.geom("fence_fence_mesh").id, np.zeros(3))["name"] == "Safety fence"
+
+
+@pytest.mark.parametrize("change, kind", [("flip", "heavy"), ("tow", "light"), (None, "heavy")])
+def test_unannounced_change_is_still_caught_while_carrying(change, kind):
+    rigs = fleet(FACTORY, 1, log_dir=None)
+    seg = meta_api.segment
+    meta_api.segment = rigs[0].sam
+    r = crew(FACTORY, rigs, Feeling)[0]
+    caught = []
+
+    async def relearn(window, budget=3):
+        caught.append((r.mission.status, r.mission.loaded))
+        raise asyncio.CancelledError
+
+    r.sci.relearn = relearn
+
+    async def run():
+        job = asyncio.create_task(r.mission.run())
+        r.mission.inbox.put_nowait(f"bring a {kind} tote to qa")
+        while r.mission.status != "delivering" and rigs[0].t < 60:
+            await asyncio.sleep(0)
+        for _ in range(10):
+            await asyncio.sleep(0)
+        if change:
+            rigs[0].flip_motor("l") if change == "flip" else rigs[0].attach_tow()
+        while not caught and r.mission.status == "delivering":
+            await asyncio.sleep(0)
+        job.cancel()
+
+    try:
+        asyncio.run(run())
+    finally:
+        meta_api.segment = seg
+    assert caught == ([("relearning", True)] if change else [])
