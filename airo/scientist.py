@@ -105,6 +105,15 @@ def _fmt(d: dict) -> str:
                      for u, v in zip(UNITS, d.values()))
 
 
+def _brief(out: dict) -> str:
+    """A tool result in a few words for the dashboard's model feed."""
+    if "error" in out:
+        return out["error"]
+    if isinstance(out.get("z"), dict):
+        return "z " + ", ".join(f"{v:+.1f}" for v in out["z"].values()) + (" ✓" if out.get("confirmed") else "")
+    return json.dumps(out, default=str)[:90]
+
+
 class Scientist:
     """Notebook entries are {"t", "kind", "text", ...}, kind in alert|hypothesis|prediction|result|conclusion|
     recall|fallback; entries written by the scripted policy also carry "fallback": True.
@@ -208,6 +217,7 @@ class Scientist:
                     msgs.append({"role": "user", "content": "Continue with a tool call; finish with conclude."})
                 for call in msg.tool_calls or []:
                     out = await self._call(call.function.name, call.function.arguments)
+                    meta_api.tool_result(call.id, _brief(out))
                     if self._done:
                         return
                     msgs.append({"role": "tool", "tool_call_id": call.id, "content": json.dumps(out)})

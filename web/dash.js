@@ -195,7 +195,7 @@ function spark(svg, s) {
 }
 
 const bareOf = (r) => {
-  const mem = (r.memory || []).filter((m) => !m.from).sort((a, b) => a.n - b.n)[0];
+  const mem = [...(r.memory || [])].sort((a, b) => a.n - b.n)[0];
   return mem?.params || (r.body?.params?.every((p) => p.key != null) ? r.body.params.map((p) => ({ ...p, value: p.key })) : null);
 };
 const norm = (p, v = p.value) => clamp((v - p.lo) / (p.hi - p.lo || 1), 0.04, 1);
