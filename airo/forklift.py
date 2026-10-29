@@ -1,4 +1,4 @@
-"""A counterbalance forklift at 1:4, procedural like the hall: it shuttles a pallet between a rack bay on the back
+"""An autonomous counterbalance forklift at 1:4 (lidar on the roof, no driver), procedural like the hall: it shuttles a pallet between a rack bay on the back
 aisle and a staging lane on the right of the hall. Kinematic: its pose is a mocap body, the fork carriage a link
 whose height is written into the model, and it turns about the middle of its front axle the way a rear-steered truck
 does. It stops for people in front of it."""
@@ -67,34 +67,43 @@ class Forklift:
         body = spec.worldbody.add_body(name="forklift", pos=[self.x, self.y, 0], mocap=True)
         b = Batch("forklift")
         L, W = LENGTH, WIDTH
-        b.box("forklift_body", (0.17, W / 2 - 0.01, 0.05), (-0.25, 0, 0.075))
-        b.box("forklift_body", (0.1, W / 2 - 0.02, 0.035), (-0.06, 0, 0.06))
-        b.box("forklift_weight", (0.05, W / 2 - 0.005, 0.07), (-L + 0.14, 0, 0.09))
-        b.box("arm_dark", (0.06, W / 2 - 0.04, 0.012), (-0.2, 0, 0.13))
-        b.box("arm_dark", (0.03, 0.035, 0.025), (-0.22, 0, 0.155))
-        b.box("arm_dark", (0.008, 0.035, 0.03), (-0.25, 0, 0.18))
-        b.cylinder("arm_dark", 0.018, 0.003, (-0.1, 0, 0.165), axis=(0.5, 0, 1), sides=12)
-        b.box("arm_dark", (0.004, 0.004, 0.03), (-0.12, 0, 0.14))
-        for x in (-0.03, -0.33):
-            for y in (-1, 1):
-                b.box("arm_dark", (0.008, 0.008, 0.13), (x, y * (W / 2 - 0.02), 0.24))
-        for x in np.linspace(-0.33, -0.03, 5):
-            b.box("arm_dark", (0.004, W / 2 - 0.015, 0.004), (x, 0, 0.372))
+        hw = W / 2 - 0.012
+        b.box("forklift_body", (0.15, hw, 0.045), (-0.2, 0, 0.07))
+        b.box("forklift_body", (0.07, hw, 0.03), (-0.02, 0, 0.055))
+        b.cylinder("forklift_weight", 0.075, hw, (-0.36, 0, 0.09), axis=(0, 1, 0), sides=20)
+        b.box("forklift_weight", (0.04, hw, 0.075), (-0.33, 0, 0.09))
+        b.box("hazard_y", (0.002, hw * 0.8, 0.012), (-0.437, 0, 0.12))
         for y in (-1, 1):
-            b.box("arm_dark", (0.16, 0.006, 0.006), (-0.18, y * (W / 2 - 0.02), 0.372))
-        b.cylinder("led_amber", 0.01, 0.008, (-0.3, 0, 0.385), sides=12)
-        for x, r in ((-0.02, 0.045), (-0.42, 0.038)):
-            for y in (-1, 1):
-                b.cylinder("rubber", r, 0.022, (x, y * (W / 2 - 0.022), r), axis=(0, 1, 0), sides=16)
-                b.cylinder("steel", r * 0.55, 0.0225, (x, y * (W / 2 - 0.022), r), axis=(0, 1, 0), sides=12)
+            b.box("led_red", (0.003, 0.012, 0.006), (-0.437, y * (hw - 0.03), 0.15))
+            b.box("lamp_glow", (0.003, 0.01, 0.006), (0.052, y * (hw - 0.02), 0.09))
+            b.box("hazard_k", (0.12, 0.0015, 0.01), (-0.2, y * (hw + 0.001), 0.1))
+        b.box("arm_dark", (0.05, hw - 0.03, 0.01), (-0.17, 0, 0.122))
+        b.box("arm_dark", (0.028, 0.034, 0.022), (-0.2, 0, 0.143))
+        b.box("arm_dark", (0.007, 0.034, 0.03), (-0.228, 0, 0.17))
+        b.cylinder("arm_dark", 0.016, 0.003, (-0.11, 0, 0.16), axis=(0.6, 0, 1), sides=12)
+        b.box("arm_dark", (0.004, 0.004, 0.025), (-0.12, 0, 0.14))
         for y in (-1, 1):
-            b.box("forklift_mast", (0.012, 0.018, 0.25), (0.045, y * 0.075, 0.26))
-        b.box("forklift_mast", (0.01, 0.075, 0.008), (0.045, 0, 0.5))
+            b.box("arm_dark", (0.007, 0.007, 0.115), (-0.29, y * (hw - 0.01), 0.24))
+            b.box("arm_dark", (0.007, 0.007, 0.12), (-0.035, y * (hw - 0.01), 0.235), euler=(0, -12, 0))
+            b.box("arm_dark", (0.135, 0.006, 0.006), (-0.15, y * (hw - 0.01), 0.355))
+        for x in np.linspace(-0.27, -0.05, 6):
+            b.box("arm_dark", (0.004, hw - 0.01, 0.003), (x, 0, 0.358))
+        b.cylinder("arm_dark", 0.018, 0.012, (-0.12, 0, 0.373), sides=16)
+        b.cylinder("steel", 0.014, 0.006, (-0.12, 0, 0.391), sides=16)
+        b.cylinder("led_amber", 0.009, 0.008, (-0.27, 0, 0.37), sides=12)
+        for x, r in ((-0.0, 0.042), (-0.38, 0.034)):
+            for y in (-1, 1):
+                b.cylinder("rubber", r, 0.02, (x, y * (hw - 0.008), r), axis=(0, 1, 0), sides=18)
+                b.cylinder("steel", r * 0.55, 0.0205, (x, y * (hw - 0.008), r), axis=(0, 1, 0), sides=12)
+        for y in (-1, 1):
+            b.box("forklift_mast", (0.012, 0.016, 0.25), (0.045, y * 0.075, 0.26), euler=(0, -3, 0))
+        b.box("forklift_mast", (0.01, 0.075, 0.008), (0.032, 0, 0.5))
         b.box("forklift_mast", (0.01, 0.075, 0.008), (0.045, 0, 0.03))
-        b.box("hazard_y", (0.002, W / 2 - 0.005, 0.01), (-L + 0.09, 0, 0.12))
+        b.cylinder("steel", 0.006, 0.08, (0.02, 0.04, 0.2), axis=(0, 0, 1), sides=8)
         b.emit(spec, body)
-        body.add_geom(type=GEOM.mjGEOM_BOX, size=[0.09, 0.07, 0.0004], pos=[0.42, 0, 0.0006], material="spot_blue",
-                      group=1, **STATIC)
+        for r, z in ((0.045, 0.0006), (0.028, 0.0008)):
+            body.add_geom(type=GEOM.mjGEOM_CYLINDER, size=[r, 0.0002], pos=[0.5, 0, z], material="spot_blue",
+                          group=1, **STATIC)
         carriage = body.add_body(name="forklift/carriage", pos=[0.065, 0, LOW])
         c = Batch("forklift_carriage")
         c.box("forklift_mast", (0.008, 0.085, 0.04), (0, 0, 0.045))

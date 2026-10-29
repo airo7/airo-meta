@@ -55,9 +55,12 @@ def _walls(spec, site, rng):
     w, h = site.floor
     wb = spec.worldbody
     texture(spec, "wall", wall((2048, 640), rng), specular=0.15, shininess=0.2)
+    # planes are one-sided: the right wall hides nothing from a camera outside the hall (a front wall would still
+    # shade the walkway)
     for name, pos, size, euler in [
             ("wall_back", [w / 2, h + MARGIN, WALL_H / 2], [w / 2 + MARGIN, WALL_H / 2, 1], [90, 0, 0]),
-            ("wall_left", [-MARGIN, h / 2, WALL_H / 2], [h / 2 + MARGIN, WALL_H / 2, 1], [90, 90, 0])]:
+            ("wall_left", [-MARGIN, h / 2, WALL_H / 2], [h / 2 + MARGIN, WALL_H / 2, 1], [90, 90, 0]),
+            ("wall_right", [w + 1.3, h / 2, WALL_H / 2], [h / 2 + MARGIN, WALL_H / 2, 1], [90, -90, 0])]:
         wb.add_geom(name=name, type=GEOM.mjGEOM_PLANE, size=size, pos=pos, euler=euler, material="wall", **STATIC)
     b = Batch("door")
     y = 1.9

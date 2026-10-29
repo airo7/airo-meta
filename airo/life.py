@@ -92,7 +92,7 @@ class Life:
                          Worker(3, "dock", (3.0, -0.4, math.pi))] if workers.available() else [])
         rack = (hall.FORKLIFT_SLOT, hall.rack_front(self.site) + hall.RACK_DEPTH / 2)
         self.rack, self.stage = rack, hall.STAGE
-        self.forklift = Forklift("Forklift", (hall.STAGE[0], hall.STAGE[1] + 0.55, -math.pi / 2),
+        self.forklift = Forklift("Autonomous forklift", (hall.STAGE[0], hall.STAGE[1] + 0.55, -math.pi / 2),
                                  (*hall.STAGE, -math.pi))
         self._outbound = False
         self.drops: list[Drop] = []
@@ -380,7 +380,7 @@ class Life:
         if body.startswith("forklift"):
             f = self.forklift
             state = f"waiting for {f.waiting_for.name} to pass" if f.waiting_for else f.doing
-            return "Forklift", f"{state.capitalize()}; counterbalance truck, stops for people"
+            return f.name, f"{state.capitalize()}; counterbalance truck with a lidar, stops for people"
         if body.startswith(("stack_", "curtain_")):
             name = body.split("_")[1]
             title = name.upper() if len(name) <= 2 else name.capitalize()
