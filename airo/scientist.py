@@ -133,8 +133,8 @@ class Scientist:
     async def learn(self, budget: int = 10):
         self.segments, self._anchor, self._verify, self.verified = [], None, False, True
         await self._session(f"Learn this car's body from scratch with {budget} probes. A reasonable schedule is "
-                            f"{SCHEDULE[:budget]}, but order the probes to cut the largest uncertainty first.",
-                            SCHEDULE, budget)
+                            f"{SCHEDULE[:budget]}, but order the probes to cut the largest uncertainty first. Nothing "
+                            "is attached to the car yet; name the body after how it drives.", SCHEDULE, budget)
 
     async def relearn(self, window_seg: Segment, budget: int = len(RELEARN)) -> float:
         """window_seg holds only motion since the body changed; it seeds the refit and older segments are dropped."""
@@ -176,7 +176,7 @@ class Scientist:
         self._confirmed = {}
         msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
         try:
-            for _ in range(2 * budget + 6):
+            for _ in range(4 * budget + 8):
                 msg = await meta_api.wonder(msgs, TOOLS)
                 msgs.append(msg.model_dump(exclude_none=True))
                 if not msg.tool_calls:

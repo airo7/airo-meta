@@ -33,9 +33,6 @@ async def mic(device=None) -> AsyncIterator[bytes]:
 
 
 def _handshake() -> dict:
-    # ENDPOINTING is a documented mode, but the docs don't confirm muse-voice-transcribe-1.0 accepts it
-    # (only PUSH_TO_TALK appears in its examples). If rejected, switch to PUSH_TO_TALK and treat
-    # `transcript` events with final=true as finals in _on_event.
     return {
         "authorization": {"accessToken": f"Bearer {os.environ['MODEL_API_KEY']}"},
         "audioEncoding": "PCM_24KHZ",
