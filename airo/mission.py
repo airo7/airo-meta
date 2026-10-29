@@ -11,13 +11,12 @@ from contextlib import suppress
 import numpy as np
 
 from airo import planner, portrait
-from airo.body import KEY, Body, cloud, save, surprise, wrap
+from airo.body import KEY, THRESHOLD, Body, cloud, save, surprise, wrap
 from airo.control import V_MAX, follow
 from airo.rig import DT, BaseRig, RigAbort
 from airo.server import topdown
 from airo.voice import parse_intent
 
-THRESHOLD = 3.0
 WINDOW = 0.5
 QUIET_S = 2.0
 RESCAN_S = 2.0
@@ -40,6 +39,11 @@ PARAMS = [("g_l", "Gain left", "mm/s/PWM", 1000, 0, 5), ("g_r", "Gain right", "m
           ("tau", "Delay", "ms", 1000, 0, 400), ("lag", "Wheel lag", "ms", 1000, 0, 400),
           ("kappa", "Drift", "rad/m", 1, -0.3, 0.3)]
 GAUGE_UNITS = {"forward_cm": " cm", "lateral_cm": " cm", "turn_deg": "°"}
+
+
+def _params(b: Body, key: bool = False) -> list[dict]:
+    return [{"name": nm, "value": getattr(b, f) * k, "key": getattr(KEY, f) * k if key else None, "unit": u,
+             "lo": lo, "hi": hi} for f, nm, u, k, lo, hi in PARAMS]
 
 
 def _gauge(entry: dict) -> dict:
@@ -94,7 +98,7 @@ class Mission:
         self.inbox = inbox or asyncio.Queue()
         self.scan = scan or (lambda: planner.scan(rig.frame(), rig.H, rig.floor))
         self.threshold = threshold
-        self._status, self.command = "idle", ""
+        self._status, self.command, self.station = "idle", "", ""
         self.scene: planner.Scene | None = None
         self.path: list = []
         self.notes: list[dict] = []
@@ -163,6 +167,7 @@ class Mission:
                 and abs(wrap(p.theta - th)) < RUN_IN_HEADING)
 
     async def deliver(self, station: str, attempts: int = 5) -> bool:
+        self.station = station
         for _ in range(attempts):
             self.status = "scanning"
             self.scene = await self.scan()
@@ -256,9 +261,14 @@ class Mission:
                                "Stopping; check the motors and wiring.")
             raise RigAbort("hardware fault")
         self._quiet_until = self.rig.pose.t + QUIET_S
-        self.note("conclusion", f"Body #{self.sci.n}, relearned in {self.relearned_s:.1f} s "
+        how = "recalled" if any(e["kind"] == "recall" for e in self.sci.notebook if e["t"] >= self._relearn_t) \
+            else "relearned"
+        self.note("conclusion", f"Body #{self.sci.n}, {how} in {self.relearned_s:.1f} s "
                                 f"({self.probing_s:.1f} s probing).")
-        if getattr(self.sci, "verified", True):
+        known = self._memory and self._memory.get(self.sci.n)
+        if how == "recalled" and known and known.portrait and Path(known.portrait).exists():
+            self.portrait, self.portrait_n = Path(known.portrait).read_bytes(), self.portrait_n + 1
+        elif getattr(self.sci, "verified", True):
             self._draw()
 
     async def learn(self):
@@ -315,7 +325,7 @@ class Mission:
             cmd_t, cmd = self.rig.history
             t = p.t + np.linspace(0, 1.5, 16)
             ghost = cloud(self.sci.members, t, cmd_t, cmd, (p.x, p.y, p.theta))[..., :2].round(3)
-        b, first = self.body, self.sci.n <= 1
+        b = self.body
         polygons = [{"label": lb, "points": pts.round(3)} for lb, pts in self.scene.polygons] if self.scene else []
         return {
             "t": p.t if p else 0.0, "status": self.status, "command": self.command,
@@ -323,14 +333,39 @@ class Mission:
             "pose": pose, "cloud": ghost, "path": self.path, "polygons": polygons,
             "body": {"n": self.sci.n, "name": self.sci.name, "relearned_s": self.relearned_s,
                      "probing_s": self.probing_s, "portrait": self.portrait_n or None,
-                     "params": [{"name": nm, "value": getattr(b, f) * k, "key": getattr(KEY, f) * k if first else None,
-                                 "unit": u,
-                                 "lo": lo, "hi": hi} for f, nm, u, k, lo, hi in PARAMS]},
+                     "params": _params(b, self.sci.n <= 1)},
             "surprise": {"values": list(self.values), "threshold": self.threshold},
             "notebook": [_gauge({**n, "t": n["t"] - self.t0})
                          for n in sorted(self.notes + list(self.sci.notebook), key=lambda n: n["t"])],
             "mode": self.mode, "episode": {"phases": self._timeline()}, "relearn": self._relearn_state(),
+            "memory": self._memory_state(), "now": self.now(),
         }
+
+    def _memory_state(self) -> list[dict]:
+        mem = self._memory
+        return [{"n": e.n, "name": e.name, "cause": e.cause, "params": _params(e.body),
+                 "portrait": f"/portraits/{Path(e.portrait).name}" if e.portrait else None,
+                 "learned_t": e.learned_t - self.t0, "recalls": e.recalls, "active": e.n == self.sci.n,
+                 "from": e.robot, "verified": e.verified} for e in (mem.entries if mem else [])]
+
+    def now(self) -> str:
+        """One plain sentence on what the car is doing and why, for the dashboard."""
+        sci, s = self.sci, self.status
+        to = f"the {self.station} station" if self.station else "the station"
+        me = f"Body #{sci.n} ({sci.name})"
+        if s == "relearning" and (e := getattr(sci, "recalling", None)):
+            return f"This feels like Body #{e.n} ({e.name}) again: one probe to confirm before relearning."
+        if s == "relearning":
+            r = self._relearn_state()
+            step = f" ({r['step']} of up to {r['steps']} probes run)" if r and r["step"] else ""
+            return f"My body changed while driving, so I am testing what changed{step}."
+        if s == "delivering":
+            why = "" if getattr(sci, "verified", True) else f", slowly because {me} is not confirmed"
+            return f"Driving behind the parcel to push it to {to}{why}."
+        return {"idle": f"Waiting for a command as {me}.", "scanning": f"Looking for the parcel and {to}.",
+                "pushing": f"Pushing the parcel to {to}.", "surprised": "I moved differently than predicted: stopping.",
+                "learning": "Learning my body from scratch with probe drives.", "stopped": "Stopped on command.",
+                "aborted": "Stopped for safety; waiting for a command."}.get(s, f"Stopped: {s}.")
 
     def _draw(self):
         """Self-portrait of the confirmed body, in the background so driving never waits for it."""
@@ -343,14 +378,21 @@ class Mission:
         self.portrait, self.portrait_n = png, self.portrait_n + 1
         if self.portraits:
             self.portraits.mkdir(parents=True, exist_ok=True)
-            (self.portraits / f"body_{n}.png").write_bytes(png)
+            (path := self.portraits / f"body_{n}.png").write_bytes(png)
+            if e := self._memory and self._memory.get(n):
+                e.portrait = str(path)
+                self._memory.save()
+
+    @property
+    def _memory(self):
+        return getattr(self.sci, "memory", None)
 
     def _timeline(self) -> list[dict]:
         """Mission phases plus each probe and refit from the scientist's notebook, in time order."""
         probes = [{"t": e["t"] - self.t0, "kind": "probe", "label": e["probe"]}
                   for e in self.sci.notebook if e["kind"] == "hypothesis" and "probe" in e]
         refits = [{"t": e["t"] - self.t0, "kind": "refit", "label": e.get("name", "refit")}
-                  for e in self.sci.notebook if e["kind"] == "conclusion"]
+                  for e in self.sci.notebook if e["kind"] in ("conclusion", "recall")]
         return sorted(self.phases + probes + refits, key=lambda p: p["t"])
 
     def _relearn_state(self) -> dict | None:

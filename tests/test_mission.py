@@ -9,6 +9,7 @@ import pytest
 from airo import planner
 from airo.body import KEY
 from airo.control import V_MAX
+from airo.memory import Memory
 from airo.mission import Mission, _gauge
 from airo.rig import RigAbort
 from airo.sim import PARCEL, SimRig, world
@@ -208,3 +209,27 @@ def test_self_portrait_after_a_confirmed_body(mission, monkeypatch, tmp_path, on
     assert "bare chassis" in prompts[0]
     assert (mission.state()["body"]["portrait"], (tmp_path / "body_1.png").exists()) == ((1, True) if online
                                                                                           else (None, False))
+
+
+def test_recall_shows_the_remembered_portrait_and_memory(mission, tmp_path):
+    (tmp_path / "body_2.png").write_bytes(b"heavy png")
+    mem = Memory()
+    mem.add("bare chassis", "learned from scratch", KEY, [KEY], True)
+    mem.add("heavier", "a weight on top", HEAVY, [HEAVY], True).portrait = str(tmp_path / "body_2.png")
+    mission.sci.memory = mem
+
+    async def recalled(seg, budget=3):
+        mission.sci.n, mission.sci.name = 2, "heavier"
+        mission.sci.notebook.append({"t": time.time(), "kind": "recall", "n": 2, "name": "heavier",
+                                  "text": "I know this one."})
+        return 1.0
+
+    assert mission.state()["now"] == "Waiting for a command as Body #1 (bare chassis)."
+    mission.sci.relearn = recalled
+    asyncio.run(mission.relearn("test"))
+    state = mission.state()
+    assert "recalled in" in mission.notes[-1]["text"] and mission.portrait == b"heavy png"
+    assert [(m["n"], m["active"], m["portrait"]) for m in state["memory"]] == [(1, False, None),
+                                                                              (2, True, "/portraits/body_2.png")]
+    assert state["memory"][1]["params"][0]["value"] == pytest.approx(HEAVY.g_l * 1000)
+    assert state["episode"]["phases"][-1]["label"] == "heavier"
