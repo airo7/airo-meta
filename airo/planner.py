@@ -46,16 +46,24 @@ def _centroid(poly: np.ndarray) -> tuple[float, float]:
     return float(c[0]), float(c[1])
 
 
+def _box_floor(s: meta_api.Segment, H: np.ndarray) -> tuple[float, float]:
+    x0, y0, x1, y1 = s.box
+    return tuple(to_floor(H, np.array([[(x0 + x1) / 2, (y0 + y1) / 2]], float))[0])
+
+
 def _best(segs: list[meta_api.Segment]) -> meta_api.Segment | None:
     return max(segs, key=lambda s: s.score or 0.0, default=None)
 
 
 async def scan(frame: np.ndarray, H: np.ndarray, floor_wh: tuple[float, float], obstacles: str = OBSTACLE,
-               stations: dict[str, str] = STATIONS, parcel: str = PARCEL, res: float = 0.02) -> Scene:
-    """Labels: "obstacle" for each box, "parcel", and the station names. Obstacles and the parcel are occupied."""
+               stations: dict[str, str] = STATIONS, parcel: str = PARCEL, near: tuple[float, float] | None = None,
+               res: float = 0.02) -> Scene:
+    """Labels: "obstacle" for each box, "parcel", and the station names. Obstacles and the parcel are occupied.
+    near picks the parcel closest to that floor point, for a fleet whose totes look alike; the others are obstacles."""
     concepts = (obstacles, parcel, *stations.values())
     obs, par, *sta = await asyncio.gather(*(meta_api.segment(frame, c) for c in concepts))
-    p = _best(par)
+    p = _best(par) if near is None else min(par, key=lambda s: math.dist(_box_floor(s, H), near), default=None)
+    obs += [s for s in par if s is not p] if near is not None else []
     # SAM's "box" also returns the parcel.
     obs = [s for s in obs if p is None or (s.mask & p.mask).sum() < 0.5 * min(s.mask.sum(), p.mask.sum())]
     labelled = [("obstacle", s) for s in obs] + [("parcel", s) for s in [p] if s]

@@ -11,7 +11,7 @@ from dataclasses import dataclass, replace
 import cv2
 import numpy as np
 
-from airo import meta_api, planner
+from airo import planner
 from airo.mission import Mission
 from airo.server import topdown
 from airo.site import Site, robot
@@ -46,6 +46,7 @@ class Robot:
     mission: Mission
     sci: object
     tote: str
+    tote_xy: tuple[float, float] | None = None
     real: bool = False
     guard: "Guard | None" = None
 
@@ -114,8 +115,10 @@ def crew(site: Site, rigs: list, scientist: Callable, mode: str = "sim", body_pa
         sci = scientist(driven, robot(k)["id"])
         scan = _scanner(robots, k) if len(rigs) > 1 else None
         mission = Mission(driven, sci, scan=scan, mode=mode, body_path=body_path, stations=site.stations)
-        robots.append(Robot(**robot(k), rig=rig, mission=mission, sci=sci, tote=site.totes[k % len(site.totes)],
-                            real=real, guard=guard))
+        tote = site.totes[k % len(site.totes)]
+        robots.append(Robot(**robot(k), rig=rig, mission=mission, sci=sci, tote=tote,
+                            tote_xy=next((o.xy for o in site.objects() if o.concept == tote), None), real=real,
+                            guard=guard))
     return robots
 
 
@@ -123,16 +126,12 @@ def _scanner(robots: list[Robot], k: int):
     async def scan() -> planner.Scene:
         me = robots[k]
         rig, frame = me.rig, me.rig.frame()
-        scene = await planner.scan(frame, rig.H, rig.floor, stations=me.mission.stations, parcel=me.tote)
+        scene = await planner.scan(frame, rig.H, rig.floor, stations=me.mission.stations, parcel=planner.PARCEL,
+                                   near=me.tote_xy)
+        me.tote_xy = scene.parcel or me.tote_xy
         for other in robots:
-            if other is me:
-                continue
-            if other.rig.pose is not None:
+            if other is not me and other.rig.pose is not None:
                 _occupy(scene, footprint(other.rig.pose), "robot")
-            if seg := planner._best(await meta_api.segment(frame, other.tote)):
-                scene.grid |= planner.warp_mask(seg.mask, rig.H, scene.grid.shape, scene.res)
-                if (poly := planner._outline(seg.mask, rig.H)) is not None:
-                    scene.polygons.append(("obstacle", poly))
         return scene
     return scan
 
@@ -181,6 +180,11 @@ class Fleet:
         if what in ("clean", "clean up", "mop", "clean the spill", "mop the spill"):
             w.clean()
             return "floor cleaned"
+        if what in ("restock", "new totes", "reset totes"):
+            w.restock()
+            for r in self.robots:
+                r.tote_xy = next(o.xy for o in w.objects if o.concept == r.tote)
+            return "new totes in the pick zone"
         if what in ("pause", "resume"):
             w.paused = what == "pause"
             return what + "d"
@@ -196,7 +200,7 @@ class Fleet:
         rig = r.rig
         if hasattr(rig, "add_weight"):
             change = {"weight": lambda: rig.add_weight(WEIGHT_KG), "add weight": lambda: rig.add_weight(WEIGHT_KG),
-                      "remove weight": rig.remove_weight, "unweight": rig.remove_weight,
+                      "remove weight": rig.remove_weight, "unweight": rig.remove_weight, "unload": rig.remove_weight,
                       "tow": rig.attach_tow, "untow": rig.detach_tow, "detach tow": rig.detach_tow,
                       "cut tow": rig.detach_tow, "flip": lambda: rig.flip_motor("l")}.get(what)
         elif hasattr(rig, "truth"):

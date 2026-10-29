@@ -11,7 +11,8 @@ COLOURS = ("#ffb340", "#45c4ff", "#ff6fa8", "#8fe36b")
 TAGS = ("orange", "blue", "pink", "green")
 LANES = (1.45, 1.0, 0.55)
 TOTE_X = 1.15
-FACTORY_STATIONS = {n: f"{n} station" for n in ("assembly", "qa", "packing", "dock")}
+# Named by what SAM sees from above: painted squares, not words.
+FACTORY_STATIONS = {"assembly": "blue square", "qa": "green square", "packing": "orange square", "dock": "red square"}
 
 
 @dataclass(frozen=True)

@@ -10,6 +10,7 @@ without driving. In the 3D view drag to orbit, scroll to zoom, click a part.
 
 import argparse
 import asyncio
+import os
 import sys
 import time
 
@@ -96,6 +97,18 @@ async def listen(inbox: asyncio.Queue):
         print(f"voice off: {e}; the text bar still works")
 
 
+def live_sam(stand_in):
+    """Real SAM on the rendered frames, so the feed shows what it sees; the twin's exact masks if a call fails."""
+    live = meta_api.segment
+
+    async def segment(frame, concept):
+        try:
+            return await asyncio.wait_for(live(frame, concept), 8)
+        except Exception:
+            return await stand_in(frame, concept)
+    return segment
+
+
 async def run_as(robot):
     """Model calls made by this robot's mission are tagged with its id in the dashboard's feed."""
     meta_api.ROBOT.set(robot.id)
@@ -109,7 +122,7 @@ async def main(args):
     rigs = await open_rigs(args, site)
     sim = args.sim or args.mujoco or site.scene == "factory"
     if sim:
-        meta_api.segment = rigs[0].sam
+        meta_api.segment = live_sam(rigs[0].sam) if os.getenv("MODEL_API_KEY") else rigs[0].sam
     path = MJ_BODY_PATH if site.scene == "factory" else body_path(args)
     pool = Memory.open(path)
     robots = crew(site, rigs, lambda rig, rid: scientist(rig, pool, rid), mode="sim" if sim else "real",

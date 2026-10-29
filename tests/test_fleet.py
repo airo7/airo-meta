@@ -201,3 +201,15 @@ def test_three_robots_deliver_at_once_without_colliding():
     for r, station in zip(f.robots, ("assembly", "packing", "dock")):
         assert math.dist(totes[r.tote], stations[station]) < 0.1, r.name
     assert world.t < 25 and min(gaps) > 0.25
+
+
+def test_restock_puts_moved_totes_back():
+    w = fleet(FACTORY, 1, log_dir=None)[0].world
+    i = next(i for i, o in enumerate(w.objects) if o.kind == "tote")
+    home = w.objects[i].xy
+    b = w.m.body(f"thing{i}").id
+    q = w.m.jnt_qposadr[w.m.body_jntadr[b]]
+    w.d.qpos[q:q + 2] = (2.5, 1.8)
+    w.restock()
+    assert np.allclose(w.d.xpos[b, :2], home) and w.objects[i].xy == home
+    w.close()

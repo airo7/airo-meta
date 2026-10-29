@@ -98,6 +98,19 @@ class World:
         scene.remove_spill(self.spec, self._clean)
         self.rebuild()
 
+    def restock(self):
+        """Every tote back where the site put it, as if new work arrived at the pick zone."""
+        m, d = self.m, self.d
+        for i, (o, home) in enumerate(zip(self.objects, self.site.objects())):
+            if o.kind != "tote" or (b := _find(m.body, f"thing{i}")) is None or not m.body_dofnum[b.id]:
+                continue
+            q, v = m.jnt_qposadr[m.body_jntadr[b.id]], m.jnt_dofadr[m.body_jntadr[b.id]]
+            d.qpos[q:q + 7] = (*home.xy, d.qpos[q + 2], 1, 0, 0, 0)
+            d.qvel[v:v + 6] = 0
+            o.xy = home.xy
+        mujoco.mj_forward(m, d)
+        self._frame = self._seg = None
+
     # time
 
     def _physics(self, until: float):
@@ -223,7 +236,8 @@ class World:
         geoms = self._seg[1]
         out = []
         for i, o in enumerate(self.objects):
-            if o.concept != concept:
+            # like SAM, "yellow box" also finds a "yellow box with a blue tag"
+            if o.concept != concept and not o.concept.startswith(concept + " "):
                 continue
             mask = np.isin(geoms, self._geoms(f"thing{i}"))
             if mask.any():
