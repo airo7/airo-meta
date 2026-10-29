@@ -1,11 +1,14 @@
 import asyncio
 import copy
 import json
+from pathlib import Path
 
+import numpy as np
 import pytest
 
-from airo.body import ensemble, save
+from airo.body import Body, Segment, ensemble, save
 from airo.memory import Memory, since_change
+from airo.probes import LIBRARY
 from airo.scientist import Scientist
 from airo.sim import SimRig
 from test_scientist import HEAVY, TRUTH, drive, fake_wonder, results, teleport
@@ -55,7 +58,7 @@ def scientist(library, monkeypatch, tmp_path, current: int, truth, wonder=()):
 
 
 def since_alert(sci, kind):
-    alert = max(i for i, e in enumerate(sci.notebook) if e["kind"] == "alert")
+    alert = max(i for i, e in enumerate(sci.notebook) if e["text"].startswith("Body changed"))
     return [e for e in sci.notebook[alert:] if e["kind"] == kind]
 
 
@@ -95,6 +98,17 @@ def test_match_ignores_the_motion_before_the_change(library):
     t = window.t[0] + CHANGE_AT
     assert window.t[0] < t <= since_change(library[1].members, window, strict=True).t[0]
     assert [e.n for e, _ in mem.match(window, library[1].members, exclude=2)] == [1]
+
+
+def test_match_on_the_factory_miss():
+    """Recorded on the factory twin: restarted with the heavy body active on a bare car, so the whole window is the
+    new body. Scored only after the first surprising window, the bare body missed it; it scores 3.2 there."""
+    d = json.loads((Path(__file__).parent / "fixtures" / "factory_miss.json").read_text())
+    window = Segment(*(np.array(d[k]) for k in ("cmd_t", "cmd", "t", "pose")))
+    mem = Memory()
+    for e in d["entries"]:
+        mem.add(f"#{e['n']}", "", Body(**e["members"][0]), [Body(**m) for m in e["members"]], True)
+    assert [e.n for e, _ in mem.match(window, [Body(**b) for b in d["current"]], exclude=2)] == [1]
 
 
 @pytest.mark.parametrize("current, truth, expect", [(2, TRUTH, 1), (1, HEAVY, 2)])
@@ -145,3 +159,32 @@ def test_fleet_shares_one_pool_with_per_robot_active_bodies(tmp_path):
     assert one.current is first and one.get(heavy.n) is heavy
     one.recall(heavy)
     assert heavy.tested == ["airo-2", "airo-1"] and Memory(tmp_path / "pool.json").active == {"airo-1": 2, "airo-2": 2}
+
+
+def test_check_body_after_loads_and_unloads(library, monkeypatch, tmp_path):
+    """Load, unload, load again at a parked cell: learned in place, then recalled each time with the one pivot."""
+    sci, _ = scientist(library[:1], monkeypatch, tmp_path, 1, TRUTH)
+    rig = sci.rig
+    rig._truth.append((rig.t, 1.0, 0.7, 0.0))
+    asyncio.run(rig.step(0, 0))
+    out = []
+    for truth in (HEAVY, TRUTH, HEAVY, HEAVY):
+        rig.truth = truth
+        out.append(asyncio.run(sci.check_body("Tote loaded" if truth is HEAVY else "Tote unloaded")))
+    assert [(o["result"], o["n"]) for o in out] == [("learned", 2), ("recalled", 1), ("recalled", 2), ("same", 2)]
+    assert sci.memory.get(2).verified and out[1]["seconds"] < 3 and len(sci.memory.entries) == 2
+    probes = [e["probe"] for e in sci.notebook if e["kind"] == "hypothesis"]
+    assert {LIBRARY[p].kind for p in probes} <= {"pivot", "step"} and probes.count("step_60") <= 1
+    assert "Tote loaded: checking" in sci.notebook[0]["text"]
+
+
+def test_check_body_without_room_learns_partly_and_the_next_relearn_completes_it(library, monkeypatch, tmp_path):
+    monkeypatch.setattr("airo.scientist.CHECK_PLAN", ["pivot_r_150", "pivot_l_60"])
+    sci, _ = scientist(library[:1], monkeypatch, tmp_path, 1, TRUTH)
+    rig = sci.rig
+    rig.truth = HEAVY
+    out = asyncio.run(sci.check_body("Tote loaded"))
+    assert (out["result"], out["n"], sci.verified) == ("learned", 2, False)
+    window = asyncio.run(changed(rig, HEAVY))
+    asyncio.run(sci.relearn(window))
+    assert sci.n == 2 and len(sci.memory.entries) == 2 and sci.verified and sci.memory.get(2).verified

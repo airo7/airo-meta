@@ -11,7 +11,7 @@ from openai.types.chat.chat_completion_message_function_tool_call import Functio
 from airo import meta_api
 from airo.body import Body, Segment, posterior, surprise
 from airo.probes import SCHEDULE
-from airo.scientist import RELEARN, Scientist, describe, regime, regimes
+from airo.scientist import RELEARN, WONDER_S, Scientist, describe, regime, regimes
 from airo.sim import SimRig
 
 TRUTH = Body(g_l=0.0030, g_r=0.0033, dz=25, eta=0.3, tau=0.2, lag=0.1, kappa=-0.1)
@@ -116,16 +116,15 @@ def test_relearn_after_heavy_load(monkeypatch):
         return "a weight pack strapped on top of the car"
 
     monkeypatch.setattr(meta_api, "describe", describe)
-    calls = [probe(RELEARN[0]), ("refit", {}), probe(RELEARN[1]), ("refit", {}), *map(probe, RELEARN[2:]),
-             probe("pivot_l_60"), ("conclude", {"text": "Heavier.", "body_name": "heavy"})]
+    calls = [*map(probe, RELEARN), probe("pivot_l_60"), ("conclude", {"text": "Heavier.", "body_name": "heavy"})]
     seen = fake_wonder(monkeypatch, calls)
     secs = asyncio.run(sci.relearn(window))
 
     assert secs > 0 and (sci.n, sci.name) == (2, "heavy")
-    prompt = seen[0][1]["content"]
-    assert "weight pack" in prompt and "surprise" in prompt
+    assert "surprise" in seen[0][1]["content"] and "weight pack" in results(seen)[0]["camera"]
     assert "budget" in results(seen)[-1]["error"]
-    assert sci.notebook[[e["kind"] for e in sci.notebook].index("alert")]["seen"].startswith("a weight")
+    assert next(e for e in sci.notebook if e.get("seen"))["seen"].startswith("a weight")
+    assert sci.memory.current.cause.startswith("a weight")
     assert len(sci.segments) == 1 + len(RELEARN)
     assert sci.verified and re.search(r"Confirmed: \w+ -?\d+(°| cm) ± \d+ vs -?\d+", sci.notebook[-1]["text"])
 
@@ -165,7 +164,7 @@ def surprised(monkeypatch):
 def test_scripted_relearn_stops_once_confirmed(surprised):
     sci, window = surprised
     asyncio.run(sci.relearn(window))
-    alert = max(i for i, e in enumerate(sci.notebook) if e["kind"] == "alert")
+    alert = max(i for i, e in enumerate(sci.notebook) if e["text"].startswith("Body changed"))
     ran = [e for e in sci.notebook[alert:] if e["kind"] == "result"]
     assert ran[-1]["confirmed"] and len(ran) < len(RELEARN) and sci.verified
     assert "Confirmed:" in sci.notebook[-1]["text"] and "g_l -2" in sci.notebook[-1]["text"]
@@ -205,3 +204,26 @@ def test_scripted_bodies_get_descriptive_names(surprised):
 def test_regimes_of_a_window(cmd, expected):
     t = np.arange(len(cmd)) * 0.05
     assert regimes(Segment(t, np.array(cmd), t, np.zeros((len(cmd), 3)))) == expected
+
+
+def test_relearn_gives_wonder_what_it_needs_up_front(surprised, monkeypatch):
+    asked = []
+
+    async def wonder(messages, tools, **kw):
+        asked.append(([t["function"]["name"] for t in tools], kw, messages[1]["content"]))
+        raise TimeoutError
+
+    monkeypatch.setattr(meta_api, "wonder", wonder)
+    sci, window = surprised
+    asyncio.run(sci.relearn(window))
+    tools, kw, prompt = asked[0]
+    assert tools == ["run_probe", "conclude"] and kw["timeout"] == WONDER_S
+    assert "Body now: g_l" in prompt and "Probes safe from here: " in prompt and "first call is run_probe" in prompt
+
+
+def test_wonder_time_runs_out_to_the_scripted_policy(surprised, monkeypatch):
+    monkeypatch.setattr("airo.scientist.WONDER_S", 0.0)
+    sci, window = surprised
+    asyncio.run(sci.relearn(window))
+    fb = next(e for e in sci.notebook if e["kind"] == "fallback" and "Wonder time" in e["text"])
+    assert sci.notebook[-1]["fallback"] and sci.verified and fb

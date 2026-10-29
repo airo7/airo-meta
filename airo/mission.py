@@ -26,6 +26,9 @@ RUN_IN = 0.4
 NEAR_PARCEL = 0.35
 RUN_IN_WIDTH = 0.08
 RUN_IN_HEADING = math.radians(30)
+# The bumper's arm tips are 0.18 m from the centre and the parcel is 0.1 m square: a pivot closer than this can sweep
+# it. No wider: the alignment pivot at the push pose (~0.27 m) is where a heavier body shows first.
+CONTACT = 0.24
 STANDOFF = 0.22
 PORTRAITS = Path("data/portraits")
 PROBE_REACH = 0.6
@@ -172,7 +175,7 @@ class Mission:
         cmd = np.abs(seg.cmd[seg.cmd_t >= seg.t[0]])
         p = self.rig.pose
         quiet = (now < self._quiet_until or not len(cmd) or cmd.max(axis=1).min() <= self.body.dz
-                 or self._running_in(p))
+                 or self._running_in(p) or self._touching(p))
         s = [] if quiet else surprise(self.sci.members, seg, WINDOW)
         score = None if not len(s) or np.isnan(s[-1]) else float(s[-1])
         self.values.append(score or 0.0)
@@ -191,6 +194,10 @@ class Mission:
         across = -(p.x - x) * math.sin(th) + (p.y - y) * math.cos(th)
         return (-NEAR_PARCEL <= along <= 0.05 and abs(across) < RUN_IN_WIDTH
                 and abs(wrap(p.theta - th)) < RUN_IN_HEADING)
+
+    def _touching(self, p) -> bool:
+        parcel = self.scene and self.scene.parcel
+        return parcel is not None and math.dist((p.x, p.y), parcel) < CONTACT
 
     async def deliver(self, station: str, attempts: int = 5) -> bool:
         self.station = station

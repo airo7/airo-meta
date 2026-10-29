@@ -104,24 +104,27 @@ are available.
 ## Measured numbers
 
 **Simulation** (`uv run scripts/eval.py --n 10 --rig sim|mujoco`, scripted scientist, no API; hardware numbers to
-follow). Each seed learns once, then delivers with the body changed 0.3 m into the transit.
+follow). Each seed learns once, then delivers with the body changed 0.3 m into the transit. The memory rows patrol a
+loop instead: weight on, off, and on again.
 
 | | SimRig (model-exact) | MuJoCo twin (physics) |
 |---|---|---|
 | Learn: 10 probes, cloud radius | 0.3 cm, parameters within 7% of truth | 1.1 cm |
 | Held-out probes within 2σ | 100% | 100% |
 | False surprise triggers (50 runs) | 0 | 0 |
-| Weight: detected / confirmed / delivered | 10/10 at 1.0 s, 9/10, 10/10 (gains −35%) | 10/10 at 6.1 s, 10/10, 10/10 (0.8 kg) |
-| Tow: detected / confirmed / delivered | 2/10, 2/2, 10/10 (gains −15%, lag ×2) | 10/10 at 1.6 s, 9/10, 10/10 |
-| Slippery floor: detected / confirmed / delivered | 10/10 at 4.9 s, 10/10, 10/10 | 0/10, –, 10/10 (a 0.4 × 0.5 m patch) |
-| Reversed left motor: detected / identified / confirmed / delivered | 10/10 at 1.0 s, 10/10, 0/10, 10/10 | 10/10 at 1.1 s, 10/10, 0/10, 10/10 |
+| Weight: detected / confirmed / delivered | 10/10 at 1.1 s, 10/10, 10/10 (gains −35%) | 10/10 at 6.5 s, 10/10, 10/10 (0.8 kg) |
+| Tow: detected / confirmed / delivered | 2/10, 2/2, 10/10 (gains −15%, lag ×2) | 10/10 at 1.7 s, 10/10, 10/10 |
+| Slippery floor: detected / confirmed / delivered | 10/10 at 6.0 s, 10/10, 10/10 | 0/10, –, 10/10 (a 0.4 × 0.5 m patch) |
+| Reversed left motor: detected / confirmed / delivered | 10/10 at 1.1 s, 9/10, 10/10 | 10/10 at 1.1 s, 10/10, 10/10 |
 | Parcel distance from the station centre (clean) | 5.8 cm median | 8.1 cm median |
+| Memory: weight on → relearn #2, off → recall #1, on → recall #2 | 10/10, 10/10, 10/10 | 10/10, 9/10, 9/9 (one weight-off went unnoticed) |
+| Recall vs relearn, sim time | 2.1 s and 1 probe vs 3.7 s and 2 probes | same |
 
 A relearn must confirm in every regime the surprise happened in: a pivot or arc if the car was turning, a step if it
-was driving straight, each predicted tightly (±3 cm, ±6°) and within 2σ. With the 0.8 kg weight the twin relearns
-once and names it "heavier: −12% speed, −25% turn". Relearning finds a reversed motor by restarting the fit with each
-gain's sign flipped and says so ("the left motor runs backwards"), but five probes leave that fit too loose to confirm
-straight driving, so it is reported as partial. A towed box is a drag force the body model has no term for; its
+was driving straight, each predicted tightly (±3 cm, ±6°) and within 2σ. Before relearning, AIRO checks its memory:
+a remembered body whose cloud explains the surprising window is tried with one confirming probe, and a confirmed recall
+takes back that body's number. Relearning finds a reversed motor by restarting the fit with each gain's sign flipped
+and says so ("the left motor runs backwards"). A towed box is a drag force the body model has no term for; its
 slack string in reverse and its swing in pivots stay unmodelled. An unconfirmed relearn continues at 0.6× speed; one
 no fit can explain stops with a hardware-fault alert.
 

@@ -4,7 +4,7 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from airo.body import KEY, PRIOR, PRIOR_SD, Body, Segment, ensemble, fit, inverse, posterior, rollout, surprise
+from airo.body import _excited, KEY, PRIOR, PRIOR_SD, Body, Segment, ensemble, fit, inverse, posterior, rollout, surprise
 
 TRUTH = Body(g_l=0.0030, g_r=0.0033, dz=25, eta=0.3, tau=0.2, lag=0.1, kappa=-0.1)
 PROBES = [(p, p, 1) for p in (40, 60, 80, 110, 150, -60, -110)] + \
@@ -140,3 +140,9 @@ def test_inverse_with_a_reversed_motor(v, om):
     step = np.diff(pose, axis=0)
     fwd = step[:, 0] * np.cos(pose[1:, 2]) + step[:, 1] * np.sin(pose[1:, 2])
     assert fwd.sum() == pytest.approx(v, abs=0.01) and step[:, 2].sum() == pytest.approx(om, abs=0.03)
+
+
+def test_a_pivot_alone_informs_eta():
+    t = np.arange(20) * 0.05
+    pivot = Segment(t, np.tile([-100, 100], (20, 1)), t, np.zeros((20, 3)))
+    assert _excited([pivot], KEY)[[3, 6]].all()
