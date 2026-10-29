@@ -21,6 +21,10 @@ from airo.voice import parse_intent
 
 WINDOW = 0.5
 QUIET_S = 2.0
+# A slow change keeps surprise above DRIFT_K: the excess is summed over unsuppressed windows (a CUSUM) and triggers
+# past DRIFT_H. Each window adds at most THRESHOLD - DRIFT_K, so a lone spike, however large, cannot trigger it. Clean windows stayed under 1.6 in 40 eval runs on both rigs; a tow on a
+# loaded car scores ~2.4, under THRESHOLD.
+DRIFT_K, DRIFT_H = 1.8, 3.0
 RESCAN_S = 2.0
 DRIFT_M = 0.08
 RUN_IN = 0.4
@@ -147,6 +151,7 @@ class Mission:
         self._relearn_rig0 = 0.0
         self.values: deque[float] = deque(maxlen=120)
         self._recent: deque[float | None] = deque(maxlen=3)
+        self._drift = 0.0
         self._next_window = -math.inf
         self._quiet_until = -math.inf
         self._near: tuple[float, float, float] | None = None
@@ -176,7 +181,8 @@ class Mission:
         self.notes.append({"t": time.time(), "kind": kind, "text": text})
 
     def watch(self):
-        """Score the last window; raise Surprised when the median of three unsuppressed windows passes threshold."""
+        """Score the last window; raise Surprised when the median of three unsuppressed windows passes threshold, or
+        when the surprise summed above DRIFT_K passes DRIFT_H."""
         now = self.rig.pose.t
         if now < self._next_window:
             return
@@ -190,9 +196,15 @@ class Mission:
         score = None if not len(s) or np.isnan(s[-1]) else float(s[-1])
         self.values.append(score or 0.0)
         self._recent.append(score)
+        self._drift = 0.0 if score is None else max(0.0, self._drift + min(score, self.threshold) - DRIFT_K)
         if len(self._recent) == 3 and None not in self._recent and (m := np.median(self._recent)) > self.threshold:
             self._recent.clear()
+            self._drift = 0.0
             raise Surprised(f"surprise {m:.1f}")
+        if self._drift > DRIFT_H:
+            self._recent.clear()
+            self._drift = 0.0
+            raise Surprised(f"surprise {score:.1f}, sustained")
 
     def _running_in(self, p) -> bool:
         """On the last straight stretch into the push pose, where parcel contact would read as surprise. Turns near
@@ -436,6 +448,7 @@ class Mission:
         r = await check(cause)
         self.felt = {**r, "cause": cause, "at": time.time()}
         self._recent.clear()
+        self._drift = 0.0
         self._quiet_until = self.rig.pose.t + QUIET_S
         self.note("conclusion", f"{cause[0].upper()}{cause[1:]}: {_felt(r)}.")
 
