@@ -115,6 +115,8 @@ class MjRig(BaseRig):
         self._frame: tuple[float, np.ndarray] | None = None
         self._chase: mujoco.MjvCamera | None = None
         self._wall0 = None
+        self.paused, self.speed = False, 1.0
+        self.changes: list[str] = []
         self.spec = scene(floor, self.objects)
         self.m = self.d = None
         x, y, th = pose0 or (floor[0] / 2, floor[1] / 2, 0.0)
@@ -141,6 +143,7 @@ class MjRig(BaseRig):
             mujoco.mj_forward(self.m, self.d)
         else:
             self.m, self.d = self.spec.recompile(self.m, self.d)
+            mujoco.mj_forward(self.m, self.d)
             self._renderers.clear()
         self._dofs = [self.m.joint(j).dofadr[0] for j in ("fl", "rl", "fr", "rr")]
         self._stiction = self.m.dof_frictionloss[self._dofs].copy()
@@ -156,6 +159,7 @@ class MjRig(BaseRig):
         n = sum(b.name.startswith("weight") for b in self.spec.bodies)
         w = kg / 7850 / 0.045 / 0.022
         pos = [0.036, 0, 0.0581] if n == 0 else [-0.088, 0, 0.0861 + (n - 1) * 0.0225]
+        self.changes.append("weight")
         b = self.spec.body("car").add_body(name=f"weight{n}", pos=pos)
         b.add_geom(type=GEOM.mjGEOM_MESH, meshname=_rounded(self.spec, f"weight{n}", (0.0225, w / 2, 0.011)),
                    material="iron", contype=0, conaffinity=0, mass=kg, group=1)
@@ -173,6 +177,7 @@ class MjRig(BaseRig):
 
     def attach_tow(self, box=(0.12, 0.1, 0.08), mass: float = 0.15, length: float = 0.25):
         """A cardboard box on a string from the rear hitch, dragging on the floor."""
+        self.changes.append("tow")
         x, y, th = self.true_pose if self.m is not None else (*self.spec.body("car").pos[:2],
                                                                 _yaw(self.spec.body("car").quat))
         back = 0.118 + length * 0.95 + box[0] / 2
@@ -192,6 +197,7 @@ class MjRig(BaseRig):
 
     def slippery_patch(self, rect=(1.2, 0.35, 1.6, 0.85), friction: float = 0.12):
         """A glossy low-friction floor zone (x0, y0, x1, y1) that overrides the tyre friction."""
+        self.changes.append("slippery")
         x0, y0, x1, y1 = rect
         size, pos = [(x1 - x0) / 2, (y1 - y0) / 2, 4e-4], [(x0 + x1) / 2, (y0 + y1) / 2, 4e-4]
         wb = self.spec.worldbody
@@ -204,6 +210,7 @@ class MjRig(BaseRig):
     def flip_motor(self, side: str):
         """A hidden fault: that side's motors run backwards."""
         self._sign[side] *= -1
+        self.changes.append("flip")
         self._rebuild()
 
     def _rebuild(self):
@@ -252,10 +259,13 @@ class MjRig(BaseRig):
         self.t = now + DT
         self._physics(self.t)
         if self.realtime:
+            while self.paused:
+                await asyncio.sleep(0.05)
+                self._wall0 = None
             wall = time.monotonic()
-            if self._wall0 is None or wall - (self._wall0 + now) > 0.25:
-                self._wall0 = wall - now
-            await asyncio.sleep(max(0.0, self._wall0 + self.t - wall))
+            if self._wall0 is None or wall - (self._wall0 + now / self.speed) > 0.25:
+                self._wall0 = wall - now / self.speed
+            await asyncio.sleep(max(0.0, self._wall0 + self.t / self.speed - wall))
         else:
             await asyncio.sleep(0)
         return await self._tick(now, pwm_l, pwm_r, True, self._measure())
@@ -316,12 +326,23 @@ class MjRig(BaseRig):
         """Ghost cars drawn in view(): poses (k, 3) are ghosts, (k, n, 3) are k predicted paths ending in ghosts."""
         self.ghosts = [(np.asarray(poses, float), alpha)] if len(poses) else []
 
-    def view(self, width: int = 1280, height: int = 720, camera: str = "chase") -> np.ndarray:
+    def set_speed(self, speed: float):
+        self.speed, self._wall0 = speed, None
+
+    def view(self, width: int = 1280, height: int = 720, camera: str | mujoco.MjvCamera = "chase") -> np.ndarray:
         r = self._renderer(width, height)
         r.update_scene(self.d, self._follow() if camera == "chase" else camera)
         for poses, alpha in self.ghosts:
             _draw_ghosts(r.scene, poses, alpha)
         return cv2.cvtColor(r.render(), cv2.COLOR_RGB2BGR)
+
+    def select(self, u: float, v: float, width: int = 1280, height: int = 720):
+        """(body, geom, world point) under image fraction (u, v) of the last view() at that size, or None."""
+        r = self._renderer(width, height)
+        point, geom, flex, skin = np.zeros(3), *(np.array([-1], np.int32) for _ in range(3))
+        body = mujoco.mjv_select(self.m, self.d, mujoco.MjvOption(), width / height, u, 1 - v, r.scene, point, geom,
+                                 flex, skin)
+        return (int(body), int(geom[0]), point) if body >= 0 and geom[0] >= 0 else None
 
     def _follow(self) -> mujoco.MjvCamera:
         """A trailing 3/4 camera that eases toward the car on the sim clock."""

@@ -79,89 +79,105 @@
       <site name="deck" pos="-.085 0 .075" size=".001" rgba="0 0 0 0"/>
 
       <!-- lower deck, brass standoffs, upper deck -->
-      <geom type="mesh" mesh="deck" pos="0 0 .0455" material="acrylic"/>
-      <geom type="mesh" mesh="waist" pos="0 0 .0455" material="acrylic"/>
-      <geom class="standoff" pos=".1 .042 .0595"/>
-      <geom class="standoff" pos=".1 -.042 .0595"/>
-      <geom class="standoff" pos="-.1 .042 .0595"/>
-      <geom class="standoff" pos="-.1 -.042 .0595"/>
-      <geom class="standoff" pos="0 .066 .0595"/>
-      <geom class="standoff" pos="0 -.066 .0595"/>
-      <geom type="mesh" mesh="deck" pos="0 0 .0735" material="acrylic"/>
-      <geom type="mesh" mesh="waist" pos="0 0 .0735" material="acrylic"/>
+      <body name="chassis">
+        <geom type="mesh" mesh="deck" pos="0 0 .0455" material="acrylic"/>
+        <geom type="mesh" mesh="waist" pos="0 0 .0455" material="acrylic"/>
+        <geom class="standoff" pos=".1 .042 .0595"/>
+        <geom class="standoff" pos=".1 -.042 .0595"/>
+        <geom class="standoff" pos="-.1 .042 .0595"/>
+        <geom class="standoff" pos="-.1 -.042 .0595"/>
+        <geom class="standoff" pos="0 .066 .0595"/>
+        <geom class="standoff" pos="0 -.066 .0595"/>
+        <geom type="mesh" mesh="deck" pos="0 0 .0735" material="acrylic"/>
+        <geom type="mesh" mesh="waist" pos="0 0 .0735" material="acrylic"/>
+      </body>
 
       <!-- TT gear motors under the lower deck, gearbox toward the wheel, motor can toward the centre -->
-      <geom type="mesh" mesh="gearbox" pos=".054 .0485 .033" material="tt"/>
-      <geom type="mesh" mesh="gearbox" pos=".054 -.0485 .033" material="tt"/>
-      <geom type="mesh" mesh="gearbox" pos="-.054 .0485 .033" material="tt"/>
-      <geom type="mesh" mesh="gearbox" pos="-.054 -.0485 .033" material="tt"/>
-      <geom type="cylinder" zaxis="1 0 0" size=".0102 .0105" pos=".02 .0485 .033" material="steel"/>
-      <geom type="cylinder" zaxis="1 0 0" size=".0102 .0105" pos=".02 -.0485 .033" material="steel"/>
-      <geom type="cylinder" zaxis="1 0 0" size=".0102 .0105" pos="-.02 .0485 .033" material="steel"/>
-      <geom type="cylinder" zaxis="1 0 0" size=".0102 .0105" pos="-.02 -.0485 .033" material="steel"/>
+      <body name="motors">
+        <geom type="mesh" mesh="gearbox" pos=".054 .0485 .033" material="tt"/>
+        <geom type="mesh" mesh="gearbox" pos=".054 -.0485 .033" material="tt"/>
+        <geom type="mesh" mesh="gearbox" pos="-.054 .0485 .033" material="tt"/>
+        <geom type="mesh" mesh="gearbox" pos="-.054 -.0485 .033" material="tt"/>
+        <geom type="cylinder" zaxis="1 0 0" size=".0102 .0105" pos=".02 .0485 .033" material="steel"/>
+        <geom type="cylinder" zaxis="1 0 0" size=".0102 .0105" pos=".02 -.0485 .033" material="steel"/>
+        <geom type="cylinder" zaxis="1 0 0" size=".0102 .0105" pos="-.02 .0485 .033" material="steel"/>
+        <geom type="cylinder" zaxis="1 0 0" size=".0102 .0105" pos="-.02 -.0485 .033" material="steel"/>
+      </body>
 
       <!-- 2x18650 pack between the decks -->
-      <geom type="mesh" mesh="battery" pos="-.035 0 .0585" material="plastic_black"/>
-      <geom type="box" size=".022 .0221 .006" pos="-.035 0 .0585" material="label"/>
-      <geom type="box" size=".004 .006 .003" pos="-.069 .01 .0705" material="plastic_white"/>
+      <body name="battery">
+        <geom type="mesh" mesh="battery" pos="-.035 0 .0585" material="plastic_black"/>
+        <geom type="box" size=".022 .0221 .006" pos="-.035 0 .0585" material="label"/>
+        <geom type="box" size=".004 .006 .003" pos="-.069 .01 .0705" material="plastic_white"/>
+      </body>
 
       <!-- IR line-tracking bar under the nose -->
-      <geom type="box" size=".009 .032 .0008" pos=".098 0 .02" material="pcb_black"/>
-      <geom type="cylinder" size=".0022 .011" pos=".098 .024 .0318" material="plastic_black"/>
-      <geom type="cylinder" size=".0022 .011" pos=".098 -.024 .0318" material="plastic_black"/>
-      <geom type="box" size=".0025 .0035 .002" pos=".1 .016 .0175" material="plastic_black"/>
-      <geom type="box" size=".0025 .0035 .002" pos=".1 0 .0175" material="plastic_black"/>
-      <geom type="box" size=".0025 .0035 .002" pos=".1 -.016 .0175" material="plastic_black"/>
+      <body name="line_tracker">
+        <geom type="box" size=".009 .032 .0008" pos=".098 0 .02" material="pcb_black"/>
+        <geom type="cylinder" size=".0022 .011" pos=".098 .024 .0318" material="plastic_black"/>
+        <geom type="cylinder" size=".0022 .011" pos=".098 -.024 .0318" material="plastic_black"/>
+        <geom type="box" size=".0025 .0035 .002" pos=".1 .016 .0175" material="plastic_black"/>
+        <geom type="box" size=".0025 .0035 .002" pos=".1 0 .0175" material="plastic_black"/>
+        <geom type="box" size=".0025 .0035 .002" pos=".1 -.016 .0175" material="plastic_black"/>
+      </body>
 
       <!-- jumper wires: sensor ribbon, servo lead, battery lead -->
-      <geom class="wire" fromto=".104 -.0045 .104 .07 -.0045 .096" rgba=".85 .1 .08 1"/>
-      <geom class="wire" fromto=".104 -.0015 .104 .07 -.0015 .096" rgba=".95 .8 .1 1"/>
-      <geom class="wire" fromto=".104 .0015 .104 .07 .0015 .096" rgba=".1 .65 .25 1"/>
-      <geom class="wire" fromto=".104 .0045 .104 .07 .0045 .096" rgba=".08 .08 .08 1"/>
-      <geom class="wire" fromto=".07 -.0045 .096 .028 -.0045 .0935" rgba=".85 .1 .08 1"/>
-      <geom class="wire" fromto=".07 -.0015 .096 .028 -.0015 .0935" rgba=".95 .8 .1 1"/>
-      <geom class="wire" fromto=".07 .0015 .096 .028 .0015 .0935" rgba=".1 .65 .25 1"/>
-      <geom class="wire" fromto=".07 .0045 .096 .028 .0045 .0935" rgba=".08 .08 .08 1"/>
-      <geom class="wire" fromto=".081 .007 .09 .03 .018 .0935" rgba=".45 .25 .1 1"/>
-      <geom class="wire" fromto=".081 .0085 .09 .03 .0195 .0935" rgba=".85 .1 .08 1"/>
-      <geom class="wire" fromto=".081 .01 .09 .03 .021 .0935" rgba="1 .5 .05 1"/>
-      <geom class="wire" fromto="-.05 .021 .066 -.05 .05 .067" rgba=".85 .1 .08 1"/>
-      <geom class="wire" fromto="-.05 .05 .067 -.03 .052 .092" rgba=".85 .1 .08 1"/>
-      <geom class="wire" fromto="-.054 .021 .066 -.054 .052 .067" rgba=".08 .08 .08 1"/>
-      <geom class="wire" fromto="-.054 .052 .067 -.034 .054 .092" rgba=".08 .08 .08 1"/>
+      <body name="wiring">
+        <geom class="wire" fromto=".104 -.0045 .104 .07 -.0045 .096" rgba=".85 .1 .08 1"/>
+        <geom class="wire" fromto=".104 -.0015 .104 .07 -.0015 .096" rgba=".95 .8 .1 1"/>
+        <geom class="wire" fromto=".104 .0015 .104 .07 .0015 .096" rgba=".1 .65 .25 1"/>
+        <geom class="wire" fromto=".104 .0045 .104 .07 .0045 .096" rgba=".08 .08 .08 1"/>
+        <geom class="wire" fromto=".07 -.0045 .096 .028 -.0045 .0935" rgba=".85 .1 .08 1"/>
+        <geom class="wire" fromto=".07 -.0015 .096 .028 -.0015 .0935" rgba=".95 .8 .1 1"/>
+        <geom class="wire" fromto=".07 .0015 .096 .028 .0015 .0935" rgba=".1 .65 .25 1"/>
+        <geom class="wire" fromto=".07 .0045 .096 .028 .0045 .0935" rgba=".08 .08 .08 1"/>
+        <geom class="wire" fromto=".081 .007 .09 .03 .018 .0935" rgba=".45 .25 .1 1"/>
+        <geom class="wire" fromto=".081 .0085 .09 .03 .0195 .0935" rgba=".85 .1 .08 1"/>
+        <geom class="wire" fromto=".081 .01 .09 .03 .021 .0935" rgba="1 .5 .05 1"/>
+        <geom class="wire" fromto="-.05 .021 .066 -.05 .05 .067" rgba=".85 .1 .08 1"/>
+        <geom class="wire" fromto="-.05 .05 .067 -.03 .052 .092" rgba=".85 .1 .08 1"/>
+        <geom class="wire" fromto="-.054 .021 .066 -.054 .052 .067" rgba=".08 .08 .08 1"/>
+        <geom class="wire" fromto="-.054 .052 .067 -.034 .054 .092" rgba=".08 .08 .08 1"/>
+      </body>
 
       <!-- UNO and the SmartCar shield on the upper deck -->
-      <geom type="cylinder" size=".0022 .003" pos=".025 .022 .078" material="brass"/>
-      <geom type="cylinder" size=".0022 .003" pos="-.04 -.022 .078" material="brass"/>
-      <geom type="box" size=".0343 .0267 .0008" pos="-.008 0 .0818" material="pcb"/>
-      <geom type="box" size=".008 .006 .0055" pos="-.039 .012 .088" material="steel"/>
-      <geom type="box" size=".007 .0045 .0055" pos="-.039 -.016 .088" material="plastic_black"/>
-      <geom type="box" size=".0343 .0267 .0008" pos="-.008 0 .0915" material="pcb"/>
-      <geom type="box" size=".025 .0013 .0045" pos="-.006 .0245 .0868" material="plastic_black"/>
-      <geom type="box" size=".025 .0013 .0045" pos="-.006 -.0245 .0868" material="plastic_black"/>
-      <geom type="box" size=".0035 .022 .0028" pos=".022 0 .0951" material="plastic_white"/>
-      <geom type="box" size=".012 .0035 .0028" pos="-.012 .021 .0951" material="plastic_white"/>
-      <geom type="box" size=".012 .0035 .0028" pos="-.012 -.021 .0951" material="plastic_white"/>
-      <geom type="box" size=".0012 .0012 .0006" pos="-.036 -.004 .0928" material="led_green"/>
-      <geom type="box" size=".0018 .0018 .0008" pos=".012 .008 .0929" material="led_rgb"/>
+      <body name="board">
+        <geom type="cylinder" size=".0022 .003" pos=".025 .022 .078" material="brass"/>
+        <geom type="cylinder" size=".0022 .003" pos="-.04 -.022 .078" material="brass"/>
+        <geom type="box" size=".0343 .0267 .0008" pos="-.008 0 .0818" material="pcb"/>
+        <geom type="box" size=".008 .006 .0055" pos="-.039 .012 .088" material="steel"/>
+        <geom type="box" size=".007 .0045 .0055" pos="-.039 -.016 .088" material="plastic_black"/>
+        <geom type="box" size=".0343 .0267 .0008" pos="-.008 0 .0915" material="pcb"/>
+        <geom type="box" size=".025 .0013 .0045" pos="-.006 .0245 .0868" material="plastic_black"/>
+        <geom type="box" size=".025 .0013 .0045" pos="-.006 -.0245 .0868" material="plastic_black"/>
+        <geom type="box" size=".0035 .022 .0028" pos=".022 0 .0951" material="plastic_white"/>
+        <geom type="box" size=".012 .0035 .0028" pos="-.012 .021 .0951" material="plastic_white"/>
+        <geom type="box" size=".012 .0035 .0028" pos="-.012 -.021 .0951" material="plastic_white"/>
+        <geom type="box" size=".0012 .0012 .0006" pos="-.036 -.004 .0928" material="led_green"/>
+        <geom type="box" size=".0018 .0018 .0008" pos=".012 .008 .0929" material="led_rgb"/>
+      </body>
 
       <!-- marker 0, 95 mm, on a white card at 0.1 m, top edge forward -->
-      <geom type="cylinder" size=".002 .0018" pos=".045 .045 .0972" material="plastic_white"/>
-      <geom type="cylinder" size=".002 .0018" pos="-.045 -.045 .0972" material="plastic_white"/>
-      <geom type="box" size=".064 .064 .0005" pos="0 0 .0994" material="plastic_white"/>
-      <geom name="marker" type="box" size=".0633 .0633 .00002" pos="0 0 .09998" euler="0 0 -90" material="card"/>
+      <body name="marker_card">
+        <geom type="cylinder" size=".002 .0018" pos=".045 .045 .0972" material="plastic_white"/>
+        <geom type="cylinder" size=".002 .0018" pos="-.045 -.045 .0972" material="plastic_white"/>
+        <geom type="box" size=".064 .064 .0005" pos="0 0 .0994" material="plastic_white"/>
+        <geom name="marker" type="box" size=".0633 .0633 .00002" pos="0 0 .09998" euler="0 0 -90" material="card"/>
+      </body>
 
       <!-- SG90 servo and the HC-SR04 eyes -->
-      <geom type="box" size=".0115 .006 .011" pos=".09 0 .0855" material="servo"/>
-      <geom type="box" size=".016 .006 .0012" pos=".09 0 .0925" material="servo"/>
-      <geom type="cylinder" size=".0035 .0025" pos=".095 0 .099" material="plastic_white"/>
-      <geom type="box" size=".006 .022 .0012" pos=".1 0 .1015" material="plastic_black"/>
-      <geom type="box" size=".0008 .0225 .0105" pos=".1065 0 .109" material="pcb"/>
-      <geom type="cylinder" zaxis="1 0 0" size=".0081 .006" pos=".1133 .0132 .109" material="steel"/>
-      <geom type="cylinder" zaxis="1 0 0" size=".0081 .006" pos=".1133 -.0132 .109" material="steel"/>
-      <geom type="cylinder" zaxis="1 0 0" size=".0066 .0002" pos=".1194 .0132 .109" material="pcb_black"/>
-      <geom type="cylinder" zaxis="1 0 0" size=".0066 .0002" pos=".1194 -.0132 .109" material="pcb_black"/>
-      <geom type="box" size=".0015 .004 .0018" pos=".109 0 .1155" material="steel"/>
+      <body name="sensor">
+        <geom type="box" size=".0115 .006 .011" pos=".09 0 .0855" material="servo"/>
+        <geom type="box" size=".016 .006 .0012" pos=".09 0 .0925" material="servo"/>
+        <geom type="cylinder" size=".0035 .0025" pos=".095 0 .099" material="plastic_white"/>
+        <geom type="box" size=".006 .022 .0012" pos=".1 0 .1015" material="plastic_black"/>
+        <geom type="box" size=".0008 .0225 .0105" pos=".1065 0 .109" material="pcb"/>
+        <geom type="cylinder" zaxis="1 0 0" size=".0081 .006" pos=".1133 .0132 .109" material="steel"/>
+        <geom type="cylinder" zaxis="1 0 0" size=".0081 .006" pos=".1133 -.0132 .109" material="steel"/>
+        <geom type="cylinder" zaxis="1 0 0" size=".0066 .0002" pos=".1194 .0132 .109" material="pcb_black"/>
+        <geom type="cylinder" zaxis="1 0 0" size=".0066 .0002" pos=".1194 -.0132 .109" material="pcb_black"/>
+        <geom type="box" size=".0015 .004 .0018" pos=".109 0 .1155" material="steel"/>
+      </body>
 
       <body name="fl" pos=".065 .0725 .0325" childclass="wheel">
         <joint name="fl"/><site name="fl" size=".034" rgba="0 0 0 0"/><geom class="grip"/><geom class="disc"/><geom class="hub"/><geom class="recess"/><geom class="cap"/>

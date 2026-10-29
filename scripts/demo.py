@@ -2,7 +2,8 @@
 
 --sim rehearses on a simulated floor, --mujoco on the physics twin with the 3D ghost view. Type a command on stdin
 or in the dashboard ("deliver to red", "learn", "stop"), or change the simulated body mid-run: "weight" or "tow",
-and on --mujoco also "slippery" or "flip". --dry shows the camera, pose and dashboard without driving.
+and on --mujoco also "slippery" or "flip", or "pause", "resume", "speed 0.5". --dry shows the camera, pose and
+dashboard without driving. On --mujoco the 3D view takes the mouse: drag to orbit, scroll to zoom, click a part.
 """
 
 import argparse
@@ -18,12 +19,14 @@ from airo.body import cloud, load
 from airo.control import recentre
 from airo.mission import Mission
 from airo.mjsim import WEIGHT_KG, MjRig
+from airo.orbit import PARTS, VIEWS, Orbit
 from airo.rig import RigAbort, add_args, body_path, open_rig
 from airo.scientist import Scientist
 from airo.server import Dashboard
 from airo.sim import SimRig, world
 
-FPS = 15
+FPS = 24
+VIEW = (1600, 900)
 HORIZON = 1.2
 
 
@@ -39,6 +42,15 @@ def scientist(rig, path) -> Scientist:
 
 def change_body(rig, what: str) -> bool:
     if isinstance(rig, MjRig):
+        if what in ("pause", "resume"):
+            rig.paused = what == "pause"
+            return True
+        if what.startswith("speed "):
+            try:
+                rig.set_speed(float(np.clip(float(what[6:]), 0.1, 4)))
+            except ValueError:
+                return False
+            return True
         change = {"weight": lambda: rig.add_weight(WEIGHT_KG), "tow": rig.attach_tow, "slippery": rig.slippery_patch,
                   "flip": lambda: rig.flip_motor("l")}.get(what)
         if change:
@@ -76,16 +88,24 @@ async def route(rig, commands: asyncio.Queue, inbox: asyncio.Queue, dry: bool = 
 
 
 async def film(rig: MjRig, sci: Scientist, dash: Dashboard):
-    """Chase camera plus the ghost cloud over the next HORIZON seconds. Runs on the event loop: the rig's GL
-    context belongs to the thread that steps it."""
-    last = None
+    """The interactive 3D view plus the ghost cloud over the next HORIZON seconds. Runs on the event loop: the
+    rig's GL context belongs to the thread that steps it."""
+    orbit, last = Orbit(rig, VIEW), None
     while True:
         tick = time.monotonic()
-        if (p := rig.pose) and p.t != last:
+        while not dash.camera.empty():
+            req, fut = dash.camera.get_nowait()
+            if not fut.done():
+                fut.set_result(orbit.handle(req))
+        dash.sim = {"camera": True, "paused": rig.paused, "speed": rig.speed, "presets": list(VIEWS),
+                    "parts": list(PARTS), "changes": rig.changes}
+        p = rig.pose
+        if fresh := p and p.t != last:
             last = p.t
             t = np.linspace(p.t, p.t + HORIZON, 13)
             rig.render_ghosts(cloud(sci.members, t, *rig.history, (p.x, p.y, p.theta)), 0.1)
-            dash.set_view(rig.view(1280, 720))
+        if fresh or orbit.moving:
+            dash.set_view(rig.view(*VIEW, orbit.update()))
         await asyncio.sleep(max(0.0, tick + 1 / FPS - time.monotonic()))
 
 

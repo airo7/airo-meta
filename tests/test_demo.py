@@ -34,8 +34,12 @@ def test_mujoco_demo_steps_publishes_the_view_and_routes_body_changes(tmp_path):
                                                  demo.route(rig, dash.commands, mission.inbox))]
         dash.commands.put_nowait("weight")
         dash.commands.put_nowait("how are you doing")
+        dash.commands.put_nowait("speed 2")
+        cam = asyncio.get_running_loop().create_future()
+        dash.camera.put_nowait(({"preset": "iso"}, cam))
         while rig.t < 0.5:
             await asyncio.sleep(0.01)
+        assert (await cam)["camera"]["preset"] == "iso"
         for j in jobs:
             j.cancel()
         await asyncio.gather(*jobs, return_exceptions=True)
@@ -46,5 +50,6 @@ def test_mujoco_demo_steps_publishes_the_view_and_routes_body_changes(tmp_path):
     assert isinstance(rig, MjRig) and rig.realtime and rig.tracker is not None
     assert rig.m.body_subtreemass[1] > 0.94 + demo.WEIGHT_KG - 0.01
     assert "Body #0 prior" in mission.notes[-1]["text"]
-    assert jpeg(dash, "view").shape == (720, 1280, 3) and jpeg(dash, "video").shape == (560, 800, 3)
+    assert rig.speed == 2 and dash.sim["camera"] and dash.sim["changes"] == ["weight"]
+    assert jpeg(dash, "view").shape == (900, 1600, 3) and jpeg(dash, "video").shape == (560, 800, 3)
     assert dash.state["status"] == "idle"
