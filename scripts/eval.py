@@ -217,7 +217,7 @@ async def patrol(m: Mission):
                  v_max=m.v_max)
 
 
-async def carry_episode(seed: int, learned) -> list[dict]:
+async def carry_episode(seed: int, learned) -> tuple[list[dict], dict]:
     """Three robots share one library seeded with the bare body. Each check_body is graded against the real load:
     the body it ends on must have been learned under the same load, a light tote and none counting as alike."""
     from airo.fleet import Fleet, crew
@@ -272,10 +272,13 @@ async def carry_episode(seed: int, learned) -> list[dict]:
         for rig in rigs:
             await rig.close()
         rigs[0].world.close()
-    return rows
+    done = {r.id: sum(n["text"].startswith("Delivered a") for n in r.mission.notes) for r in f.robots}
+    stops = {r.id: n["text"] for r in f.robots for n in r.mission.notes if n["text"].startswith("Safety stop")}
+    print(f"seed {seed} delivered {done}{f', stopped: {stops}' if stops else ''}", flush=True)
+    return rows, {"seed": seed, "delivered": done, "stops": stops}
 
 
-def carry_table(rows: list[dict]) -> str:
+def carry_table(rows: list[dict], runs: list[dict]) -> str:
     out = ["| load | checks | right body | same | recalled | learned | median s | max s |", "|---|---|---|---|---|---|---|---|"]
     for truth in ("heavy", "light", "bare"):
         rs = [r for r in rows if r["truth"] == truth]
@@ -283,6 +286,9 @@ def carry_table(rows: list[dict]) -> str:
         out.append(f"| {'unloaded' if truth == 'bare' else truth + ' tote'} | {len(rs)} | "
                    f"{_rate([r['right'] for r in rs])} | {n['same']} | {n['recalled']} | {n['learned']} | "
                    f"{_med([r['seconds'] for r in rs])} | {max((r['seconds'] for r in rs), default=0):.1f} |")
+    jobs = len(runs) * sum(map(len, CARRY))
+    out.append(f"\nDelivered {sum(sum(r['delivered'].values()) for r in runs)}/{jobs}; safety stops: "
+               f"{sum(len(r['stops']) for r in runs)}.")
     return "\n".join(out)
 
 
@@ -336,14 +342,15 @@ async def main(args):
 
     if not args.wonder:
         meta_api.wonder = meta_api.describe = offline
-    learned, episodes, recalls, carries = [], [], [], []
+    learned, episodes, recalls, carries, carry_runs = [], [], [], [], []
     for seed in range(args.n):
         row, body = await learn(args.rig, seed)
         learned.append(row)
         if "recall" in args.changes:
             recalls += await recall_episode(args.rig, seed, body)
-        if "carry" in args.changes:
-            carries += await carry_episode(seed, body) if args.rig == "mujoco" else []
+        if "carry" in args.changes and args.rig == "mujoco":
+            rows, run_ = await carry_episode(seed, body)
+            carries, carry_runs = carries + rows, carry_runs + [run_]
         for name in (c for c in args.changes if c not in ("recall", "carry")):
             episodes.append(await episode(args.rig, seed, name, body))
             e = episodes[-1]
@@ -353,10 +360,11 @@ async def main(args):
     if recalls:
         print(f"\n{recall_table(recalls)}")
     if carries:
-        print(f"\n{carry_table(carries)}")
+        print(f"\n{carry_table(carries, carry_runs)}")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps({"rig": args.rig, "n": args.n, "learn": learned, "episodes": episodes,
-                                         "recall": recalls, "carry": carries},
+                                         "recall": recalls, "carry": carries,
+                                         "carry_runs": carry_runs},
                                          indent=1, default=float))
     print(f"\nwrote {args.out}")
 
