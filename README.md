@@ -133,11 +133,11 @@ fetch six heavy (0.8 kg) and light (0.2 kg) totes; every check after a load or u
 
 | | normal warehouse | calm warehouse |
 |---|---|---|
-| Heavy tote: right body (learned / recalled), median check | 44/44 (5 / 39), 2.1 s | 45/45 (5 / 40), 2.1 s |
-| Light tote: right body, all "same", median check | 43/43, 3.7 s | 43/44, 3.7 s |
-| Unloaded: right body (same / recalled), median check | 87/87 (43 / 44), 2.1 s | 88/88 (42 / 46), 2.1 s |
+| Heavy tote: right body (learned / recalled), median check | 41/41 (5 / 36), 2.1 s | 45/45 (5 / 40), 2.1 s |
+| Light tote: right body, all "same", median check | 40/40, 3.7 s | 45/45, 3.7 s |
+| Unloaded: right body (same / recalled), median check | 81/81 (40 / 41), 2.1 s | 90/90 (45 / 45), 2.1 s |
 | Surprise relearns (none are real changes here) | 0 | 0 |
-| Delivered | 87/90 | 88/90 |
+| Delivered | 81/90 (one run's robots could not reach their bays) | 90/90 |
 
 A relearn must confirm in every regime the surprise happened in: a pivot or arc if the car was turning, a step if it
 was driving straight, each predicted tightly (±3 cm, ±6°) and within 2σ. Before relearning, AIRO checks its memory:
@@ -145,7 +145,7 @@ a remembered body whose cloud explains the surprising window is tried with one c
 takes back that body's number. Relearning finds a reversed motor by restarting the fit with each gain's sign flipped
 and says so ("the left motor runs backwards"). Besides the median of three windows passing 3, surprise also fires when
 it stays raised: windows above 1.8 add their excess, each capped at the threshold, and a sum past 3 triggers, so a tow
-on a loaded car (about 2.4 per window) is caught. A body check after a load runs one pivot, a second the other way
+on a loaded car (about 2.4 per window) is caught. A body check after a load runs one pivot (the largest the bay has room for), a second the other way
 when two remembered bodies explain it about equally well, and keeps the current body unless another is clearly more
 likely. A towed box is a drag force the body model has no term for; its
 slack string in reverse and its swing in pivots stay unmodelled. An unconfirmed relearn continues at 0.6× speed; one
