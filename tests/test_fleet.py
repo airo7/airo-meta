@@ -170,3 +170,19 @@ def test_guard_holds_still_rather_than_drive_into_another_car():
 
     assert asyncio.run(run()) == (b, None)
     assert a.history[1].tolist() == [[0, 0], [-100, 100]]
+
+
+def test_in_a_standoff_the_higher_numbered_car_gives_way_and_any_car_gives_way_to_a_parked_one():
+    site = replace(FACTORY, starts=((1.0, 1.0, 0.0), (1.3, 1.02, math.pi)))
+    a, b = fleet(site, 2)
+    guards = {}
+    ga, gb = Guard(a, lambda: [b], guards=guards, rank=0), Guard(b, lambda: [a], guards=guards, rank=1)
+
+    async def run():
+        await ga.step(120, 120)
+        alone = ga.should_yield(), gb.should_yield()
+        await gb.step(120, 120)
+        return alone, (ga.should_yield(), gb.should_yield())
+
+    # b stands still: a gives way to it; once b also waits for a, b gives way
+    assert asyncio.run(run()) == ((True, False), (False, True))

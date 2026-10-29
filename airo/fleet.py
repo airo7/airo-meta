@@ -62,10 +62,22 @@ class Guard:
     (behind, when reversing), or into a hazard: a person in the same reach, or a thing (the forklift, a dropped
     pallet) just short of its bumper. Turning in place is always allowed."""
 
-    def __init__(self, rig, others: Callable[[], list], hazards: Callable[[], list] = list):
+    def __init__(self, rig, others: Callable[[], list], hazards: Callable[[], list] = list,
+                 guards: dict | None = None, rank: int = 0):
         self.rig, self._others, self._hazards = rig, others, hazards
         self.blocked_by = None
         self._seen: dict = {}
+        self._guards, self.rank = guards if guards is not None else {}, rank
+        self._guards[rig] = self
+
+    def should_yield(self) -> bool:
+        """Whether to back off after standing too long for another car. Replanning from where it stands only finds
+        paths that hug the other car and stop again. A car standing still (loading, feeling its body) never moves
+        out of the way, so give way to it; two cars stopped for each other: the higher-numbered one gives way."""
+        other = next((g for rig, g in self._guards.items() if rig is self.blocked_by), None)
+        if other is None:
+            return False
+        return other.blocked_by is not self.rig or self.rank > other.rank
 
     def __getattr__(self, name):
         return getattr(self.rig, name)
@@ -154,8 +166,9 @@ def crew(site: Site, rigs: list, scientist: Callable, mode: str = "sim", body_pa
     carry = site.mode == "carry"
     life = getattr(getattr(rigs[0], "world", None), "life", None)
     hazards = life.hazards if life is not None else list
+    guards: dict = {}
     for k, rig in enumerate(rigs):
-        guard = Guard(rig, lambda rig=rig: [r for r in rigs if r is not rig], hazards) \
+        guard = Guard(rig, lambda rig=rig: [r for r in rigs if r is not rig], hazards, guards, k) \
             if len(rigs) > 1 or life is not None else None
         driven = guard or rig
         sci = scientist(driven, robot(k)["id"])

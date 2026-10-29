@@ -38,6 +38,8 @@ CAUTION = 0.6
 BLOCKED_S = 2.0
 PERSON_S = 8.0
 PEOPLE_CLEAR = 0.6
+GIVE_WAY_S = 1.2
+GIVE_WAY_PWM = 90
 WAIT_S = 1.0
 CLEAR = 0.3
 BAY_RUN = 0.3
@@ -364,9 +366,18 @@ class Mission:
             except Surprised as e:
                 await self.relearn(str(e))
             except (Stuck, Blocked):
+                if getattr(self.rig, "should_yield", lambda: False)():
+                    await self._give_way()
                 for _ in range(round(WAIT_S / DT)):
                     await self.rig.step(0, 0)
         raise Blocked(f"Could not get to ({pose[0]:.2f}, {pose[1]:.2f}).")
+
+    async def _give_way(self):
+        """Back off a little, straight, so the robot this one is deadlocked with has room to pass; the guard still
+        stops it for anything behind."""
+        for _ in range(round(GIVE_WAY_S / DT)):
+            await self.rig.step(-GIVE_WAY_PWM, -GIVE_WAY_PWM)
+        await self.rig.stop()
 
     def moved(self):
         """After every watched step on a carry site: give up the bay just left once clear of it, and notice a robot
@@ -609,6 +620,19 @@ class Mission:
                 "elapsed_s": self.relearned_s if self._relearn_end else self.rig.pose.t - self._relearn_rig0,
                 "probe": ran[-1].get("probe", "") if ran else "", "step": len(ran), "steps": RELEARN_PROBES}
 
+    async def _next_event(self, timeout: float | None):
+        """Wait until the job ends or a command comes in. Never on the wall clock alone, unless publishing: in
+        lockstep simulation a car whose loop wakes on wall time joins the world's schedule at a moment set by the
+        host's load, which made fleet runs differ from one run to the next."""
+        get = asyncio.ensure_future(self.inbox.get())
+        try:
+            done, _ = await asyncio.wait({self._task, get}, timeout=timeout, return_when=asyncio.FIRST_COMPLETED)
+        finally:
+            if not get.done():
+                get.cancel()
+        if get in done:
+            await self.handle(get.result())
+
     async def run(self, dash=None):
         """Consume commands, keep the rig ticking while idle, publish at ~10 Hz. "stop" always wins."""
         last = -math.inf
@@ -616,7 +640,7 @@ class Mission:
             while not self.inbox.empty():
                 await self.handle(self.inbox.get_nowait())
             if self.busy:
-                await asyncio.sleep(DT)
+                await self._next_event(timeout=DT if dash else None)
             else:
                 try:
                     await self.rig.step(0, 0)
