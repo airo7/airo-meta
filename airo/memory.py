@@ -88,6 +88,14 @@ class Memory:
         self.save()
         return e
 
+    def update(self, e: Entry, name: str, body: Body, members: list[Body], verified: bool):
+        """A partly learned entry completed by a later relearn keeps its number."""
+        e.name, e.body, e.members, e.verified = name, body, list(members), verified
+        if verified and self.robot not in e.tested:
+            e.tested.append(self.robot)
+        self.active[self.robot] = e.n
+        self.save()
+
     def recall(self, e: Entry):
         e.recalls += 1
         self.active[self.robot] = e.n

@@ -24,6 +24,12 @@ CONFIRM_Z = 2.0
 CONFIRM_TOL = np.array([3.0, 3.0, 6.0])
 MEASURES = {"step": "per-side gain, drift kappa, delay", "ramp": "dead zone", "pivot": "pivot efficiency eta",
             "arc": "mixing law, side gains", "pulse": "delay tau, coast"}
+# check_body: one pivot decides same / remembered / new; a new body then gets a forward step if the bay allows it,
+# since pivots alone only see eta times gain.
+CHECK = "pivot_l_100"
+CHECK_PLAN = ["step_60", "step_back_60", "pivot_r_150", "pivot_l_60"]
+# A surprise relearn this soon after check_body left a body unverified completes that entry rather than minting one.
+MERGE_S = 60.0
 UNITS = ("cm forward", "cm lateral", "deg turn")
 LOOK = "In one short line: is anything attached to, sitting on or towed behind the small robot car?"
 
@@ -60,7 +66,7 @@ TOOLS = [
 # safe probes, so Wonder needs no refit, predict, get_body or list_probes turns: each Wonder turn costs ~6 s.
 RELEARN_TOOLS = [t for t in TOOLS if t["function"]["name"] in ("run_probe", "conclude")]
 # Wonder thinking time per relearn, after which the scripted policy finishes it.
-WONDER_S = 20.0
+WONDER_S = 12.0
 RECALL = _fn("recall", "Adopt a remembered body and test it with one confirming probe. Confirmed ends the relearn; "
                        "otherwise relearn as usual. Skip it to relearn without trying.",
              n={"type": "integer", "description": "body number of a memory candidate"})
@@ -163,6 +169,8 @@ class Scientist:
         self._candidates: list[Entry] = []
         self._cause = ""
         self._looking: asyncio.Task | None = None
+        self._unfinished: tuple[float, int, Body] | None = None
+        self._merge: int | None = None
         self._t0 = 0.0
 
     def adopt(self, e: Entry):
@@ -192,6 +200,9 @@ class Scientist:
                 f"predicted {_fmt(pred)}; measured {_fmt(meas)}")
         await self._note("alert", f"Body changed, {what}.", predicted=pred, measured=meas)
         before, self._t0, self._cause = self.best, self.rig.pose.t, what
+        merge, self._unfinished = self._unfinished, None
+        if merge and self._t0 - merge[0] < MERGE_S:
+            self._merge, before = merge[1], merge[2]
         self.segments, self._stale, self._anchor, self._verify = [window_seg], True, self.best, True
         self._needed = regimes(window_seg)
         self._candidates = [e for e, _ in matches]
@@ -211,7 +222,7 @@ class Scientist:
                             f"{'recall or ' if matches else ''}run_probe.", RELEARN, budget, start=before,
                             tools=RELEARN_TOOLS + [RECALL] if matches else RELEARN_TOOLS, wonder_s=WONDER_S)
         await self._seen()
-        self._candidates = []
+        self._candidates, self._merge = [], None
         return time.monotonic() - t0
 
     async def _seen(self) -> str | None:
@@ -373,15 +384,78 @@ class Scientist:
             self.best, self.members, self._stale = *keep, True
             await self._emit()
             return {**out, "recalled": None, "next": f"not Body #{n}: refit, then relearn with probes"}
+        await self._recalled(e, probe, out["predicted"], out["measured"], out["z"])
+        self._done = True
+        return {"recalled": e.n, "z": out["z"]}
+
+    async def _recalled(self, e: Entry, probe: str, pred: dict, meas: dict, z: dict):
         self.memory.recall(e)
         self.adopt(e)
-        self.verified = self._done = True
+        self.verified = True
         secs = self.rig.pose.t - self._t0
         await self._note("recall", f"I know this one: Body #{e.n}, {e.name}, recalled in {secs:.1f} s with one "
-                                   f"probe ({_verdict(probe, out['predicted'], out['measured'])}).",
-                         n=e.n, name=e.name, predicted=out["predicted"], measured=out["measured"], z=out["z"],
-                         recall_s=secs)
-        return {"recalled": e.n, "z": out["z"]}
+                                   f"probe ({_verdict(probe, pred, meas)}).",
+                         n=e.n, name=e.name, predicted=pred, measured=meas, z=z, recall_s=secs)
+
+    async def check_body(self, cause: str) -> dict:
+        """After a known load or unload, parked at a cell: one in-place pivot tells whether the body is the same, a
+        remembered one, or new; a new one is then learned at the cell. Scripted throughout, so driving never waits
+        on Wonder. The car never recentres here, and straight probes run only where safe() allows."""
+        before, recentre, self.recentre = self.best, self.recentre, None
+        self._t0, self._cause, self._unfinished, self._merge = self.rig.pose.t, cause, None, None
+        self.segments, self._stale, self._anchor, self._verify, self._fallback = [], False, before, True, False
+        self._ran, self._budget, self._confirmed, self._start = [], 1 + len(CHECK_PLAN), {}, before
+        self._needed = {"straight", "turn"}
+        try:
+            await halt(self.rig)
+            await self._note("alert", f"{cause}: checking my body with {CHECK}.")
+            start = self._pose()
+            out = await self.run_probe(CHECK, f"If my body did not change, {CHECK} lands in the current cloud.")
+            if "error" in out:
+                result = "same"
+            elif out["confirmed"] or (fit := self._explains(LIBRARY[CHECK], start, out)) == "current":
+                result = "same"
+                await self._note("result", f"Same body: Body #{self.n} ({self.name}) still explains {CHECK}.")
+            elif fit:
+                result = "recalled"
+                await self._recalled(*fit)
+            else:
+                result = "learned"
+                await self._learn_here(cause, before)
+        finally:
+            self.recentre = recentre
+        return {"result": result, "n": self.n, "name": self.name, "seconds": self.rig.pose.t - self._t0}
+
+    def _explains(self, p, start, out: dict) -> str | tuple | None:
+        """Which body explains the check probe: "current", recall args for a remembered one, or None. The bodies are
+        a few discrete hypotheses, and a fit from pivots predicts turn only to ~10%, often |z| > 2 at a 2° floor; so
+        the best body is taken when it is within |z| < 4 and every other body is at least 3x further off."""
+        meas = out["measured"]
+        scored = [(max(map(abs, out["z"].values())), "current", out["predicted"])]
+        for e in self.memory.entries:
+            if e.n != self.n:
+                pred = predict(e.members, p, start)
+                z = zscore(pred, meas)
+                scored.append((max(map(abs, z.values())), (e, p.name, pred, meas, z), pred))
+        scored = sorted((s for s in scored if (np.hypot([s[2][q][1] for q in QTY], FLOOR) <= CONFIRM_TOL).all()),
+                        key=lambda s: s[0])
+        if not scored or scored[0][0] >= 2 * CONFIRM_Z or any(s[0] <= 3 * scored[0][0] for s in scored[1:]):
+            return None
+        return scored[0][1]
+
+    async def _learn_here(self, cause: str, before: Body):
+        for name in CHECK_PLAN:
+            if self._needed <= self._confirmed.keys():
+                break
+            if regime(name) in self._confirmed or not safe(self.rig, LIBRARY[name], self.best):
+                continue
+            await self.run_probe(name, f"After the refit, {name} lands in the new cloud.")
+        self._budget = len(self._ran)
+        moved = [f"{k} {v:+.0f}%" for k, v in (await self.refit())["change_pct"].items() if abs(v) >= 10]
+        await self.conclude(f"{cause}: {', '.join(moved) or 'no parameter moved 10% or more'}.",
+                            describe(before, self.best))
+        if not self.verified:
+            self._unfinished = (self.rig.pose.t, self.n, before)
 
     async def refit(self) -> dict:
         if self._stale and self.segments:
@@ -411,8 +485,11 @@ class Scientist:
             done = "; ".join(self._confirmed.values())
             text += (f" Confirmed: {done}." if self.verified else
                      f" Partial fit, continuing with caution{f' (confirmed only {done})' if done else ''}.")
-        e = self.memory.add(body_name, self._cause if self._verify else "learned from scratch", self.best,
-                            self.members, self.verified, n=max(self.memory.next_n(), self.n + 1))
+        if self._merge and (e := self.memory.get(self._merge)):
+            self.memory.update(e, body_name, self.best, self.members, self.verified)
+        else:
+            e = self.memory.add(body_name, self._cause if self._verify else "learned from scratch", self.best,
+                                self.members, self.verified, n=max(self.memory.next_n(), self.n + 1))
         self.n, self.name = e.n, body_name
         self._done = True
         await self._note("conclusion", text, n=self.n, name=body_name, body=asdict(self.best))
