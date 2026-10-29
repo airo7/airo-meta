@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -8,7 +9,8 @@ import pytest
 
 from airo.body import Body, Segment, ensemble, save
 from airo.memory import Memory, since_change
-from airo.probes import LIBRARY
+from airo.probes import LIBRARY, commands
+from airo.rig import DT
 from airo.scientist import Scientist
 from airo.sim import SimRig
 from test_scientist import HEAVY, TRUTH, drive, fake_wonder, results, teleport
@@ -188,3 +190,74 @@ def test_check_body_without_room_learns_partly_and_the_next_relearn_completes_it
     window = asyncio.run(changed(rig, HEAVY))
     asyncio.run(sci.relearn(window))
     assert sci.n == 2 and len(sci.memory.entries) == 2 and sci.verified and sci.memory.get(2).verified
+
+
+@pytest.fixture
+def carried(library, monkeypatch, tmp_path):
+    """A parked car whose library holds Body #1 (bare) and Body #2 (heavy), both learned with the full schedule."""
+    sci, _ = scientist(library, monkeypatch, tmp_path, 1, TRUTH)
+    sci.rig._truth.append((sci.rig.t, 1.0, 0.7, 0.0))
+    asyncio.run(sci.rig.step(0, 0))
+    return sci
+
+
+def test_a_light_tote_within_noise_is_the_same_body(carried):
+    carried.rig.truth = replace(TRUTH, g_l=TRUTH.g_l * 0.97, g_r=TRUTH.g_r * 0.97, eta=TRUTH.eta * 0.99)
+    assert asyncio.run(carried.check_body("loaded a light tote"))["result"] == "same"
+
+
+def test_a_vague_current_body_does_not_keep_a_changed_car(carried):
+    """Unloaded while on a heavy body whose cloud is wide enough to fit the bare car at |z| < 2: the tight bare body
+    is far more likely, so it is recalled rather than "same"."""
+    tote = replace(TRUTH, g_l=TRUTH.g_l * 0.9, g_r=TRUTH.g_r * 0.9)
+    vague = carried.memory.add("heavy tote, vague", "", tote, [replace(tote, g_l=tote.g_l * f, g_r=tote.g_r * f)
+                                                              for f in np.linspace(0.92, 1.08, 6)], True)
+    carried.adopt(vague)
+    out = asyncio.run(carried.check_body("unloaded"))
+    assert (out["result"], out["n"]) == ("recalled", 1)
+
+
+def test_a_check_bumped_once_is_decided_by_the_repeat(carried, monkeypatch):
+    bumps = probes_run(monkeypatch, [0.15])
+    carried.rig.truth = HEAVY
+    out = asyncio.run(carried.check_body("loaded a heavy tote"))
+    assert (out["result"], out["n"], len(carried.memory.entries)) == ("recalled", 2, 2) and not bumps
+
+
+def test_a_check_bumped_twice_keeps_the_body_and_learns_nothing(carried, monkeypatch):
+    probes_run(monkeypatch, [0.15, -0.1])
+    out = asyncio.run(carried.check_body("loaded a heavy tote"))
+    assert (out["result"], out["n"], len(carried.memory.entries)) == ("same", 1, 2)
+    assert "something is moving the car" in carried.notebook[-1]["text"]
+
+
+def test_a_probe_the_rig_ran_long_is_scored_on_what_it_ran(carried, monkeypatch):
+    """A car that falls behind in a busy world holds each command longer than planned."""
+    async def held(rig, p):
+        t0 = rig.pose.t
+        for l, r in commands(p):
+            for _ in range(2):
+                await rig.step(int(l), int(r))
+        return rig.segment(t0 + DT / 2)
+
+    monkeypatch.setattr("airo.scientist.run", held)
+    assert asyncio.run(carried.check_body("loaded a light tote"))["result"] == "same"
+
+
+def probes_run(monkeypatch, shoves: list[float]) -> list[float]:
+    """The scientist's probe runner, shoving the car sideways (m, and as many rad) halfway through the next runs."""
+    from airo.probes import run
+
+    async def bumped(rig, p):
+        if not shoves:
+            return await run(rig, p)
+        d, t0 = shoves.pop(0), rig.pose.t
+        for i, (l, r) in enumerate(commands(p)):
+            if i == 10:
+                x, y, th = rig.true_pose
+                rig._truth.append((rig.t, x - d * np.sin(th), y + d * np.cos(th), th + 4 * d))
+            await rig.step(int(l), int(r))
+        return rig.segment(t0 + DT / 2)
+
+    monkeypatch.setattr("airo.scientist.run", bumped)
+    return shoves

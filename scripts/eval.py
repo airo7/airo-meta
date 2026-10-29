@@ -2,7 +2,9 @@
 
 The scientist runs its scripted policy unless --wonder. Each seed learns once; every condition then delivers on a
 fresh rig from the learned body. The recall condition instead patrols a loop through weight on, off and on again: it
-should relearn the first change, then recall the bodies it has been. Prints markdown tables, writes data/eval.json.
+should relearn the first change, then recall the bodies it has been. The carry condition (--rig mujoco --changes
+carry) runs three robots on the factory, each fetching heavy and light totes, and grades every check_body against
+the real load. Prints markdown tables, writes data/eval.json.
 """
 
 import argparse
@@ -51,6 +53,15 @@ MJ_CHANGES = {
 PATROL = [(1.5, 0.55), (1.5, 0.9), (0.7, 0.9), (0.7, 0.55)]
 LEGS = 4
 RECALL_STAGES = [("weight on", "relearn", 2), ("weight off", "recall", 1), ("weight on", "recall", 2)]
+CARRY = [[("heavy", "assembly"), ("light", "qa"), ("heavy", "packing"), ("light", "dock"), ("heavy", "qa"),
+          ("light", "assembly")],
+         [("heavy", "packing"), ("heavy", "dock"), ("light", "qa"), ("heavy", "assembly"), ("light", "packing"),
+          ("light", "dock")],
+         [("light", "dock"), ("heavy", "assembly"), ("light", "packing"), ("heavy", "qa"), ("heavy", "dock"),
+          ("light", "qa")]]
+# The carry world runs in real time, sped up: stepped as fast as possible, idle cars outpace a probing car and its
+# commands are held longer than planned.
+CARRY_SPEED = 4.0
 
 
 def make_rig(kind: str, seed: int, pose0):
@@ -206,6 +217,93 @@ async def patrol(m: Mission):
                  v_max=m.v_max)
 
 
+async def carry_episode(seed: int, learned) -> tuple[list[dict], dict]:
+    """Three robots share one library seeded with the bare body. Each check_body is graded against the real load:
+    the body it ends on must have been learned under the same load, a light tote and none counting as alike."""
+    from airo.fleet import Fleet, crew
+    from airo.mjsim import fleet
+    from airo.site import FACTORY
+
+    rigs = fleet(FACTORY, len(CARRY), seed=seed, realtime=True)
+    rigs[0].world.speed = CARRY_SPEED
+    meta_api.segment = rigs[0].sam
+    pool = Memory()
+    pool.add("bare chassis", "learned from scratch", *learned, True)
+    load = {1: "bare"}
+    rows = []
+
+    def make(rig, robot):
+        mem = pool.view(robot)
+        sci = scientist(rig, mem)
+        sci.adopt(mem.inherit())
+        check = sci.check_body
+
+        async def graded(cause: str) -> dict:
+            truth = "bare" if cause == "unloaded" else cause.split()[2]
+            before, mark = sci.n, len(sci.notebook)
+            r = await check(cause)
+            load.setdefault(r["n"], truth)
+            alike = {load[r["n"]], truth} <= {"bare", "light"} or load[r["n"]] == truth
+            shoved = any(_shoved(e) for e in sci.notebook[mark:] if e["kind"] == "result" and "measured" in e)
+            rows.append({"seed": seed, "robot": robot, "cause": cause, "truth": truth, "from": before, **r,
+                         "body": load[r["n"]], "right": alike, "disturbed": shoved})
+            print(f"seed {seed} {robot} {cause}: {r['result']} #{before} -> #{r['n']} ({load[r['n']]}) in "
+                  f"{r['seconds']:.1f} s{'' if alike else ', WRONG'}{', disturbed' if shoved else ''}", flush=True)
+            return r
+
+        sci.check_body = graded
+        return sci
+
+    f = Fleet(FACTORY, crew(FACTORY, rigs, make))
+
+    async def deliveries(r, jobs):
+        for kind, station in jobs:
+            r.mission.inbox.put_nowait(f"bring a {kind} tote to {station}")
+            while not r.mission.busy:
+                await asyncio.sleep(0.01)
+            while r.mission.busy:
+                await asyncio.sleep(0.01)
+
+    runs = [asyncio.create_task(r.mission.run()) for r in f.robots]
+    try:
+        await asyncio.gather(*(deliveries(r, jobs) for r, jobs in zip(f.robots, CARRY)))
+    finally:
+        for t in runs:
+            t.cancel()
+        for rig in rigs:
+            await rig.close()
+        rigs[0].world.close()
+    done = {r.id: sum(n["text"].startswith("Delivered a") for n in r.mission.notes) for r in f.robots}
+    stops = {r.id: n["text"] for r in f.robots for n in r.mission.notes if n["text"].startswith("Safety stop")}
+    print(f"seed {seed} delivered {done}{f', stopped: {stops}' if stops else ''}", flush=True)
+    return rows, {"seed": seed, "delivered": done, "stops": stops}
+
+
+def _shoved(result: dict) -> bool:
+    """A probe something pushed: a pivot turns in place (< 2 cm), and no probe slides 5 cm sideways."""
+    m = result["measured"]
+    return abs(m["lateral_cm"]) > 5 or (LIBRARY[result["probe"]].kind == "pivot" and abs(m["forward_cm"]) > 5)
+
+
+def carry_table(rows: list[dict], runs: list[dict]) -> str:
+    """Checks with a pushed probe are the cell's physics, not the scientist's, so they are counted apart; a car flung
+    off the floor makes no more checks, so flings show in the deliveries."""
+    clean = [r for r in rows if not r["disturbed"]]
+    out = ["| load | checks | right body | same | recalled | learned | median s | max s |", "|---|---|---|---|---|---|---|---|"]
+    for truth in ("heavy", "light", "bare"):
+        rs = [r for r in clean if r["truth"] == truth]
+        n = {k: sum(r["result"] == k for r in rs) for k in ("same", "recalled", "learned")}
+        out.append(f"| {'unloaded' if truth == 'bare' else truth + ' tote'} | {len(rs)} | "
+                   f"{_rate([r['right'] for r in rs])} | {n['same']} | {n['recalled']} | {n['learned']} | "
+                   f"{_med([r['seconds'] for r in rs])} | {max((r['seconds'] for r in rs), default=0):.1f} |")
+    jobs = len(runs) * sum(map(len, CARRY))
+    hit = [r for r in rows if r["disturbed"]]
+    out.append(f"\nChecks with a pushed probe, apart: {len(hit)}, {_rate([r['right'] for r in hit])} right. Delivered "
+               f"{sum(sum(r['delivered'].values()) for r in runs)}/{jobs}; robots stopped after leaving the floor: "
+               f"{sum(len(r['stops']) for r in runs)}.")
+    return "\n".join(out)
+
+
 def recall_table(rows: list[dict]) -> str:
     out = ["| step | expect | detected | right body | latency s | time s | probes | confirmed |",
            "|---|---|---|---|---|---|---|---|"]
@@ -256,13 +354,16 @@ async def main(args):
 
     if not args.wonder:
         meta_api.wonder = meta_api.describe = offline
-    learned, episodes, recalls = [], [], []
+    learned, episodes, recalls, carries, carry_runs = [], [], [], [], []
     for seed in range(args.n):
         row, body = await learn(args.rig, seed)
         learned.append(row)
         if "recall" in args.changes:
             recalls += await recall_episode(args.rig, seed, body)
-        for name in (c for c in args.changes if c != "recall"):
+        if "carry" in args.changes and args.rig == "mujoco":
+            rows, summary = await carry_episode(seed, body)
+            carries, carry_runs = carries + rows, carry_runs + [summary]
+        for name in (c for c in args.changes if c not in ("recall", "carry")):
             episodes.append(await episode(args.rig, seed, name, body))
             e = episodes[-1]
             print(f"seed {seed} {name}: detected {e['detected']} after {e['latency_s']}, delivered {e['delivered']}"
@@ -270,9 +371,12 @@ async def main(args):
     print(f"\n{args.rig}, {args.n} seeds\n\n{table(learned, episodes)}")
     if recalls:
         print(f"\n{recall_table(recalls)}")
+    if carries:
+        print(f"\n{carry_table(carries, carry_runs)}")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
     Path(args.out).write_text(json.dumps({"rig": args.rig, "n": args.n, "learn": learned, "episodes": episodes,
-                                         "recall": recalls},
+                                         "recall": recalls, "carry": carries,
+                                         "carry_runs": carry_runs},
                                          indent=1, default=float))
     print(f"\nwrote {args.out}")
 
@@ -281,7 +385,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--n", type=int, default=10)
     p.add_argument("--rig", choices=("sim", "mujoco"), default="sim")
-    p.add_argument("--changes", nargs="+", choices=[*SIM_CHANGES, "recall"], default=[*SIM_CHANGES, "recall"])
+    p.add_argument("--changes", nargs="+", choices=[*SIM_CHANGES, "recall", "carry"], default=[*SIM_CHANGES, "recall"])
     p.add_argument("--wonder", action="store_true", help="live Muse Wonder and Spark; needs MODEL_API_KEY")
     p.add_argument("--out", default="data/eval.json")
     asyncio.run(main(p.parse_args()))
