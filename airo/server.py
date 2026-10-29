@@ -63,6 +63,8 @@ class Dashboard:
         self.period = 1 / hz
         self._jpeg: dict[str, bytes] = {}
         self.portrait: bytes | None = None
+        self.sim: dict = {}
+        self.camera: asyncio.Queue[tuple[dict, asyncio.Future]] = asyncio.Queue()
         self.app = self._routes(FastAPI())
 
     def publish(self, state: dict) -> None:
@@ -101,6 +103,16 @@ class Dashboard:
             self.commands.put_nowait(c.text)
             return {"ok": True}
 
+        @app.post("/camera")
+        async def camera(req: dict):
+            """Handled by whoever renders the view (demo.film); nobody answers on hardware."""
+            fut = asyncio.get_running_loop().create_future()
+            self.camera.put_nowait((req, fut))
+            try:
+                return await asyncio.wait_for(fut, 1)
+            except TimeoutError:
+                return {"camera": None, "part": None}
+
         @app.get("/video")
         def video():
             return StreamingResponse(self._mjpeg("video"), media_type=MJPEG)
@@ -114,7 +126,7 @@ class Dashboard:
             await sock.accept()
             try:
                 while True:
-                    await sock.send_text(json.dumps(self.state, default=lambda o: o.tolist()))
+                    await sock.send_text(json.dumps({**self.state, "sim": self.sim}, default=lambda o: o.tolist()))
                     await asyncio.sleep(self.period)
             except WebSocketDisconnect:
                 pass
