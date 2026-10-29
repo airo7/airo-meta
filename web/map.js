@@ -82,6 +82,7 @@ function drawPlan(cv, state, selected, rect) {
   g.textAlign = "left";
 
   for (const m of state.site.movers || []) {
+    if (m.pose[0] < 0 || m.pose[1] < 0 || m.pose[0] > w || m.pose[1] > h) continue;
     const [cx, cy] = P(m.pose), s = big ? 7 : 4.5;
     g.save();
     g.translate(cx, cy);

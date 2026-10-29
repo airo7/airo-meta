@@ -1,4 +1,4 @@
-const VIEWS = ["chase", "iso", "top", "floor"];
+const VIEWS = ["chase", "iso", "top", "floor", "deck"];
 const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
 const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h3.2v14H7zM13.8 5H17v14h-3.2z"/></svg>';
 const SPEEDS = { 0.25: "¼×", 0.5: "½×", 1: "1×", 2: "2×" };
@@ -163,7 +163,7 @@ addEventListener("pointerdown", (e) => !e.target.closest("#toolbar, #acts, .menu
 addEventListener("keydown", (e) => {
   if (e.key === "Escape") menu(null);
   if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey || !cam.live) return;
-  if (e.key >= "1" && e.key <= "4") camera({ preset: VIEWS[e.key - 1] });
+  if (e.key >= "1" && e.key <= "5") camera({ preset: VIEWS[e.key - 1] });
   else if (e.key === " ") {
     e.preventDefault();
     post("/cmd", { text: $("play").dataset.cmd });
