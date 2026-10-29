@@ -172,7 +172,7 @@ def test_check_body_after_loads_and_unloads(library, monkeypatch, tmp_path):
         rig.truth = truth
         out.append(asyncio.run(sci.check_body("Tote loaded" if truth is HEAVY else "Tote unloaded")))
     assert [(o["result"], o["n"]) for o in out] == [("learned", 2), ("recalled", 1), ("recalled", 2), ("same", 2)]
-    assert out[1]["seconds"] < 3 and out[2]["seconds"] < 3 and len(sci.memory.entries) == 2
+    assert sci.memory.get(2).verified and out[1]["seconds"] < 3 and len(sci.memory.entries) == 2
     probes = [e["probe"] for e in sci.notebook if e["kind"] == "hypothesis"]
     assert {LIBRARY[p].kind for p in probes} <= {"pivot", "step"} and probes.count("step_60") <= 1
     assert "Tote loaded: checking" in sci.notebook[0]["text"]

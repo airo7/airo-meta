@@ -413,10 +413,10 @@ class Scientist:
             out = await self.run_probe(CHECK, f"If my body did not change, {CHECK} lands in the current cloud.")
             if "error" in out:
                 result = "same"
-            elif out["confirmed"] or (fit := self._explains(LIBRARY[CHECK], start, out)) == "current":
+            elif out["confirmed"]:
                 result = "same"
                 await self._note("result", f"Same body: Body #{self.n} ({self.name}) still explains {CHECK}.")
-            elif fit:
+            elif fit := self._remembered(LIBRARY[CHECK], start, out["measured"]):
                 result = "recalled"
                 await self._recalled(*fit)
             else:
@@ -426,22 +426,17 @@ class Scientist:
             self.recentre = recentre
         return {"result": result, "n": self.n, "name": self.name, "seconds": self.rig.pose.t - self._t0}
 
-    def _explains(self, p, start, out: dict) -> str | tuple | None:
-        """Which body explains the check probe: "current", recall args for a remembered one, or None. The bodies are
-        a few discrete hypotheses, and a fit from pivots predicts turn only to ~10%, often |z| > 2 at a 2° floor; so
-        the best body is taken when it is within |z| < 4 and every other body is at least 3x further off."""
-        meas = out["measured"]
-        scored = [(max(map(abs, out["z"].values())), "current", out["predicted"])]
+    def _remembered(self, p, start, meas: dict) -> tuple | None:
+        """Recall args for the remembered body that predicts the check probe best, if it confirms it."""
+        best = None
         for e in self.memory.entries:
-            if e.n != self.n:
-                pred = predict(e.members, p, start)
-                z = zscore(pred, meas)
-                scored.append((max(map(abs, z.values())), (e, p.name, pred, meas, z), pred))
-        scored = sorted((s for s in scored if (np.hypot([s[2][q][1] for q in QTY], FLOOR) <= CONFIRM_TOL).all()),
-                        key=lambda s: s[0])
-        if not scored or scored[0][0] >= 2 * CONFIRM_Z or any(s[0] <= 3 * scored[0][0] for s in scored[1:]):
-            return None
-        return scored[0][1]
+            pred = predict(e.members, p, start)
+            z = zscore(pred, meas)
+            worst = max(map(abs, z.values()))
+            tight = (np.hypot([pred[q][1] for q in QTY], FLOOR) <= CONFIRM_TOL).all()
+            if e.n != self.n and tight and worst < CONFIRM_Z and (best is None or worst < best[0]):
+                best = worst, (e, p.name, pred, meas, z)
+        return best and best[1]
 
     async def _learn_here(self, cause: str, before: Body):
         for name in CHECK_PLAN:

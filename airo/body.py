@@ -146,8 +146,8 @@ def _corr_time(r: np.ndarray) -> float:
 def _excited(segments: list[Segment], best: Body) -> np.ndarray:
     """Which parameters the segments' commands can inform. Gains, tau and lag need any motion, dz a command near
     the dead zone, eta and kappa a turn: straight runs only see eta * (g_r - g_l) and kappa together."""
-    cmd = np.abs(np.concatenate([s.cmd[(s.cmd_t >= s.t[0]) & (s.cmd_t <= s.t[-1])] for s in segments]))
-    p = cmd.max(axis=1)
+    cmd = np.concatenate([s.cmd[(s.cmd_t >= s.t[0]) & (s.cmd_t <= s.t[-1])] for s in segments])
+    p = np.abs(cmd).max(axis=1)
     moving, low = (p > 0).any(), ((p > 0) & (p < best.dz + 20)).any()
     turn = (np.abs(cmd[:, 0] - cmd[:, 1]) > 20).any()
     return np.array([moving, moving, low, turn, moving, moving, turn])
