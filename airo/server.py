@@ -9,6 +9,7 @@ State contract, published as one dict (numpy values are fine, they are converted
      "path": [[x, y], ...],                         # planned path
      "polygons": [{"label": str, "points": [[x, y], ...]}],
      "body": {"n": int, "name": str, "relearned_s": float | None, "probing_s": float | None,
+              "portrait": int | None,                # bumps when GET /portrait has a new self-portrait
               "params": [{"name", "value", "key", "unit", "lo", "hi"}]},
      "surprise": {"values": [float], "threshold": float},
      "notebook": [{"t": float, "kind": "alert|hypothesis|prediction|result|conclusion|fallback", "text": str}]}
@@ -32,7 +33,7 @@ import cv2
 import numpy as np
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
@@ -61,6 +62,7 @@ class Dashboard:
         self.commands: asyncio.Queue[str] = asyncio.Queue()
         self.period = 1 / hz
         self._jpeg: dict[str, bytes] = {}
+        self.portrait: bytes | None = None
         self.app = self._routes(FastAPI())
 
     def publish(self, state: dict) -> None:
@@ -89,6 +91,10 @@ class Dashboard:
         @app.get("/")
         def index():
             return FileResponse(WEB / "index.html")
+
+        @app.get("/portrait")
+        def portrait():
+            return Response(self.portrait, media_type="image/png") if self.portrait else Response(status_code=404)
 
         @app.post("/cmd")
         def cmd(c: Command):

@@ -5,11 +5,12 @@ import asyncio
 import math
 import time
 from collections import deque
+from pathlib import Path
 from contextlib import suppress
 
 import numpy as np
 
-from airo import planner
+from airo import planner, portrait
 from airo.body import KEY, Body, cloud, save, surprise, wrap
 from airo.control import V_MAX, follow
 from airo.rig import DT, BaseRig, RigAbort
@@ -26,6 +27,7 @@ NEAR_PARCEL = 0.35
 RUN_IN_WIDTH = 0.08
 RUN_IN_HEADING = math.radians(30)
 STANDOFF = 0.22
+PORTRAITS = Path("data/portraits")
 PROBE_REACH = 0.6
 RELEARN_PROBES = 5
 FAULT_Z = 5.0
@@ -77,11 +79,15 @@ class Mission:
     """sci follows the scientist contract: best, members, n, name, notebook, learn(), relearn(seg) -> seconds."""
 
     def __init__(self, rig: BaseRig, sci, inbox: asyncio.Queue | None = None, scan=None, threshold=THRESHOLD,
-                 watch_push: bool = False, mode: str = "real", body_path=None):
+                 watch_push: bool = False, mode: str = "real", body_path=None, portraits: Path | None = PORTRAITS):
         self.rig, self.sci = rig, sci
         self.watch_push = watch_push
         self.mode = mode
         self.body_path = body_path
+        self.portraits = portraits
+        self.portrait: bytes | None = None
+        self.portrait_n = 0
+        self._drawing: asyncio.Task | None = None
         self.phases: list[dict] = []
         self._relearn_t: float | None = None
         self._relearn_end: float | None = None
@@ -249,10 +255,13 @@ class Mission:
         self._quiet_until = self.rig.pose.t + QUIET_S
         self.note("conclusion", f"Body #{self.sci.n}, relearned in {self.relearned_s:.1f} s "
                                 f"({self.probing_s:.1f} s probing).")
+        if getattr(self.sci, "verified", True):
+            self._draw()
 
     async def learn(self):
         self.status = "learning"
         await self.sci.learn()
+        self._draw()
         if self.body_path:
             save(self.sci.best, self.sci.members, self.sci.name, self.body_path)
 
@@ -310,7 +319,7 @@ class Mission:
             "floor": {"w": self.rig.floor[0], "h": self.rig.floor[1]},
             "pose": pose, "cloud": ghost, "path": self.path, "polygons": polygons,
             "body": {"n": self.sci.n, "name": self.sci.name, "relearned_s": self.relearned_s,
-                     "probing_s": self.probing_s,
+                     "probing_s": self.probing_s, "portrait": self.portrait_n or None,
                      "params": [{"name": nm, "value": getattr(b, f) * k, "key": getattr(KEY, f) * k if first else None,
                                  "unit": u,
                                  "lo": lo, "hi": hi} for f, nm, u, k, lo, hi in PARAMS]},
@@ -319,6 +328,19 @@ class Mission:
                          for n in sorted(self.notes + list(self.sci.notebook), key=lambda n: n["t"])],
             "mode": self.mode, "episode": {"phases": self._timeline()}, "relearn": self._relearn_state(),
         }
+
+    def _draw(self):
+        """Self-portrait of the confirmed body, in the background so driving never waits for it."""
+        seen = next((e["seen"] for e in reversed(self.sci.notebook) if e.get("seen")), None)
+        self._drawing = asyncio.create_task(self._portrait(self.sci.n, self.sci.name, seen))
+
+    async def _portrait(self, n: int, name: str, seen: str | None):
+        if (png := await portrait.draw(name, seen)) is None:
+            return
+        self.portrait, self.portrait_n = png, self.portrait_n + 1
+        if self.portraits:
+            self.portraits.mkdir(parents=True, exist_ok=True)
+            (self.portraits / f"body_{n}.png").write_bytes(png)
 
     def _timeline(self) -> list[dict]:
         """Mission phases plus each probe and refit from the scientist's notebook, in time order."""
@@ -353,6 +375,7 @@ class Mission:
             if dash and self.rig.pose and self.rig.pose.t - last >= 0.1:
                 last = self.rig.pose.t
                 dash.publish(self.state())
+                dash.portrait = self.portrait
                 if (frame := self.rig.frame()) is not None and self.rig.H is not None:
                     dash.set_frame(topdown(frame, self.rig.H, self.rig.floor))
                     if not hasattr(self.rig, "view"):

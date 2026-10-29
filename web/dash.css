@@ -57,6 +57,8 @@ body.surprised #alarm { opacity: 1; animation: breathe 1.6s ease-in-out infinite
 #bodyn { font: 720 50px/1 var(--sans); font-stretch: 125%; letter-spacing: -.01em; height: 52px; overflow: hidden; }
 #bodyn span { display: block; }
 #bodyname { color: var(--dim); margin-top: 8px; }
+.who { display: flex; align-items: center; }
+#portrait { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; margin-right: 12px; }
 #relearned { text-align: right; font-size: 12px; color: var(--dim); }
 #relearned b { display: block; font: 650 26px/1.1 var(--sans); font-stretch: 110%; color: var(--belief); }
 #body.reveal { border-color: #8fb4ff66; box-shadow: 0 0 0 1px #8fb4ff40, 0 0 60px #8fb4ff33, 0 24px 60px #0000004d; }

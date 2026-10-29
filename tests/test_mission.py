@@ -185,3 +185,26 @@ def test_timeline_shows_each_probe_and_refit(mission):
     phases = mission.state()["episode"]["phases"]
     assert [(p["kind"], p["label"]) for p in phases] == [("probe", "learn the body"), ("probe", "ramp_120"),
                                                          ("probe", "arc_r"), ("refit", "bare chassis")]
+
+
+@pytest.mark.parametrize("online", [True, False])
+def test_self_portrait_after_a_confirmed_body(mission, monkeypatch, tmp_path, online):
+    prompts = []
+
+    async def image(prompt):
+        prompts.append(prompt)
+        if not online:
+            raise KeyError("MODEL_API_KEY")
+        return b"png"
+
+    monkeypatch.setattr("airo.portrait.meta_api.image", image)
+    mission.portraits = tmp_path
+
+    async def run():
+        await mission.learn()
+        await mission._drawing
+
+    asyncio.run(run())
+    assert "bare chassis" in prompts[0]
+    assert (mission.state()["body"]["portrait"], (tmp_path / "body_1.png").exists()) == ((1, True) if online
+                                                                                          else (None, False))

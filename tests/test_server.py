@@ -55,3 +55,12 @@ def test_view_stream_serves_latest_frame():
     assert chunk.startswith(b"--frame\r\nContent-Type: image/jpeg")
     jpeg = chunk.split(b"\r\n\r\n", 1)[1].removesuffix(b"\r\n")
     assert cv2.imdecode(np.frombuffer(jpeg, np.uint8), cv2.IMREAD_COLOR).shape == (90, 160, 3)
+
+
+def test_portrait_endpoint():
+    dash = Dashboard()
+    client = TestClient(dash.app)
+    assert client.get("/portrait").status_code == 404
+    dash.portrait = b"png"
+    r = client.get("/portrait")
+    assert r.status_code == 200 and r.content == b"png" and r.headers["content-type"] == "image/png"

@@ -84,6 +84,11 @@ function renderBody(b) {
   $("prevkey").hidden = !body.prev;
   body.target = body.last;
   $("bodyname").textContent = b.name || "";
+  if (b.portrait && $("portrait").dataset.v != b.portrait) {
+    $("portrait").dataset.v = b.portrait;
+    $("portrait").src = `/portrait?v=${b.portrait}`;
+    $("portrait").hidden = false;
+  }
   $("relearned").innerHTML = b.relearned_s == null ? "" : `<b>${b.relearned_s.toFixed(1)} s</b>to relearn` +
     (b.probing_s == null ? "" : ` <small>(${b.probing_s.toFixed(1)} s probing)</small>`);
   b.params.forEach((p, i) => {
