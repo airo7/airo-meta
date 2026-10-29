@@ -289,7 +289,7 @@ class Worker:
         c, s = math.cos(self.heading), math.sin(self.heading)
         for car in cars:
             x, y = car[0] - self.x, car[1] - self.y
-            if 0 < x * c + y * s < 0.24 and abs(-x * s + y * c) < 0.15:
+            if 0 < x * c + y * s < 0.3 and abs(-x * s + y * c) < 0.2:
                 self.blocked = car
                 return car
         self.blocked = None

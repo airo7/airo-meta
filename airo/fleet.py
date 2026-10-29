@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from airo import planner
+from airo.camera import Pose
 from airo.life import LEVELS, Hazard
 from airo.mission import Mission
 from airo.server import topdown
@@ -19,7 +20,11 @@ from airo.voice import parse_intent
 
 REACH = 0.38
 WIDTH = 0.2
+LANE = 0.12
+HORIZON = 0.4
+CONTACT = 0.03
 PERSON = 0.07
+PIVOT_PWM = 70
 FOOTPRINT = (0.13, 0.08)
 WEIGHT_KG = 0.8
 NUMBERS = {"one": 1, "two": 2, "to": 2, "too": 2, "three": 3, "four": 4}
@@ -60,15 +65,35 @@ class Guard:
     def __init__(self, rig, others: Callable[[], list], hazards: Callable[[], list] = list):
         self.rig, self._others, self._hazards = rig, others, hazards
         self.blocked_by = None
+        self._seen: dict = {}
 
     def __getattr__(self, name):
         return getattr(self.rig, name)
 
     async def step(self, pwm_l: int, pwm_r: int):
-        self.blocked_by = self._ahead(math.copysign(1, pwm_l + pwm_r)) if pwm_l + pwm_r else None
+        # a pivot from the inverse model is rarely exactly balanced: a small drive within a turn is still a turn
+        drive = pwm_l + pwm_r
+        self.blocked_by = self._ahead(math.copysign(1, drive)) if abs(drive) > 0.25 * abs(pwm_r - pwm_l) else None
         if self.blocked_by is not None:
-            pwm_l = pwm_r = 0
+            # Against a thing that does not move, keep the turn and drop the drive: an arc that would clip it
+            # becomes a pivot, which swings the car away instead of leaving it nose to nose for good.
+            turn = (pwm_r - pwm_l) / 2 if getattr(self.blocked_by, "person", True) is False else 0
+            turn = math.copysign(max(abs(turn), PIVOT_PWM), turn) if turn else 0
+            pwm_l, pwm_r = -int(turn), int(turn)
         return await self.rig.step(pwm_l, pwm_r)
+
+    def _ahead_of(self, rig):
+        """rig's pose HORIZON from now at its current speed and turn rate, from its last two poses."""
+        p = rig.pose
+        before, now = self._seen.get(rig, (None, None))
+        if now is None or p.t != now.t:
+            before, now = now, p
+            self._seen[rig] = before, now
+        if before is None or now.t <= before.t:
+            return now
+        k = HORIZON / (now.t - before.t)
+        return Pose(now.x + k * (now.x - before.x), now.y + k * (now.y - before.y),
+                    now.theta + k * math.remainder(now.theta - before.theta, math.tau), now.t)
 
     def people_near(self, r: float) -> bool:
         p = self.rig.pose
@@ -85,7 +110,25 @@ class Guard:
             dx, dy = q.x - p.x, q.y - p.y
             if 0 < direction * (dx * c + dy * s) < REACH and abs(-dx * s + dy * c) < WIDTH:
                 return other
+            # a car whose centre is off to the side can still have its nose in this one's lane
+            rel = footprint(q) - (p.x, p.y)
+            f, side = direction * (rel @ (c, s)), rel @ (-s, c)
+            if ((f > 0) & (f < REACH) & (np.abs(side) < LANE)).any():
+                return other
+            # two cars turning into each other: where both will be once the motors have caught up with a stop
+            if _overlap(footprint(self._ahead_of(self.rig), CONTACT), footprint(self._ahead_of(other), CONTACT)):
+                return other
         return next((h for h in self._hazards() if h.blocks(p.x, p.y, p.theta, direction)), None)
+
+
+def _overlap(a: np.ndarray, b: np.ndarray) -> bool:
+    """Whether two convex outlines overlap: no edge normal of either separates them."""
+    for poly in (a, b):
+        for e in np.diff(np.vstack([poly, poly[:1]]), axis=0):
+            n = (-e[1], e[0])
+            if (a @ n).max() < (b @ n).min() or (b @ n).max() < (a @ n).min():
+                return False
+    return True
 
 
 def footprint(pose, pad: float = 0.02) -> np.ndarray:

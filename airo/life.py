@@ -57,7 +57,8 @@ class Hazard:
     why: str
 
     def blocks(self, x: float, y: float, theta: float, direction: float) -> bool:
-        reach, width = (0.42, 0.2) if self.person else (0.26, 0.11)
+        # A thing only within the car's own width: the planner passes things with less clearance than a person gets.
+        reach, width = (0.42, 0.2) if self.person else (0.22, 0.095)
         rel = self.points - (x, y)
         f = direction * (rel @ (math.cos(theta), math.sin(theta)))
         side = rel @ (-math.sin(theta), math.cos(theta))
@@ -234,7 +235,8 @@ class Life:
         rng = self.rng
         if w.role == "walker":
             end = -0.7 if w.x > 1.5 else 3.6
-            w.plan = [Step("walk", [(end, WALKWAY)]), Step("hold", posture="work", secs=rng.uniform(2, 5))]
+            back = [(hall.CROSSING, -0.1), (hall.CROSSING, WALKWAY)] if w.y > WALKWAY + 0.3 else []
+            w.plan = [Step("walk", back + [(end, WALKWAY)]), Step("hold", posture="work", secs=rng.uniform(2, 5))]
             w.doing = "walking the walkway"
         elif w.role == "racks":
             x = rng.choice([-0.715, -0.49, 0.23, 0.455])
@@ -347,7 +349,9 @@ class Life:
                     continue
                 if any(_in_poly(p, poly, 0.12) for poly in cell.keepout()):
                     continue
-                s = min((_to_path(p, path) for path in paths), default=0.0) + 0.02 * self.rng.random()
+                # on a robot's way if one is driving, else somewhere out of everyone's way
+                s = min((_to_path(p, path) for path in paths), default=None)
+                s = (s if s is not None else -min(np.linalg.norm(p - q) for q in avoid)) + 0.02 * self.rng.random()
                 if s < score:
                     best, score = (float(x), float(y)), s
         return best
