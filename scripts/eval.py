@@ -240,14 +240,15 @@ async def carry_episode(seed: int, learned) -> tuple[list[dict], dict]:
 
         async def graded(cause: str) -> dict:
             truth = "bare" if cause == "unloaded" else cause.split()[2]
-            before = sci.n
+            before, mark = sci.n, len(sci.notebook)
             r = await check(cause)
             load.setdefault(r["n"], truth)
             alike = {load[r["n"]], truth} <= {"bare", "light"} or load[r["n"]] == truth
+            shoved = any(_shoved(e) for e in sci.notebook[mark:] if e["kind"] == "result" and "measured" in e)
             rows.append({"seed": seed, "robot": robot, "cause": cause, "truth": truth, "from": before, **r,
-                         "body": load[r["n"]], "right": alike})
+                         "body": load[r["n"]], "right": alike, "disturbed": shoved})
             print(f"seed {seed} {robot} {cause}: {r['result']} #{before} -> #{r['n']} ({load[r['n']]}) in "
-                  f"{r['seconds']:.1f} s{'' if alike else ', WRONG'}", flush=True)
+                  f"{r['seconds']:.1f} s{'' if alike else ', WRONG'}{', disturbed' if shoved else ''}", flush=True)
             return r
 
         sci.check_body = graded
@@ -278,16 +279,27 @@ async def carry_episode(seed: int, learned) -> tuple[list[dict], dict]:
     return rows, {"seed": seed, "delivered": done, "stops": stops}
 
 
+def _shoved(result: dict) -> bool:
+    """A probe something pushed: a pivot turns in place (< 2 cm), and no probe slides 5 cm sideways."""
+    m = result["measured"]
+    return abs(m["lateral_cm"]) > 5 or (LIBRARY[result["probe"]].kind == "pivot" and abs(m["forward_cm"]) > 5)
+
+
 def carry_table(rows: list[dict], runs: list[dict]) -> str:
+    """Checks with a pushed probe are the cell's physics, not the scientist's, so they are counted apart; a car flung
+    off the floor makes no more checks, so flings show in the deliveries."""
+    clean = [r for r in rows if not r["disturbed"]]
     out = ["| load | checks | right body | same | recalled | learned | median s | max s |", "|---|---|---|---|---|---|---|---|"]
     for truth in ("heavy", "light", "bare"):
-        rs = [r for r in rows if r["truth"] == truth]
+        rs = [r for r in clean if r["truth"] == truth]
         n = {k: sum(r["result"] == k for r in rs) for k in ("same", "recalled", "learned")}
         out.append(f"| {'unloaded' if truth == 'bare' else truth + ' tote'} | {len(rs)} | "
                    f"{_rate([r['right'] for r in rs])} | {n['same']} | {n['recalled']} | {n['learned']} | "
                    f"{_med([r['seconds'] for r in rs])} | {max((r['seconds'] for r in rs), default=0):.1f} |")
     jobs = len(runs) * sum(map(len, CARRY))
-    out.append(f"\nDelivered {sum(sum(r['delivered'].values()) for r in runs)}/{jobs}; safety stops: "
+    hit = [r for r in rows if r["disturbed"]]
+    out.append(f"\nChecks with a pushed probe, apart: {len(hit)}, {_rate([r['right'] for r in hit])} right. Delivered "
+               f"{sum(sum(r['delivered'].values()) for r in runs)}/{jobs}; robots stopped after leaving the floor: "
                f"{sum(len(r['stops']) for r in runs)}.")
     return "\n".join(out)
 
@@ -349,8 +361,8 @@ async def main(args):
         if "recall" in args.changes:
             recalls += await recall_episode(args.rig, seed, body)
         if "carry" in args.changes and args.rig == "mujoco":
-            rows, run_ = await carry_episode(seed, body)
-            carries, carry_runs = carries + rows, carry_runs + [run_]
+            rows, summary = await carry_episode(seed, body)
+            carries, carry_runs = carries + rows, carry_runs + [summary]
         for name in (c for c in args.changes if c not in ("recall", "carry")):
             episodes.append(await episode(args.rig, seed, name, body))
             e = episodes[-1]
