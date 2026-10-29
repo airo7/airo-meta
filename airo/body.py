@@ -21,6 +21,7 @@ DT = 0.01
 WARMUP = 2.5
 HEADING_W = 0.1
 ANCHOR_W = 0.03
+THRESHOLD = 3.0
 
 
 @dataclass(frozen=True)

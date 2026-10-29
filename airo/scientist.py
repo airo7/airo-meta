@@ -12,7 +12,8 @@ from typing import Callable
 import numpy as np
 
 from airo import meta_api
-from airo.body import PRIOR, Body, Segment, ensemble, fit, surprise
+from airo.body import PRIOR, THRESHOLD, Body, Segment, ensemble, fit, surprise
+from airo.memory import Entry, Memory, since_change
 from airo.probes import FLOOR, QTY, LIBRARY, SCHEDULE, Recentre, halt, measure, outcome, predict, run, safe, valid, zscore
 from airo.rig import BaseRig, RigAbort
 
@@ -55,6 +56,9 @@ TOOLS = [
     _fn("conclude", "Finish with what you learned and a short name for this body.",
         text={"type": "string"}, body_name={"type": "string"}),
 ]
+RECALL = _fn("recall", "Adopt a remembered body and test it with one confirming probe. Confirmed ends the relearn; "
+                       "otherwise relearn as usual. Skip it to relearn without trying.",
+             n={"type": "integer", "description": "body number of a memory candidate"})
 
 
 def _r(x: float) -> float:
@@ -103,14 +107,14 @@ def _fmt(d: dict) -> str:
 
 class Scientist:
     """Notebook entries are {"t", "kind", "text", ...}, kind in alert|hypothesis|prediction|result|conclusion|
-    fallback; entries written by the scripted policy also carry "fallback": True.
+    recall|fallback; entries written by the scripted policy also carry "fallback": True.
 
     A relearn ends once a probe run after a refit lands within |z| < 2 on every quantity, or when the budget runs
-    out; `verified` says which.
+    out; `verified` says which. Before relearning it tries the remembered body that best explains the window.
     """
 
     def __init__(self, rig: BaseRig, recentre: Recentre | None = None, body: Body = PRIOR, k: int = 12,
-                 on_update: Callable | None = None):
+                 on_update: Callable | None = None, memory: Memory | None = None):
         self.rig = rig
         self.recentre = recentre
         self.best = body
@@ -129,6 +133,14 @@ class Scientist:
         self._confirmed: dict[str, str] = {}
         self._needed: set[str] = set()
         self.verified = True
+        self.memory = memory or Memory()
+        self.recalling: Entry | None = None
+        self._candidates: list[Entry] = []
+        self._cause = ""
+        self._t0 = 0.0
+
+    def adopt(self, e: Entry):
+        self.best, self.members, self.n, self.name, self.verified = e.body, e.members, e.n, e.name, e.verified
 
     async def learn(self, budget: int = 10):
         self.segments, self._anchor, self._verify, self.verified = [], None, False, True
@@ -137,8 +149,12 @@ class Scientist:
                             "is attached to the car yet; name the body after how it drives.", SCHEDULE, budget)
 
     async def relearn(self, window_seg: Segment, budget: int = len(RELEARN)) -> float:
-        """window_seg holds only motion since the body changed; it seeds the refit and older segments are dropped."""
+        """window_seg ends with the surprise; its part since the change seeds the refit, older segments are dropped."""
         t0 = time.monotonic()
+        matches = self.memory.match(window_seg, self.members, exclude=self.n)
+        # Only windows the old body explains well are surely from before the change: a slowly growing surprise,
+        # like a tow's, is already the new body below threshold.
+        window_seg = since_change(self.members, window_seg, THRESHOLD / 2)
         s = surprise(self.members, window_seg)
         s = s[np.isfinite(s)]
         t, pose = valid(window_seg)
@@ -148,17 +164,25 @@ class Scientist:
         what = (f"surprise {np.median(s[-3:]) if len(s) else math.nan:.1f} over the last {t[-1] - t[0]:.1f} s: "
                 f"predicted {_fmt(pred)}; measured {_fmt(meas)}")
         await self._note("alert", f"Body changed, {what}. Camera: {seen}", predicted=pred, measured=meas, seen=seen)
-        before = self.best
+        before, self._t0 = self.best, self.rig.pose.t
+        self._cause = seen if seen not in ("no camera frame", "camera description unavailable") else what
         self.segments, self._stale, self._anchor, self._verify = [window_seg], True, self.best, True
         self._needed = regimes(window_seg)
-        await self.refit()
+        self._candidates = [e for e, _ in matches]
+        if not matches:
+            await self.refit()
+        known = "; ".join(f"#{e.n} \"{e.name}\" (surprise {m:.1f}, cause: {e.cause})" for e, m in matches)
         need = " and ".join(f"a {r} probe ({'pivot or arc' if r == 'turn' else 'step'})" for r in sorted(self._needed))
-        await self._session(f"The body just changed while driving, {what}. Muse Spark sees: \"{seen}\". The body "
-                            f"is already refitted on that window. You have up to {budget} probes and little floor. "
-                            f"Refit after each probe; the next probe then tests the refit. The surprise happened while "
-                            f"driving {' and '.join(sorted(self._needed))}, so confirm with {need}: |z| < "
-                            f"{CONFIRM_Z:g} on every quantity, with a tight prediction.", RELEARN, budget,
-                            start=before)
+        await self._session(f"The body just changed while driving, {what}. Muse Spark sees: \"{seen}\". "
+                            + (f"Remembered bodies that explain this window, best first: {known}. Call recall to "
+                               "test one with a single probe, or skip it and relearn: refit first. " if matches else
+                               "The body is already refitted on that window. ")
+                            + f"You have up to {budget} probes and little floor. Refit after each probe; the next "
+                            f"probe then tests the refit. The surprise happened while driving "
+                            f"{' and '.join(sorted(self._needed))}, so confirm with {need}: |z| < {CONFIRM_Z:g} on "
+                            f"every quantity, with a tight prediction.", RELEARN, budget, start=before,
+                            tools=TOOLS + [RECALL] if matches else TOOLS)
+        self._candidates = []
         return time.monotonic() - t0
 
     async def _look(self) -> str:
@@ -170,14 +194,15 @@ class Scientist:
         except Exception:
             return "camera description unavailable"
 
-    async def _session(self, prompt: str, plan: list[str], budget: int, start: Body | None = None):
+    async def _session(self, prompt: str, plan: list[str], budget: int, start: Body | None = None,
+                       tools: list[dict] = TOOLS):
         self._start, self._budget, self._ran = start or self.best, budget, []
         self._done = self._fallback = False
         self._confirmed = {}
         msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
         try:
             for _ in range(4 * budget + 8):
-                msg = await meta_api.wonder(msgs, TOOLS)
+                msg = await meta_api.wonder(msgs, tools)
                 msgs.append(msg.model_dump(exclude_none=True))
                 if not msg.tool_calls:
                     msgs.append({"role": "user", "content": "Continue with a tool call; finish with conclude."})
@@ -196,7 +221,10 @@ class Scientist:
     async def _scripted(self, plan: list[str], why: str):
         self._fallback = True
         left = [p for p in plan if p not in self._ran][:self._budget - len(self._ran)]
-        await self._note("fallback", f"Wonder unavailable ({why}); scripted probes: {', '.join(left) or 'none'}.")
+        first = f"recall #{self._candidates[0].n}, then " if self._candidates else ""
+        await self._note("fallback", f"Wonder unavailable ({why}); scripted: {first}probes {', '.join(left) or 'none'}.")
+        if self._candidates and (await self.recall(self._candidates[0].n)).get("recalled"):
+            return
         for name in left:
             if self._verify and self._needed <= self._confirmed.keys():
                 break
@@ -210,7 +238,8 @@ class Scientist:
 
     async def _call(self, name: str, arguments: str | None) -> dict:
         tool = {"get_body": self.get_body, "list_probes": self.list_probes, "predict": self.predict,
-                "run_probe": self.run_probe, "refit": self.refit, "conclude": self.conclude}.get(name)
+                "run_probe": self.run_probe, "refit": self.refit, "conclude": self.conclude,
+                "recall": self.recall}.get(name)
         if tool is None:
             return {"error": f"unknown tool {name}"}
         try:
@@ -262,6 +291,36 @@ class Scientist:
         return {"predicted": pred, "measured": meas, "z": z, "confirmed": confirmed,
                 "probes_left": self._budget - len(self._ran)}
 
+    async def recall(self, n: int) -> dict:
+        """Adopt remembered body n and run one probe in a regime the surprise drove in. The probe is not charged to
+        the budget: if it fails, the relearn keeps its data and goes on from the body it had before."""
+        e = next((c for c in self._candidates if c.n == n), None)
+        if e is None:
+            return {"error": f"#{n} is not a candidate; candidates: {[c.n for c in self._candidates] or 'none'}"}
+        self._candidates.remove(e)
+        probe = next(p for p in RELEARN if regime(p) in self._needed)
+        keep = self.best, self.members
+        self.best, self.members, self._stale, self.recalling = e.body, e.members, False, e
+        try:
+            out = await self.run_probe(probe, f"If this is Body #{e.n} ({e.name}) again, {probe} lands in its cloud.")
+        finally:
+            self.recalling = None
+        if probe in self._ran:
+            self._ran.remove(probe)
+        if not out.get("confirmed"):
+            self.best, self.members, self._stale = *keep, True
+            await self._emit()
+            return {**out, "recalled": None, "next": f"not Body #{n}: refit, then relearn with probes"}
+        self.memory.recall(e)
+        self.adopt(e)
+        self.verified = self._done = True
+        secs = self.rig.pose.t - self._t0
+        await self._note("recall", f"I know this one: Body #{e.n}, {e.name}, recalled in {secs:.1f} s with one "
+                                   f"probe ({_verdict(probe, out['predicted'], out['measured'])}).",
+                         n=e.n, name=e.name, predicted=out["predicted"], measured=out["measured"], z=out["z"],
+                         recall_s=secs)
+        return {"recalled": e.n, "z": out["z"]}
+
     async def refit(self) -> dict:
         if self._stale and self.segments:
             self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor, signs=True)
@@ -289,8 +348,9 @@ class Scientist:
             done = "; ".join(self._confirmed.values())
             text += (f" Confirmed: {done}." if self.verified else
                      f" Partial fit, continuing with caution{f' (confirmed only {done})' if done else ''}.")
-        self.n += 1
-        self.name = body_name
+        e = self.memory.add(body_name, self._cause if self._verify else "learned from scratch", self.best,
+                            self.members, self.verified, n=max(self.memory.next_n(), self.n + 1))
+        self.n, self.name = e.n, body_name
         self._done = True
         await self._note("conclusion", text, n=self.n, name=body_name, body=asdict(self.best))
         return {"n": self.n}

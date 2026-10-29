@@ -1,7 +1,8 @@
 """Benchmark: seeded, headless episodes of learn, then deliver with a body change mid-transit, relearn and finish.
 
 The scientist runs its scripted policy unless --wonder. Each seed learns once; every condition then delivers on a
-fresh rig from the learned body. Prints a markdown table and writes data/eval.json.
+fresh rig from the learned body. The recall condition instead patrols a loop through weight on, off and on again: it
+should relearn the first change, then recall the bodies it has been. Prints markdown tables, writes data/eval.json.
 """
 
 import argparse
@@ -17,8 +18,9 @@ import numpy as np
 
 from airo import meta_api
 from airo.body import KEY, Body, cloud_radius_cm, ensemble
-from airo.control import recentre
-from airo.mission import Mission
+from airo.control import follow, recentre
+from airo.memory import Memory
+from airo.mission import Mission, Surprised, _Watched
 from airo.planner import PARCEL, STATIONS
 from airo.probes import LIBRARY, halt, measure, predict, run, safe, zscore
 from airo.rig import RigAbort
@@ -46,6 +48,9 @@ MJ_CHANGES = {
     "slippery": lambda r: r.slippery_patch(),
     "flip_motor": lambda r: r.flip_motor("l"),
 }
+PATROL = [(1.5, 0.55), (1.5, 0.9), (0.7, 0.9), (0.7, 0.55)]
+LEGS = 4
+RECALL_STAGES = [("weight on", "relearn", 2), ("weight off", "recall", 1), ("weight on", "recall", 2)]
 
 
 def make_rig(kind: str, seed: int, pose0):
@@ -67,8 +72,8 @@ def change(rig, name: str):
         MJ_CHANGES[name](rig)
 
 
-def scientist(rig) -> Scientist:
-    sci = Scientist(rig, recentre=lambda r: recentre(r, sci.best))
+def scientist(rig, memory: Memory | None = None) -> Scientist:
+    sci = Scientist(rig, recentre=lambda r: recentre(r, sci.best), memory=memory)
     return sci
 
 
@@ -139,6 +144,80 @@ async def episode(kind: str, seed: int, name: str, learned) -> dict:
             "delivered": ok, "parcel_err_cm": 100 * math.dist(parcel, target), "aborted": aborted, "sim_s": rig.t}
 
 
+async def recall_episode(kind: str, seed: int, learned) -> list[dict]:
+    rig = make_rig(kind, seed, (1.0, 0.7, 0.0))
+    if not isinstance(rig, SimRig) and not hasattr(rig, "remove_weight"):
+        print("recall: skipped, this MjRig has no remove_weight() yet")
+        await rig.close()
+        return []
+    mem = Memory()
+    mem.add("learned", "learned from scratch", *learned, True)
+    sci = scientist(rig, mem)
+    sci.adopt(mem.get(1))
+    m = Mission(rig, sci)
+    if isinstance(rig, SimRig):
+        bare = rig.truth
+        changes = {"weight on": lambda: setattr(rig, "truth", SIM_CHANGES["weight"](bare)),
+                   "weight off": lambda: setattr(rig, "truth", bare)}
+    else:
+        changes = {"weight on": rig.add_weight, "weight off": rig.remove_weight}
+    rows = []
+    for step, (stage, expect, n) in enumerate(RECALL_STAGES):
+        mark, start, t_change, latency = len(sci.notebook), (rig.pose.x, rig.pose.y), None, None
+        m.relearned_s = None
+
+        async def change():
+            nonlocal t_change
+            while math.dist((rig.pose.x, rig.pose.y), start) < CHANGE_AFTER_M:
+                await asyncio.sleep(0)
+            changes[stage]()
+            t_change = rig.t
+
+        task = asyncio.create_task(change())
+        try:
+            for _ in range(LEGS):
+                await patrol(m)
+        except Surprised as e:
+            if t_change is not None:
+                latency = rig.t - t_change
+                await m.relearn(str(e))
+        finally:
+            task.cancel()
+        new = sci.notebook[mark:]
+        recalled = next((e["n"] for e in new if e["kind"] == "recall"), None)
+        rows.append({"seed": seed, "step": step, "stage": stage, "detected": latency is not None,
+                     "latency_s": latency, "recalled": recalled, "n": sci.n, "time_s": m.relearned_s,
+                     "right": latency is not None and sci.n == n and (recalled is not None) == (expect == "recall"),
+                     "probes": sum(e["kind"] == "result" for e in new), "verified": sci.verified})
+        print(f"seed {seed} recall, {stage}: detected {latency is not None}, Body #{sci.n}"
+              f"{' recalled' if recalled else ''} in {m.relearned_s}", flush=True)
+        if latency is None:
+            break
+    await rig.close()
+    return rows
+
+
+async def patrol(m: Mission):
+    """Three corners on from the nearest. follow stops once near its last point, so a full lap back to the start
+    would end at once."""
+    p = m.rig.pose
+    i = min(range(len(PATROL)), key=lambda i: math.dist(PATROL[i], (p.x, p.y)))
+    await follow(_Watched(m), m.body, [(p.x, p.y), *(PATROL[(i + k) % len(PATROL)] for k in (1, 2, 3))],
+                 v_max=m.v_max)
+
+
+def recall_table(rows: list[dict]) -> str:
+    out = ["| step | expect | detected | right body | latency s | time s | probes | confirmed |",
+           "|---|---|---|---|---|---|---|---|"]
+    for step, (stage, expect, n) in enumerate(RECALL_STAGES):
+        rs = [r for r in rows if r["step"] == step]
+        out.append(f"| {stage} | {expect} #{n} | {_rate([r['detected'] for r in rs])} | "
+                   f"{_rate([r['right'] for r in rs])} | {_med([r['latency_s'] for r in rs])} | "
+                   f"{_med([r['time_s'] for r in rs])} | {_med([r['probes'] for r in rs], '{:.0f}')} | "
+                   f"{_rate([r['verified'] for r in rs])} |")
+    return "\n".join(out)
+
+
 def _med(xs, fmt="{:.1f}"):
     xs = [x for x in xs if x is not None]
     return fmt.format(median(xs)) if xs else "–"
@@ -158,7 +237,7 @@ def table(learned: list[dict], episodes: list[dict]) -> str:
     out.append(f"| {len(learned)} seeds | {_med([r['probes'] for r in learned], '{:.0f}')} | "
                f"{_med([r['sim_s'] for r in learned])} | {_med([r['wall_s'] for r in learned])} | "
                f"{_med([r['cloud_cm'] for r in learned])} | {np.mean(z < 2):.0%} | {err} |")
-    out += ["", "| change | detected | false triggers | latency s | relearns | confirmed | relearn probes | "
+    out += [] if not episodes else ["", "| change | detected | false triggers | latency s | relearns | confirmed | relearn probes | "
                 "relearn s | delivered | parcel error cm | aborted |", "|---|" * 1 + "---|" * 10]
     for name in dict.fromkeys(e["change"] for e in episodes):
         es = [e for e in episodes if e["change"] == name]
@@ -177,18 +256,23 @@ async def main(args):
 
     if not args.wonder:
         meta_api.wonder = meta_api.describe = offline
-    learned, episodes = [], []
+    learned, episodes, recalls = [], [], []
     for seed in range(args.n):
         row, body = await learn(args.rig, seed)
         learned.append(row)
-        for name in args.changes:
+        if "recall" in args.changes:
+            recalls += await recall_episode(args.rig, seed, body)
+        for name in (c for c in args.changes if c != "recall"):
             episodes.append(await episode(args.rig, seed, name, body))
             e = episodes[-1]
             print(f"seed {seed} {name}: detected {e['detected']} after {e['latency_s']}, delivered {e['delivered']}"
                   f"{', aborted: ' + e['aborted'] if e['aborted'] else ''}", flush=True)
     print(f"\n{args.rig}, {args.n} seeds\n\n{table(learned, episodes)}")
+    if recalls:
+        print(f"\n{recall_table(recalls)}")
     Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.out).write_text(json.dumps({"rig": args.rig, "n": args.n, "learn": learned, "episodes": episodes},
+    Path(args.out).write_text(json.dumps({"rig": args.rig, "n": args.n, "learn": learned, "episodes": episodes,
+                                         "recall": recalls},
                                          indent=1, default=float))
     print(f"\nwrote {args.out}")
 
@@ -197,7 +281,7 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--n", type=int, default=10)
     p.add_argument("--rig", choices=("sim", "mujoco"), default="sim")
-    p.add_argument("--changes", nargs="+", choices=list(SIM_CHANGES), default=list(SIM_CHANGES))
+    p.add_argument("--changes", nargs="+", choices=[*SIM_CHANGES, "recall"], default=[*SIM_CHANGES, "recall"])
     p.add_argument("--wonder", action="store_true", help="live Muse Wonder and Spark; needs MODEL_API_KEY")
     p.add_argument("--out", default="data/eval.json")
     asyncio.run(main(p.parse_args()))
