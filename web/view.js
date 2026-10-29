@@ -1,33 +1,51 @@
 const VIEWS = ["chase", "iso", "top", "floor"];
 const ICON_PLAY = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>';
-const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h3v14H7zM14 5h3v14h-3z"/></svg>';
-const cam = { live: false, busy: false, orbit: [0, 0], pan: [0, 0], zoom: 1, queue: [], hinted: false };
+const ICON_PAUSE = '<svg viewBox="0 0 24 24"><path d="M7 5h3.2v14H7zM13.8 5H17v14h-3.2z"/></svg>';
+const SPEEDS = { 0.25: "¼×", 0.5: "½×", 1: "1×", 2: "2×" };
+const cam = { live: false, busy: false, orbit: [0, 0], pan: [0, 0], zoom: 1, queue: [], hinted: false, parts: "" };
 const hero = $("hero");
 
 function renderSim(sim) {
   cam.live = !!sim.camera;
-  $("viewctl").hidden = !cam.live;
+  $("toolbar").hidden = !cam.live;
   document.body.classList.toggle("interactive", cam.live);
   if (!cam.live) return;
-  for (const b of $("cambar").querySelectorAll("[data-cam]")) b.classList.toggle("on", b.dataset.cam === sim.preset);
+  for (const b of $("views").children) b.classList.toggle("on", b.dataset.cam === sim.preset);
+  const parts = (sim.parts || []).join();
+  if (parts !== cam.parts) {
+    cam.parts = parts;
+    $("menu-parts").innerHTML = (sim.parts || []).map((p) => `<button data-cam="${p}">${cap(p)}</button>`).join("");
+  }
+  for (const b of $("menu-parts").children) b.classList.toggle("on", b.dataset.cam === sim.preset);
   if (!cam.hinted) {
     cam.hinted = true;
     $("hint").classList.add("show");
     setTimeout(dismissHint, 6000);
   }
   const play = $("play");
-  if (play.classList.contains("paused") !== !!sim.paused || !play.firstChild) {
-    play.classList.toggle("paused", !!sim.paused);
+  if (play.dataset.cmd !== (sim.paused ? "resume" : "pause") || !play.firstChild) {
     play.innerHTML = sim.paused ? ICON_PLAY : ICON_PAUSE;
     play.dataset.cmd = sim.paused ? "resume" : "pause";
+    play.title = sim.paused ? "Resume (Space)" : "Pause (Space)";
   }
-  for (const b of $("speeds").children) b.classList.toggle("on", +b.dataset.cmd.split(" ")[1] === sim.speed);
+  setText($("speed"), SPEEDS[sim.speed] || `${sim.speed}×`);
+  for (const b of $("menu-speed").children) b.classList.toggle("on", +b.dataset.cmd.split(" ")[1] === sim.speed);
   const changes = (sim.changes || []).map((c) => String(c).toLowerCase());
-  for (const b of $("changes").children) b.classList.toggle("on", changes.some((c) => c.includes(b.dataset.cmd)));
+  for (const b of $("menu-changes").querySelectorAll("[data-on]")) b.classList.toggle("on", changes.some((c) => c.includes(b.dataset.on)));
 }
 
 const dismissHint = () => $("hint").classList.remove("show");
 const interactive = () => cam.live && !document.body.classList.contains("mapview");
+
+function menu(name) {
+  for (const b of document.querySelectorAll("[data-menu]")) {
+    const open = b.dataset.menu === name && !b.classList.contains("open");
+    b.classList.toggle("open", open);
+    const m = $(`menu-${b.dataset.menu}`);
+    m.classList.toggle("open", open);
+    if (open) m.style.left = `${b.offsetLeft + b.offsetWidth / 2 - m.offsetWidth / 2}px`;
+  }
+}
 
 function camera(action, then) {
   cam.queue.push([action, then]);
@@ -36,7 +54,11 @@ function camera(action, then) {
 
 function next() {
   if (cam.queue.length) return cam.queue.shift();
-  const take = (key, rest) => { const a = { [key]: cam[key] }; cam[key] = rest; return [a]; };
+  const take = (key, rest) => {
+    const a = { [key]: cam[key] };
+    cam[key] = rest;
+    return [a];
+  };
   if (cam.orbit[0] || cam.orbit[1]) return take("orbit", [0, 0]);
   if (cam.pan[0] || cam.pan[1]) return take("pan", [0, 0]);
   if (cam.zoom !== 1) return take("zoom", 1);
@@ -84,6 +106,7 @@ let drag = null, dragged = false;
 hero.addEventListener("pointerdown", (e) => {
   if (!interactive()) return;
   dismissHint();
+  menu(null);
   $("tag").classList.remove("show");
   drag = { x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, pan: e.button > 0 || e.shiftKey, moved: false };
   hero.setPointerCapture(e.pointerId);
@@ -126,14 +149,19 @@ hero.addEventListener("wheel", (e) => {
   flush();
 }, { passive: false });
 
-$("viewctl").addEventListener("click", (e) => {
+$("toolbar").addEventListener("click", (e) => {
   const b = e.target.closest("button");
-  b?.blur();
-  if (b?.dataset.cam) camera({ preset: b.dataset.cam });
-  else if (b?.dataset.cmd) post("/cmd", { text: b.dataset.cmd });
+  if (!b) return;
+  b.blur();
+  if (b.dataset.menu) return menu(b.dataset.menu);
+  if (b.dataset.cam) camera({ preset: b.dataset.cam });
+  else if (b.dataset.cmd) post("/cmd", { text: b.dataset.cmd });
+  if (b.closest(".menu")) menu(null);
 });
+addEventListener("pointerdown", (e) => !e.target.closest("#toolbar, #acts, .menu") && menu(null));
 
 addEventListener("keydown", (e) => {
+  if (e.key === "Escape") menu(null);
   if (e.target.tagName === "INPUT" || e.metaKey || e.ctrlKey || e.altKey || !cam.live) return;
   if (e.key >= "1" && e.key <= "4") camera({ preset: VIEWS[e.key - 1] });
   else if (e.key === " ") {
