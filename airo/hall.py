@@ -8,6 +8,7 @@ import math
 import cv2
 import numpy as np
 
+from airo import mezzanine
 from airo.meshes import Batch
 from airo.scene import (BLACK, GEOM, MARGIN, PX, STATIC, WHITE, YELLOW, Canvas, _noise, concrete, quat, texture)
 from airo.warehouse import BELT_Z, TABLE_Z, Cell, belt, cells, slots
@@ -52,6 +53,7 @@ def build(spec, site):
     _cells(spec, site, cs)
     _docks(spec, site)
     _building(spec, site, rng)
+    mezzanine.build(spec)
 
 
 def _walls(spec, site, rng):

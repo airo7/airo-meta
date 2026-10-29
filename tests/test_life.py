@@ -75,7 +75,7 @@ def test_the_factory_builds_with_and_without_the_menagerie_models(models):
     f = Fleet(FACTORY, crew(FACTORY, rigs, Feeling))
     movers = f.state()["site"]["movers"]
     kinds = [m["kind"] for m in movers]
-    assert kinds == (["human"] * 3 if models == "menagerie" else []) + ["forklift"]
+    assert kinds == (["human"] * 4 if models == "menagerie" else []) + ["forklift"]
     assert all(len(m["pose"]) == 3 and m["id"] for m in movers)
     world._physics(2.0)
     assert world.frame().shape == (720, 1280, 3)
@@ -242,3 +242,31 @@ def test_a_worker_and_a_car_heading_for_each_other_both_get_through(models):
 
     f, world, _, people = run(1, ["airo 1 deliver to qa"], hook=head_on)
     assert state["set"] and state["reached"] and delivered(f.robots[0], "qa") and min(people) > 0.03
+
+
+def test_the_deck_view_sees_every_cell_and_dock_from_the_mezzanine():
+    from airo import mezzanine
+    from airo.orbit import Orbit
+
+    rigs = fleet(FACTORY, 1, log_dir=None)
+    world = rigs[0].world
+    orbit = Orbit(rigs[0], (1600, 900))
+    orbit.set("deck")
+    orbit._t = None
+    cam = orbit.update()
+    assert orbit.preset == "deck"
+    eye = np.array(cam.lookat) - cam.distance * np.array(
+        [math.cos(math.radians(cam.elevation)) * math.cos(math.radians(cam.azimuth)),
+         math.cos(math.radians(cam.elevation)) * math.sin(math.radians(cam.azimuth)),
+         math.sin(math.radians(cam.elevation))])
+    assert np.allclose(eye, mezzanine.EYE, atol=1e-6)
+    # every bay and dock projects inside the frame
+    fovy = math.radians(world.m.vis.global_.fovy)
+    fwd = (np.array(cam.lookat) - eye) / cam.distance
+    right = np.cross(fwd, (0, 0, 1))
+    right /= np.linalg.norm(right)
+    up = np.cross(right, fwd)
+    for x, y, _ in [FACTORY.pick.pose, *(b.pose for b in FACTORY.drops.values()), *FACTORY.starts]:
+        d = np.array([x, y, 0.0]) - eye
+        u, v = d @ right / (d @ fwd), d @ up / (d @ fwd)
+        assert abs(v) < math.tan(fovy / 2) * 0.95 and abs(u) < math.tan(fovy / 2) * 16 / 9 * 0.95, (x, y)

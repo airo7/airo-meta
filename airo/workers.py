@@ -46,7 +46,14 @@ POSTURES = {
     "reach_low": {"hip": -0.75, "knee": 1.25, "waist": 0.42, "shoulder": -1.05, "roll": 0.1, "elbow": 0.35},
     "reach_mid": {**STAND, "waist": 0.12, "shoulder": -1.15, "roll": 0.08, "elbow": 0.15},
     "work": {**STAND, "hip": -0.12, "knee": 0.25, "waist": 0.22, "shoulder": -0.6, "roll": 0.1, "elbow": 0.75},
+    "lean": {**STAND, "hip": -0.1, "knee": 0.12, "waist": 0.2, "shoulder": -0.75, "roll": 0.2, "elbow": 0.5},
+    "point": {**STAND, "waist": 0.08, "r_shoulder": -1.25, "r_roll": 0.2, "r_elbow": 1.45, "turn": 0.2},
 }
+# the right arm follows the left unless a posture says otherwise (a gesture)
+for _p in POSTURES.values():
+    for _k in ("shoulder", "roll", "elbow"):
+        _p.setdefault(f"r_{_k}", _p[_k])
+    _p.setdefault("turn", 0.0)
 
 
 def available() -> bool:
@@ -129,14 +136,15 @@ def pose(s: dict) -> np.ndarray:
         sway = 0.035 * w * math.sin(math.tau * ph)
         q[J[f"{side}_hip_roll"]], q[J[f"{side}_ankle_roll"]] = sway, -sway
         sign = 1 if side == "left" else -1
+        arm = "" if side == "left" else "r_"
         swing = 0.0 if s.get("carry") else w * 0.32 * math.cos(math.tau * ((ph + 0.5 * k) % 1.0))
-        q[J[f"{side}_shoulder_pitch"]] = p["shoulder"] + swing
-        q[J[f"{side}_shoulder_roll"]] = sign * p["roll"]
-        q[J[f"{side}_elbow"]] = p["elbow"] - 0.25 * w * (not s.get("carry")) + \
+        q[J[f"{side}_shoulder_pitch"]] = p[arm + "shoulder"] + swing
+        q[J[f"{side}_shoulder_roll"]] = sign * p[arm + "roll"]
+        q[J[f"{side}_elbow"]] = p[arm + "elbow"] - 0.25 * w * (not s.get("carry")) + \
             0.12 * s.get("fidget", 0.0) * math.sin(math.tau * 1.3 * ph + k)
-        q[J[f"{side}_shoulder_yaw"]] = -sign * 0.15 * (p["elbow"] < 0.5)
+        q[J[f"{side}_shoulder_yaw"]] = -sign * 0.15 * (p[arm + "elbow"] < 0.5)
     q[J["waist_pitch"]] = p.get("waist", 0.0) + 0.05 * w
-    q[J["waist_yaw"]] = 0.07 * w * math.cos(math.tau * ph)
+    q[J["waist_yaw"]] = 0.07 * w * math.cos(math.tau * ph) + p.get("turn", 0.0)
     return q
 
 
@@ -179,7 +187,8 @@ class Worker:
         self.blocked_s = 0.0
         self.planner: Callable | None = None
         self._anchor, self._still, self._replan_t = (self.x, self.y), 0.0, -math.inf
-        self._posture = dict(STAND)
+        self._posture = dict(POSTURES["stand"])
+        self.z = 0.0
         self._t: float | None = None
         self._fidget = 0.0
 
@@ -221,7 +230,7 @@ class Worker:
         turn = np.c_[np.cos(half), np.sin(half) * r.axes]
         m.body_quat[self._ids] = _qmul(r.rest, turn)
         m.geom_group[self._carton] = 1 if self.carrying else 4
-        d.mocap_pos[self._mocap] = (self.x, self.y, r.height(q))
+        d.mocap_pos[self._mocap] = (self.x, self.y, self.z + r.height(q))
         d.mocap_quat[self._mocap] = (math.cos(self.heading / 2), 0, 0, math.sin(self.heading / 2))
 
     # moving

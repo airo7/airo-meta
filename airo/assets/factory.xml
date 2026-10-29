@@ -78,6 +78,11 @@
     <material name="forklift_mast" rgba=".26 .27 .29 1" specular=".6" shininess=".6"/>
     <material name="forklift_fork" rgba=".12 .12 .13 1" specular=".5" shininess=".5"/>
     <material name="spot_blue" rgba=".1 .3 1 .35" emission=".9"/>
+    <material name="deck_grating" rgba=".24 .25 .26 1" specular=".5" shininess=".5"/>
+    <material name="mezz_steel" rgba=".2 .32 .5 1" specular=".5" shininess=".55"/>
+    <material name="glass" rgba=".72 .84 .9 .16" specular="1" shininess="1"/>
+    <material name="rail_top" rgba=".78 .8 .82 1" specular="1" shininess=".9"/>
+    <material name="desk" rgba=".55 .56 .58 1" specular=".3" shininess=".3"/>
     <material name="cage" rgba=".62 .64 .66 1" specular=".8" shininess=".7"/>
     <material name="lamp_green_on" rgba=".2 1 .35 1" emission="1.6"/>
     <material name="lamp_amber_on" rgba="1 .62 .08 1" emission="1.6"/>

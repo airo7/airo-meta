@@ -13,7 +13,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from airo import hall, scene, workers
+from airo import hall, mezzanine, scene, workers
 from airo.forklift import Forklift, shuttle
 from airo.planner import OBSTACLE
 from airo.sim import Thing
@@ -92,7 +92,11 @@ class Life:
         self.level = level
         self.rng = np.random.default_rng(seed)
         self.workers = ([Worker(1, "walker", (-0.4, WALKWAY, 0.0)), Worker(2, "racks", (0.23, 2.5, math.pi / 2)),
-                         Worker(3, "dock", (3.0, -0.4, math.pi))] if workers.available() else [])
+                         Worker(3, "dock", (3.0, -0.4, math.pi)),
+                         Worker(4, "supervisor", (*mezzanine.SPOTS[0], 0.0))] if workers.available() else [])
+        for w in self.workers:
+            if w.role == "supervisor":
+                w.z, w.name = mezzanine.Z, "Supervisor"
         rack = (hall.FORKLIFT_SLOT, hall.rack_front(self.site) + hall.RACK_DEPTH / 2)
         self.rack, self.stage = rack, hall.STAGE
         self.forklift = Forklift("Autonomous forklift", (hall.STAGE[0], hall.STAGE[1] + 0.55, -math.pi / 2),
@@ -102,11 +106,16 @@ class Life:
         self.paths: Callable[[], list] = lambda: []
         self.map = WalkMap(self.site, world.cell.cells)
         self._seen: dict = {}
-        for w in self.workers:
+        for w in self.floor:
             w.planner = self.walk_path
         self.tripped: dict[str, bool] = {}
         self._t: float | None = None
         self._next: dict[str, float] = {}
+
+    @property
+    def floor(self) -> list[Worker]:
+        """The workers down on the floor, among the robots: everyone but the supervisor up on the mezzanine."""
+        return [w for w in self.workers if w.role != "supervisor"]
 
     @property
     def walker(self) -> Worker | None:
@@ -191,7 +200,7 @@ class Life:
                              self._outbound)
             f.doing = "taking a pallet to the rack" if not self._outbound else "bringing a pallet down from the rack"
             self._outbound = not self._outbound
-        f.update(t, [(w, (w.x, w.y)) for w in self.workers])
+        f.update(t, [(w, (w.x, w.y)) for w in self.floor])
         self._cells(t)
         self._apply()
 
@@ -278,13 +287,21 @@ class Life:
                 w.plan = w.plan[3:6] + [Step("walk", [(x, front)]), Step("face", heading=math.pi / 2),
                                         Step("put", posture="reach_low", secs=2.2)]
             w.doing = "restocking the racks" if restock else "picking cartons from the racks"
-        else:
+        elif w.role == "dock":
             cage = hall.CAGES[1]
             w.plan = [Step("walk", [(3.16, -0.4)]), Step("face", heading=0.0),
                       Step("take", posture="reach_low", secs=2.0), Step("walk", [(cage[0] + 0.17, cage[1])]),
                       Step("face", heading=math.pi), Step("put", posture="work", secs=1.8),
                       Step("wait", secs=rng.uniform(2, 6))]
             w.doing = "loading cartons into a roll cage at the dock"
+        if w.role == "supervisor":
+            x, y = mezzanine.SPOTS[int(rng.integers(len(mezzanine.SPOTS)))]
+            look = math.atan2(1.0 - y, 1.45 - x)
+            w.plan = [Step("walk", [(x, y)]), Step("face", heading=look + rng.uniform(-0.4, 0.4)),
+                      Step("hold", posture="lean", secs=rng.uniform(4, 9)), Step("face", heading=look),
+                      Step("hold", posture="point", secs=rng.uniform(1.5, 2.5)),
+                      Step("hold", posture="stand", secs=rng.uniform(2, 5))]
+            w.doing = "watching the floor from the mezzanine"
 
     def cross(self) -> str:
         """The walker takes an order from the rack cage to the dock, across the robots' lanes and back."""
@@ -390,7 +407,7 @@ class Life:
     # outputs
 
     def hazards(self) -> list[Hazard]:
-        out = [Hazard(f"{w.name}", np.array([[w.x, w.y]]), True, "is crossing its path") for w in self.workers]
+        out = [Hazard(f"{w.name}", np.array([[w.x, w.y]]), True, "is crossing its path") for w in self.floor]
         out.append(Hazard("the forklift", self.forklift.footprint(), False, "is in its way"))
         out += [Hazard(f"a dropped {d.kind}", d.outline(), False, "is in its way") for d in self.drops if d.placed]
         return out
