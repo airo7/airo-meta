@@ -20,7 +20,7 @@
     <material name="iron" rgba=".46 .47 .5 1" specular=".9" shininess=".8"/>
     <material name="velcro" rgba=".75 .1 .1 1" specular=".05" shininess=".05"/>
     <material name="string" rgba=".95 .93 .85 1"/>
-    <material name="tote" rgba="1 .78 .1 1" specular=".35" shininess=".4"/>
+    <material name="tote" rgba=".98 .74 .06 1" specular=".45" shininess=".5"/>
     <material name="upright" rgba=".09 .27 .58 1" specular=".5" shininess=".5"/>
     <material name="beam" rgba=".95 .42 .06 1" specular=".5" shininess=".5"/>
     <material name="deck" rgba=".55 .57 .6 1" specular=".6" shininess=".6"/>
@@ -36,6 +36,41 @@
     <material name="crate_grey" rgba=".33 .35 .37 1" specular=".3" shininess=".3"/>
     <material name="tote_rim" rgba=".85 .62 .05 1" specular=".35" shininess=".4"/>
     <material name="sign" rgba="1 .82 .05 1" specular=".4" shininess=".5"/>
+    <material name="robot_orange" rgba=".98 .36 .04 1" specular=".55" shininess=".55"/>
+    <material name="arm_dark" rgba=".13 .135 .14 1" specular=".35" shininess=".4"/>
+    <material name="arm_motor" rgba=".42 .44 .46 1" specular=".6" shininess=".6"/>
+    <material name="arm_plate" rgba=".85 .86 .86 1" specular=".3" shininess=".3"/>
+    <material name="cable" rgba=".05 .05 .055 1" specular=".2" shininess=".3"/>
+    <material name="gripper" rgba=".2 .21 .23 1" specular=".5" shininess=".5"/>
+    <material name="alu" rgba=".74 .76 .79 1" specular=".8" shininess=".7"/>
+    <material name="tote_slot" rgba=".12 .1 .04 1" specular=".1" shininess=".1"/>
+    <material name="label_card" rgba=".95 .95 .92 1" specular=".1" shininess=".1"/>
+    <material name="polybag" rgba=".9 .92 .95 .8" specular=".9" shininess=".9"/>
+    <material name="door_frame" rgba=".2 .21 .22 1" specular=".3" shininess=".3"/>
+    <material name="door_leaf" rgba=".55 .58 .6 1" specular=".3" shininess=".35"/>
+    <material name="exit_green" rgba=".1 .8 .3 1" emission="1.2"/>
+    <material name="guard" rgba="1 .78 .05 1" specular=".3" shininess=".3"/>
+    <material name="wood_light" rgba=".78 .63 .42 1" specular=".05" shininess=".1"/>
+    <material name="carton" rgba=".7 .52 .33 1" specular=".08" shininess=".12"/>
+    <material name="carton_dark" rgba=".58 .42 .26 1" specular=".08" shininess=".12"/>
+    <material name="seam" rgba=".5 .36 .2 1" specular=".05" shininess=".1"/>
+    <material name="conveyor_frame" rgba=".3 .33 .37 1" specular=".5" shininess=".5"/>
+    <material name="led_red" rgba="1 .15 .1 1" emission="1.5"/>
+    <material name="led_green" rgba=".2 1 .35 1" emission="1.5"/>
+    <material name="led_amber" rgba="1 .6 .1 1" emission=".25"/>
+    <material name="portal_dark" rgba=".03 .03 .035 1" specular="0" shininess="0"/>
+    <material name="strip_curtain" rgba=".75 .8 .85 .45" specular=".9" shininess=".9"/>
+    <material name="fence_post" rgba="1 .78 .05 1" specular=".35" shininess=".4"/>
+    <material name="fence_frame" rgba=".08 .08 .09 1" specular=".3" shininess=".3"/>
+    <material name="fence_mesh" rgba=".06 .06 .07 .38" specular=".2" shininess=".2"/>
+    <material name="curtain_post" rgba=".12 .12 .13 1" specular=".4" shininess=".4"/>
+    <material name="curtain_lens" rgba=".5 .05 .05 1" emission=".6" specular=".9" shininess=".9"/>
+    <material name="bench_top" rgba=".62 .5 .36 1" specular=".1" shininess=".15"/>
+    <material name="charger" rgba=".22 .24 .27 1" specular=".4" shininess=".4"/>
+    <material name="brass_pad" rgba=".85 .64 .27 1" specular="1" shininess=".85"/>
+    <material name="lamp_body" rgba=".3 .31 .33 1" specular=".5" shininess=".5"/>
+    <material name="lamp_glow" rgba="1 .97 .9 1" emission="2"/>
+    <material name="tray" rgba=".16 .17 .18 1" specular=".3" shininess=".3"/>
   </asset>
 
   <worldbody>

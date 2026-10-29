@@ -2,7 +2,6 @@
 texture (ArUco markers, painted concrete, station labels, signs) is drawn with cv2."""
 
 import math
-from itertools import pairwise
 from pathlib import Path
 
 import cv2
@@ -50,8 +49,10 @@ def texture(spec, name: str, bgr: np.ndarray, **material) -> str:
 
 def build(site, objects) -> mujoco.MjSpec:
     if site.scene == "factory":
+        from airo import hall
+
         spec = mujoco.MjSpec.from_file(str(ASSETS / "factory.xml"))
-        _factory(spec, site.floor)
+        hall.build(spec, site)
     else:
         spec = mujoco.MjSpec.from_file(str(ASSETS / "world.xml"))
         _home(spec, site.floor)
@@ -151,92 +152,6 @@ def _tag(concept: str):
 
     c = COLOURS[TAGS.index(concept.split(" a ")[-1].split()[0])]
     return int(c[5:7], 16), int(c[3:5], 16), int(c[1:3], 16)
-
-
-# the factory
-
-
-def _factory(spec, floor):
-    w, h = floor
-    wb = spec.worldbody
-    rng = np.random.default_rng(7)
-    texture(spec, "hall", concrete((512, 512), rng, joints=False), specular=0.25, shininess=0.3, texrepeat=[1, 1],
-            texuniform=True)
-    wb.add_geom(name="floor", type=GEOM.mjGEOM_PLANE, size=[12, 12, 0.05], pos=[w / 2, h / 2, 0], material="hall",
-                friction=[0.3, 0.001, 0.00001])
-    sw, sh = w + 2 * MARGIN, h + 2 * MARGIN
-    texture(spec, "workfloor", workfloor(floor, rng), specular=0.35, shininess=0.45)
-    wb.add_geom(name="workfloor", type=GEOM.mjGEOM_PLANE, size=[sw / 2, sh / 2, 1], pos=[w / 2, h / 2, 0.0001],
-                material="workfloor", **STATIC)
-    texture(spec, "wall", wall((1024, 384), rng), specular=0.15, shininess=0.2)
-    for name, pos, size, euler in [("wall_back", [w / 2, h + MARGIN, 0.45], [w / 2 + MARGIN, 0.45, 1], [90, 0, 0]),
-                                   ("wall_left", [-MARGIN, h / 2, 0.45], [h / 2 + MARGIN, 0.45, 1], [90, 90, 0])]:
-        wb.add_geom(name=name, type=GEOM.mjGEOM_PLANE, size=size, pos=pos, euler=euler, material="wall", **STATIC)
-    for k, x0 in enumerate(np.arange(-0.55, w - 0.2, 0.75)):
-        _rack(spec, wb.add_body(name=f"rack{k}", pos=[x0, h + 0.62, 0]), rng)
-    _conveyor(spec, wb.add_body(name="conveyor", pos=[-0.06, 1.0, 0]))
-    for k, (x, y) in enumerate([(-0.35, -0.35), (w + 0.35, -0.35), (w + 0.35, h + 0.3), (-0.35, h + 0.3)]):
-        _pillar(wb.add_body(name=f"pillar{k}", pos=[x, y, 0]))
-    for k, (x, y, th) in enumerate([(w + 0.42, 0.25, 0.1), (w + 0.4, 0.62, -0.05), (w - 0.35, -0.45, 1.6)]):
-        _pallet(spec, wb.add_body(name=f"goods{k}", pos=[x, y, 0], quat=quat(th)), 0.11, 0.09, rng=rng)
-
-
-def _rack(spec, b, rng, bay=(0.72, 0.28), levels=(0.03, 0.27, 0.5)):
-    """One bay of pallet racking: blue uprights, orange beams, wire decks, cartons and crates."""
-    bx, by = bay
-    for x in (0.006, bx - 0.006):
-        for y in (-by / 2, by / 2):
-            b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.008, 0.008, 0.37], pos=[x, y, 0.37], material="upright",
-                       **STATIC)
-    for x in (0.006, bx - 0.006):
-        for z in np.arange(0.08, 0.7, 0.12):
-            b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.003, by / 2, 0.003], pos=[x, 0, z], material="upright",
-                       **STATIC)
-    for z in levels:
-        for y in (-by / 2, by / 2):
-            b.add_geom(type=GEOM.mjGEOM_BOX, size=[bx / 2, 0.006, 0.012], pos=[bx / 2, y, z + 0.012],
-                       material="beam", **STATIC)
-        b.add_geom(type=GEOM.mjGEOM_BOX, size=[bx / 2 - 0.01, by / 2, 0.002], pos=[bx / 2, 0, z + 0.024],
-                   material="deck", **STATIC)
-        x = 0.03
-        while True:
-            crate = rng.random() < 0.25
-            s = np.array([0.1, 0.16, 0.08]) if crate else rng.uniform([0.08, 0.12, 0.06], [0.16, 0.2, 0.14])
-            if x + s[0] > bx - 0.02:
-                break
-            if rng.random() < 0.85:
-                pos = [x + s[0] / 2, rng.uniform(-0.02, 0.02), z + 0.026 + s[2] / 2]
-                b.add_geom(type=GEOM.mjGEOM_BOX, size=list(s / 2), pos=pos,
-                           material=rng.choice(["crate_blue", "crate_grey"]) if crate else "cardboard", **STATIC)
-                if not crate:
-                    b.add_geom(type=GEOM.mjGEOM_BOX, size=[s[0] / 2 + 0.0005, 0.02, s[2] / 2 + 0.0005], pos=pos,
-                               material="tape", **STATIC)
-            x += s[0] + rng.uniform(0.01, 0.03)
-
-
-def _conveyor(spec, b, length=0.9, width=0.18, top=0.12):
-    """The end of a roller conveyor running in from the left wall, a tote waiting at its end."""
-    for y in (-width / 2, width / 2):
-        b.add_geom(type=GEOM.mjGEOM_BOX, size=[length / 2, 0.006, 0.018], pos=[-length / 2, y, top - 0.01],
-                   material="steel", **STATIC)
-        for x in (-0.06, -length + 0.06):
-            b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.01, 0.01, top / 2], pos=[x, y, top / 2], material="steel",
-                       **STATIC)
-    for x in np.arange(-length + 0.03, 0, 0.045):
-        b.add_geom(type=GEOM.mjGEOM_CYLINDER, size=[0.014, width / 2 - 0.006], pos=[x, 0, top],
-                   euler=[90, 0, 0], material="roller", **STATIC)
-    b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.006, width / 2 + 0.01, 0.02], pos=[0.002, 0, top + 0.012],
-               material="hazard_y", **STATIC)
-    b.add_geom(type=GEOM.mjGEOM_MESH, meshname=rounded(spec, "conveyor_tote", (0.06, 0.05, 0.035)),
-               pos=[-0.28, 0, top + 0.05], material="tote", **STATIC)
-
-
-def _pillar(b, side=0.07, height=1.6):
-    b.add_geom(type=GEOM.mjGEOM_BOX, size=[side, side, height / 2], pos=[0, 0, height / 2],
-               material="concrete_col", **STATIC)
-    for k in range(6):
-        b.add_geom(type=GEOM.mjGEOM_BOX, size=[side + 0.004] * 2 + [0.0125], pos=[0, 0, 0.0125 + 0.025 * k],
-                   material="hazard_k" if k % 2 else "hazard_y", **STATIC)
 
 
 def _pallet(spec, b, sx, sy, collide=False, rng=None):
@@ -383,61 +298,6 @@ class Canvas:
         return self.img.astype(np.uint8)
 
 
-def workfloor(floor, rng) -> np.ndarray:
-    """The painted work floor: control joints, a hazard-striped border, lane lines, the pick zone, parking bays with
-    robot numbers, flow arrows and a walkway, on concrete that runs MARGIN beyond the floor."""
-    from airo.site import LANES, TOTE_X
-
-    w, h = floor
-    shape = (round((h + 2 * MARGIN) * PX), round((w + 2 * MARGIN) * PX))
-    c = Canvas(concrete(shape, rng), rng, origin=(-MARGIN, h + MARGIN))
-    p, lw = c.p, c.w
-    yy, xx = np.mgrid[:shape[0], :shape[1]]
-    stripes = (((xx + yy) // lw(0.025)) % 2).astype(np.uint8)
-
-    def band(m, keep):
-        cv2.rectangle(m, p(-0.06, h + 0.06), p(w + 0.06, -0.06), 1, -1)
-        cv2.rectangle(m, p(0, h), p(w, 0), 0, -1)
-        m &= stripes == keep
-    c.paint(YELLOW, lambda m: band(m, 0))
-    c.paint(BLACK, lambda m: band(m, 1))
-    c.paint((70, 120, 60), lambda m: cv2.rectangle(m, p(-0.4, -0.22), p(w + 0.6, -0.62), 1, -1))
-    c.paint(YELLOW, lambda m: [cv2.line(m, p(-0.4, y), p(w + 0.6, y), 1, lw(0.02)) for y in (-0.22, -0.62)])
-    c.paint(WHITE, lambda m: [cv2.line(m, p(x, -0.27), p(x + 0.08, -0.57), 1, lw(0.04))
-                              for x in np.arange(0.2, 0.9, 0.14)])
-    dividers = [(a + b) / 2 for a, b in pairwise(LANES)]
-    c.paint(YELLOW, lambda m: [cv2.line(m, p(x, y), p(x + 0.1, y), 1, lw(0.022))
-                               for y in dividers for x in np.arange(0.05, TOTE_X + 0.4, 0.18)])
-    c.paint(YELLOW, lambda m: cv2.rectangle(m, p(TOTE_X - 0.17, LANES[0] + 0.2), p(TOTE_X + 0.17, LANES[-1] - 0.2), 1,
-                                            lw(0.02)))
-    c.text("PICK", (TOTE_X, LANES[-1] - 0.29), 0.09, YELLOW)
-    def bay(m, cx, cy, hx=0.17, hy=0.13, arm=0.06):
-        for sx in (-1, 1):
-            for sy in (-1, 1):
-                x, y = cx + sx * hx, cy + sy * hy
-                cv2.polylines(m, [np.array([p(x, y - sy * arm), p(x, y), p(x - sx * arm, y)])], False, 1, lw(0.015))
-
-    for k, y in enumerate(LANES):
-        c.paint(WHITE, lambda m, y=y: bay(m, 0.25, y))
-        c.text(str(k + 1), (0.04, y), 0.07, WHITE, angle=90)
-        c.arrow((TOTE_X + 0.45, y), (TOTE_X + 0.67, y))
-    c.arrow((2.15, 0.5), (2.35, 0.38))
-    c.arrow((2.3, 1.58), (2.5, 1.66))
-    _tyres(c, [(0.3, y, 2.6, y + rng.uniform(-0.1, 0.1)) for y in LANES])
-    return c.done()
-
-
-def _tyres(c: Canvas, lines):
-    """Faint rubber marks where the robots run most."""
-    m = np.zeros(c.img.shape[:2], np.float32)
-    for x0, y0, x1, y1 in lines:
-        for off in (-0.07, 0.07):
-            pts = np.array([c.p(x, np.interp(x, [x0, x1], [y0, y1]) + off + 0.01 * math.sin(7 * x))
-                            for x in np.linspace(x0, x1, 40)], np.int32)
-            cv2.polylines(m, [pts], False, 1.0, max(2, c.w(0.02)), cv2.LINE_AA)
-    c.img *= 1 - 0.07 * cv2.GaussianBlur(m, (0, 0), 3)[..., None]
-
-
 def paint_oil(spec, floor, rect) -> bytes:
     """Stain the work floor with a dark, sheened oil puddle inside rect; returns the clean texture to restore."""
     tex = spec.texture("workfloor")
@@ -487,20 +347,4 @@ def wet_floor_sign(px=(256, 400)) -> np.ndarray:
     for text, y, s in (("CAUTION", 0.66, 1.25), ("WET", 0.79, 1.45), ("FLOOR", 0.92, 1.45)):
         (tw, _), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_DUPLEX, s, 4)
         cv2.putText(img, text, ((w - tw) // 2, int(h * y)), cv2.FONT_HERSHEY_DUPLEX, s, BLACK, 4, cv2.LINE_AA)
-    return img
-
-
-def wall(px, rng) -> np.ndarray:
-    """Corrugated cladding over a painted dado, the hall name stencilled on it."""
-    w, h = px
-    x = np.arange(w)
-    ribs = 0.8 + 0.2 * np.cos(2 * np.pi * x / 24) ** 2
-    v = np.tile(ribs, (h, 1)).astype(np.float32) * (1 + 0.04 * _noise(rng, (h, w), 40))
-    img = v[..., None] * np.array([92, 84, 76], np.float32)
-    img[int(h * 0.72):] = np.array([60, 66, 70], np.float32) * (1 + 0.03 * _noise(rng, (h - int(h * 0.72), w), 20))[
-        ..., None]
-    img[int(h * 0.7):int(h * 0.72)] = YELLOW
-    img = img.clip(0, 255).astype(np.uint8)
-    cv2.putText(img, "HALL 2  -  INTRALOGISTICS", (40, int(h * 0.13)), cv2.FONT_HERSHEY_DUPLEX, 1.3, (205, 210, 214),
-                3, cv2.LINE_AA)
     return img
