@@ -7,11 +7,13 @@ import numpy as np
 import pytest
 
 from airo import meta_api
-from airo.body import Body, ensemble
+from airo.body import Body, ensemble, rollout
 from airo.control import face, follow
-from airo.fleet import Fleet, crew
+from airo.camera import Pose
+from airo.fleet import Fleet, crew, footprint
 from airo.loader import Arm
 from airo.mjsim import fleet
+from airo.rig import DT
 from airo.scientist import Scientist
 from airo.site import FACTORY, KINDS
 from airo.warehouse import CLEAR, TOTE, Line, cells
@@ -90,18 +92,21 @@ def test_arm_reaches_with_the_fingers_across_the_tote():
 
 
 def test_every_bay_has_clear_floor_ahead():
-    """check_body's straight probe drives up to 25 cm forward out of a bay."""
+    """check_body's straight probe drives up to 25 cm forward out of a bay, clear of every cell's guarding."""
     blocks = [*cells(FACTORY).values()]
     for name, bay in [("pick", FACTORY.pick), *FACTORY.drops.items()]:
         c, s = math.cos(bay.theta), math.sin(bay.theta)
         for d in np.linspace(0, 0.25, 6):
             x, y = bay.x + d * c, bay.y + d * s
             assert 0.15 <= x <= FACTORY.floor[0] - 0.15 and 0.15 <= y <= FACTORY.floor[1] - 0.15, name
+            car = footprint(Pose(x, y, bay.theta, 0.0), pad=0.02)
             for cl in blocks:
-                assert math.dist((x, y), cl.base) > 0.25, (name, cl.name)
+                out, along = (car - cl.base) @ np.array(cl.out), (car - cl.base) @ np.array(cl.along)
+                assert out.max() < cl.front or along.max() < -cl.side or along.min() > cl.side, (name, cl.name)
 
 
-def test_loader_loads_the_tote_onto_the_deck_and_off_at_a_station():
+@pytest.mark.parametrize("station", ["packing", "dock"])
+def test_loader_loads_the_tote_onto_the_deck_and_off_at_a_station(models, station):
     car = fleet(AT_PICK, 1, log_dir=None)[0]
     world, cell = car.world, car.world.cell
     m0 = world.m.body_subtreemass[car.root]
@@ -109,21 +114,94 @@ def test_loader_loads_the_tote_onto_the_deck_and_off_at_a_station():
     async def run():
         tote = await loaded(car)
         on = cell.on(car), deck_offset(car)
-        bay = FACTORY.drops["packing"]
-        await follow(car, TWIN, [(car.pose.x, car.pose.y), (bay.x, bay.y - 0.3), (bay.x, bay.y)])
+        bay = FACTORY.drops[station]
+        c, s = math.cos(bay.theta), math.sin(bay.theta)
+        await follow(car, TWIN, [(car.pose.x, car.pose.y), (bay.x - 0.3 * c, bay.y - 0.3 * s), (bay.x, bay.y)])
         await face(car, TWIN, bay.theta)
-        slot = cell.slot("packing")
-        await cell.loaders["packing"].unload(car, slot)
+        slot = cell.slot(station)
+        await cell.loaders[station].unload(car, slot)
         for _ in range(10):
             await car.step(0, 0)
         return tote, on, slot
 
     tote, (on, offset), slot = asyncio.run(run())
     assert on is tote and offset < 0.005 and tote.kind == "heavy"
+    assert (type(cell.loaders[station].arm).__name__ == "UR5e") == (models == "menagerie")
     assert cell.on(car) is None and tote.slot == slot
     assert np.allclose(world.d.xpos[tote.body], cell.slot_pose(slot)[0], atol=1e-3)
     assert world.m.body_subtreemass[car.root] == pytest.approx(m0)
     assert world.m.body_mass[tote.body] == KINDS["heavy"]
+
+
+def _off(p, a, b) -> float:
+    a, b = np.asarray(a), np.asarray(b)
+    t = np.clip((p - a) @ (b - a) / ((b - a) @ (b - a)), 0, 1)
+    return float(np.linalg.norm(a + t * (b - a) - p))
+
+
+def _unexplained(car, body: Body, t0: float, window: float = 0.5) -> float:
+    """The largest gap, over half-second windows since t0, between where the car went and where its commands take
+    the body: a push from anything but its own wheels shows here."""
+    seg = car.segment(t0)
+    worst = 0.0
+    for k in range(0, len(seg.t) - round(window / DT), round(window / 4 / DT)):
+        j = k + round(window / DT)
+        t = seg.t[k:j + 1]
+        pred = rollout(body, t, seg.cmd_t, seg.cmd, seg.pose[k])
+        worst = max(worst, float(np.linalg.norm(pred[-1, :2] - seg.pose[j, :2])))
+    return worst
+
+
+@pytest.mark.parametrize("station", ["assembly", "qa", "packing", "dock"])
+def test_a_loaded_car_turns_into_a_drop_bay_on_its_path_and_stays_put_while_unloaded(models, station):
+    """Regression: cars were flung sideways off the floor turning into the packing and dock bays, by a new order
+    for the conveyor resetting the latch of the tote they carried. Turning into the bay and pivoting in it, the car
+    goes where its commands take it, and it stands still while unloaded, as other orders come in."""
+    car = fleet(AT_PICK, 1, noise=(0, 0), log_dir=None)[0]
+    cell = car.world.cell
+    bay = FACTORY.drops[station]
+    via = (bay.x - 0.3 * math.cos(bay.theta), bay.y - 0.3 * math.sin(bay.theta))
+
+    async def run():
+        await loaded(car)
+        await follow(car, TWIN, [(car.pose.x, car.pose.y), via])
+        t0 = car.pose.t
+        cell.order("light")
+        await follow(car, TWIN, [via, (bay.x, bay.y)])
+        for heading in (bay.theta + 0.47, bay.theta - 0.3, bay.theta):
+            await face(car, TWIN, heading)
+        cell.order("heavy")
+        parked = car.true_pose.copy()
+        await cell.loaders[station].unload(car, cell.slot(station))
+        return t0, parked
+
+    t0, parked = asyncio.run(run())
+    assert _unexplained(car, HEAVY, t0) < 0.02
+    assert np.linalg.norm(car.true_pose[:2] - parked[:2]) < 0.003
+    assert abs(math.remainder(car.true_pose[2] - parked[2], math.tau)) < 0.01
+
+
+def test_a_pivot_at_the_pick_bay_right_after_loading_measures_the_loaded_body(models):
+    """Regression: something moved a car parked at the pick bay while it felt its new body. The cell keeps still,
+    even as the next order comes in, and check_body's pivot lands where the heavy-tote body predicts."""
+    from airo.probes import LIBRARY, halt, measure, predict, run as probe, zscore
+    from airo.scientist import CHECK, CONFIRM_Z
+
+    car = fleet(AT_PICK, 1, noise=(0, 0), log_dir=None)[0]
+    w, cell = car.world, car.world.cell
+    arm = [w.m.jnt_qposadr[w.m.joint(j).id] for j in cell.pick.arm.joints]
+
+    async def run():
+        await loaded(car)
+        await halt(car)
+        cell.order("light")
+        q0, p = w.d.qpos[arm].copy(), car.pose
+        want = predict([HEAVY], LIBRARY[CHECK], (p.x, p.y, p.theta))
+        got = measure(await probe(car, LIBRARY[CHECK]))
+        return want, got, np.abs(w.d.qpos[arm] - q0).max()
+
+    want, got, moved = asyncio.run(run())
+    assert max(map(abs, zscore(want, got).values())) < CONFIRM_Z and moved < 1e-9
 
 
 @pytest.mark.parametrize("cmd", [(150, 150), (-140, 140), (200, -200)], ids=["straight", "pivot", "fast pivot"])
@@ -273,7 +351,7 @@ def test_tote_kind_comes_from_the_command():
                                            "deliver to packing")] == ["heavy", "light", None]
 
 
-def test_picking_names_loaders_and_totes():
+def test_picking_names_loaders_and_totes(models):
     from airo.orbit import Orbit
 
     car = fleet(AT_PICK, 1, log_dir=None)[0]
@@ -291,7 +369,12 @@ def test_picking_names_loaders_and_totes():
     tote, doing = asyncio.run(run())
     assert doing[0] == "Pick cell arm · loading AIRO 1"
     assert cell.label(tote.name) == ("Tote · heavy", "0.8 kg of steel parts, latched on AIRO 1's tray")
-    assert cell.label("arm_qa") == ("QA arm · idle", doing[1]) and cell.label("rack_beam") is None
+    if models == "menagerie":
+        name, detail = cell.label("arm_qa/hand/left_pad")
+        assert name == "Station arm · UR5e · QA" and detail.startswith("Idle; Robotiq 2F-85 gripper")
+    else:
+        assert cell.label("arm_qa") == ("QA arm · idle", doing[1])
+    assert cell.label("rack_beam") is None
     m = car.world.m
     orbit = Orbit(car)
     assert orbit._label(0, m.geom("fence_fence_panel").id, np.zeros(3))["name"] == "Safety guarding"

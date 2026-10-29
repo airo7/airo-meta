@@ -14,7 +14,6 @@ from airo.warehouse import BELT_Z, TABLE_Z, Cell, belt, cells, slots
 
 WALL_H = 1.6
 FENCE_H = 0.5
-FRONT, REAR, SIDE = -0.15, 0.47, 0.33
 GREEN = (60, 150, 70)
 
 
@@ -86,20 +85,25 @@ def _racks(spec, site, rng, bay=0.72, depth=0.28, levels=(0.0, 0.42, 0.84), top=
     b.emit(spec)
 
 
-def _pallet(b: Batch, rng, pos, lo: bool = False, load: bool = True):
-    """A 1200 x 800 pallet at 1:4 with a stretch-wrapped load: layers of cartons in a 2 x 3 pattern, or crates."""
+def _pallet(b: Batch, rng, pos, lo: bool = False, load: bool = True, yaw: float = 0.0):
+    """A 1200 x 800 pallet at 1:4 with a stretch-wrapped load: layers of cartons in a 2 x 3 pattern, or crates. At
+    yaw 0 its long side runs along y."""
     x, y, z = pos
+    c, s = math.cos(yaw), math.sin(yaw)
+
+    def put(mat, half, dx, dy, dz):
+        b.box(mat, half, (x + c * dx - s * dy, y + s * dx + c * dy, z + dz), yaw=yaw)
     for dx in (-0.085, 0, 0.085):
-        b.box("wood", (0.012, 0.15, 0.009), (x + dx, y, z + 0.009))
+        put("wood", (0.012, 0.15, 0.009), dx, 0, 0.009)
     for dy in np.linspace(-0.135, 0.135, 5):
-        b.box("wood_light", (0.1, 0.014, 0.0025), (x, y + dy, z + 0.0205))
+        put("wood_light", (0.1, 0.014, 0.0025), 0, dy, 0.0205)
     if not load:
         return
-    top = z + 0.023
+    top = 0.023
     if rng.random() < 0.22:
         for k in range(int(rng.integers(2, 5 if not lo else 4))):
-            b.box("crate_blue" if rng.random() < 0.6 else "crate_grey", (0.097, 0.145, 0.021),
-                  (x, y, top + 0.045 * k + 0.021))
+            put("crate_blue" if rng.random() < 0.6 else "crate_grey", (0.097, 0.145, 0.021), 0, 0,
+                top + 0.045 * k + 0.021)
         return
     layers = int(rng.integers(2, 6 if not lo else 4))
     for k in range(layers):
@@ -107,11 +111,11 @@ def _pallet(b: Batch, rng, pos, lo: bool = False, load: bool = True):
             for j in (-1, 0, 1):
                 if k == layers - 1 and rng.random() < 0.15:
                     continue
-                c = (x + i * 0.098, y + j * 0.0975, top + 0.03 * (2 * k + 1))
-                b.box(rng.choice(["carton", "carton", "carton_dark"]), (0.0475, 0.0465, 0.0292), c)
+                at = (i * 0.098, j * 0.0975, top + 0.03 * (2 * k + 1))
+                put(rng.choice(["carton", "carton", "carton_dark"]), (0.0475, 0.0465, 0.0292), *at)
                 if k == layers - 1:
-                    b.box("tape", (0.048, 0.008, 0.0294), c)
-    b.box("wrap", (0.1, 0.148, 0.03 * layers * 0.85), (x, y, top + 0.03 * layers * 0.85))
+                    put("tape", (0.048, 0.008, 0.0294), *at)
+    put("wrap", (0.1, 0.148, 0.03 * layers * 0.85), 0, 0, top + 0.03 * layers * 0.85)
 
 
 def _conveyor(spec, site, c: Cell):
@@ -155,12 +159,12 @@ def _cells(spec, site, cs: dict[str, Cell]):
     for name, c in cs.items():
         gap = 0.1 if name == "pick" else 0.0
         _fence(f, c, gap)
-        for s in (-SIDE, SIDE):
-            p = c.at(FRONT, s)
+        for s in (-c.side, c.side):
+            p = c.at(c.front, s)
             kit.box("curtain_post", (0.007, 0.007, 0.2), (*p, 0.2))
             kit.box("fence_post", (0.0075, 0.0075, 0.01), (*p, 0.41))
             kit.box("curtain_lens", (0.0072, 0.0072, 0.17), (*p, 0.21))
-        beacon = np.array(c.base) + REAR * np.array(c.out) + SIDE * np.array(c.along)
+        beacon = c.at(c.rear, c.side)
         for k, mat in enumerate(("led_green", "led_amber", "led_red")):
             kit.cylinder(mat, 0.011, 0.012, (*beacon, FENCE_H + 0.03 + 0.025 * k), sides=12)
         kit.cylinder("arm_dark", 0.012, 0.006, (*beacon, FENCE_H + 0.012), sides=12)
@@ -173,10 +177,10 @@ def _cells(spec, site, cs: dict[str, Cell]):
 
 
 def _fence(b: Batch, c: Cell, gap: float):
-    out, along, base = np.array(c.out), np.array(c.along), np.array(c.base)
-    rear = [(-SIDE, SIDE)] if not gap else [(-SIDE, -gap), (gap, SIDE)]
-    runs = [(base + REAR * out + s0 * along, base + REAR * out + s1 * along) for s0, s1 in rear]
-    runs += [(base + FRONT * out + s * along, base + REAR * out + s * along) for s in (-SIDE, SIDE)]
+    side = c.side
+    rear = [(-side, side)] if not gap else [(-side, -gap), (gap, side)]
+    runs = [(c.at(c.rear, s0), c.at(c.rear, s1)) for s0, s1 in rear]
+    runs += [(c.at(c.front, s), c.at(c.rear, s)) for s in (-side, side)]
     for a, z in runs:
         length = np.linalg.norm(z - a)
         u = (z - a) / length
@@ -204,21 +208,22 @@ def _table(b: Batch, c: Cell, name: str):
     along, out = np.array(c.along), np.array(c.out)
     if name == "dock":
         rng = np.random.default_rng(3)
-        _pallet(b, rng, (*centre, 0.0), load=False)
-        b.box("wrap", (0.003, 0.003, 0.08), (*(centre + 0.2 * along - 0.12 * out), 0.08))
+        _pallet(b, rng, (*centre, 0.0), load=False, yaw=yaw + math.pi / 2)
+        b.cylinder("wrap", 0.012, 0.055, (*(centre + 0.21 * along + 0.06 * out), 0.055), sides=10)
         return
+    ha, ho = 0.23, 0.085
     top = "bench_top" if name == "packing" else "conveyor_frame"
-    b.box(top, (0.27, 0.095, 0.006), (*centre, TABLE_Z - 0.006), yaw=yaw)
+    b.box(top, (ha, ho, 0.006), (*centre, TABLE_Z - 0.006), yaw=yaw)
     if name != "packing":
-        for t in np.linspace(-0.25, 0.25, 15):
-            b.cylinder("roller", 0.007, 0.088, (*(centre + t * along), TABLE_Z - 0.006), axis=(*out, 0), sides=8)
-    for sa in (-0.25, 0.25):
-        for so in (-0.08, 0.08):
+        for t in np.linspace(-ha + 0.02, ha - 0.02, 13):
+            b.cylinder("roller", 0.007, ho - 0.007, (*(centre + t * along), TABLE_Z - 0.006), axis=(*out, 0), sides=8)
+    for sa in (-ha + 0.02, ha - 0.02):
+        for so in (-ho + 0.012, ho - 0.012):
             b.box("alu", (0.008, 0.008, (TABLE_Z - 0.012) / 2), (*(centre + sa * along + so * out),
                                                                   (TABLE_Z - 0.012) / 2))
-    b.box("alu", (0.25, 0.006, 0.006), (*(centre + 0.08 * out), 0.03), yaw=yaw)
+    b.box("alu", (ha - 0.02, 0.006, 0.006), (*(centre + (ho - 0.012) * out), 0.03), yaw=yaw)
     if name == "packing":
-        b.box("cardboard", (0.06, 0.05, 0.002), (*(centre + 0.33 * along), TABLE_Z + 0.002), yaw=yaw + 0.2)
+        b.box("cardboard", (0.05, 0.04, 0.002), (*(centre - 0.27 * along), 0.002), yaw=yaw + 0.3)
 
 
 def _sign(spec, c: Cell, name: str):
@@ -228,7 +233,7 @@ def _sign(spec, c: Cell, name: str):
     title = "PICK CELL · INBOUND" if name == "pick" else name.upper() if len(name) <= 2 else name.upper()
     colour = (40, 150, 240) if name == "pick" else PAD_BGR[name]
     texture(spec, f"sign_{name}", sign(title, colour), specular=0.2, shininess=0.3)
-    p = np.array(c.base) + (REAR + 0.01) * np.array(c.out)
+    p = c.at(c.rear + 0.01)
     face = math.atan2(-c.out[1], -c.out[0])
     b = spec.worldbody.add_body(name=f"sign_{name}", pos=[*p, FENCE_H + 0.13], quat=quat(face))
     b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.006, 0.17, 0.05], material="arm_dark", **STATIC)
@@ -316,14 +321,15 @@ def workfloor(site, cs: dict[str, Cell], rng) -> np.ndarray:
         quad = lambda f, r, s: np.array([p(*(base + f * out - s * along)), p(*(base + f * out + s * along)),
                                           p(*(base + r * out + s * along)), p(*(base + r * out - s * along))],
                                          np.int32)
-        c.paint((84, 88, 92), lambda m: cv2.fillPoly(m, [quad(FRONT, REAR, SIDE)], 1))
+        f, r, s = cl.front, cl.rear, cl.side
+        c.paint((84, 88, 92), lambda m: cv2.fillPoly(m, [quad(f, r, s)], 1))
 
         def ring(m):
-            cv2.fillPoly(m, [quad(FRONT, REAR, SIDE)], 1)
-            cv2.fillPoly(m, [quad(FRONT + 0.05, REAR - 0.05, SIDE - 0.05)], 0)
+            cv2.fillPoly(m, [quad(f, r, s)], 1)
+            cv2.fillPoly(m, [quad(f + 0.05, r - 0.05, s - 0.05)], 0)
             m &= hatch
         c.paint(YELLOW, ring)
-        c.paint(YELLOW, lambda m: cv2.polylines(m, [quad(FRONT, REAR, SIDE)], True, 1, lw(0.012)))
+        c.paint(YELLOW, lambda m: cv2.polylines(m, [quad(f, r, s)], True, 1, lw(0.012)))
 
     def box(m, x, y, th, hx, hy, dash=False):
         cs_, sn = math.cos(th), math.sin(th)
@@ -385,7 +391,8 @@ def _contact(c: Canvas, site, cs):
     rect(-MARGIN, end[1] - 0.08, end[0] + 0.08, end[1] + 0.08, 0.7)
     for cl in cs.values():
         out, along, base = np.array(cl.out), np.array(cl.along), np.array(cl.base)
-        pts = [base + f * out + s * along for f, s in ((FRONT, -SIDE), (FRONT, SIDE), (REAR, SIDE), (REAR, -SIDE))]
+        pts = [cl.at(f, s) for f, s in ((cl.front, -cl.side), (cl.front, cl.side), (cl.rear, cl.side),
+                                        (cl.rear, -cl.side))]
         cv2.polylines(m, [np.array([c.p(*q) for q in pts], np.int32)], True, 0.8, c.w(0.03))
         cv2.circle(m, c.p(*base), c.w(0.07), 0.9, -1)
     for x, y, _ in site.starts:
