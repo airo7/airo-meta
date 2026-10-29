@@ -61,6 +61,22 @@ def _r(x: float) -> float:
     return float(f"{x:.3g}")
 
 
+def describe(before: Body, after: Body) -> str:
+    """A short name for how a relearned body differs, e.g. "heavier: −15% speed, −25% turn"."""
+    flipped = [f"{side} motor reversed" for side, a, b in (("left", before.g_l, after.g_l),
+                                                          ("right", before.g_r, after.g_r)) if a * b < 0]
+    if flipped:
+        return ", ".join(flipped)
+    speed = (after.g_l + after.g_r) / (before.g_l + before.g_r) - 1
+    turn = (1 + speed) * after.eta / before.eta - 1
+    parts = [f"{v:+.0%} {what}".replace("-", "−") for v, what in ((speed, "speed"), (turn, "turn")) if abs(v) >= 0.05]
+    if after.tau + after.lag > 1.3 * (before.tau + before.lag):
+        parts.append("slower to respond")
+    if not parts:
+        return "unchanged"
+    return f"{'heavier' if speed < -0.05 else 'lighter' if speed > 0.05 else 'changed'}: {', '.join(parts)}"
+
+
 def _verdict(probe: str, pred: dict, meas: dict) -> str:
     i = max(range(len(QTY)), key=lambda i: abs(pred[QTY[i]][0]))
     (m, sd), u = pred[QTY[i]], "°" if QTY[i] == "turn_deg" else " cm"
@@ -172,7 +188,7 @@ class Scientist:
             await self.run_probe(name, f"Scripted {name} for {MEASURES[LIBRARY[name].kind]}.")
         moved = [f"{k} {v:+.0f}%" for k, v in (await self.refit())["change_pct"].items() if abs(v) >= 10]
         await self.conclude(f"Scripted refit: {', '.join(moved) or 'no parameter moved 10% or more'}.",
-                            f"body {self.n + 1}")
+                            describe(self._start, self.best) if self._verify else "bare chassis")
 
     async def _call(self, name: str, arguments: str | None) -> dict:
         tool = {"get_body": self.get_body, "list_probes": self.list_probes, "predict": self.predict,

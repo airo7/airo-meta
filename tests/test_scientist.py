@@ -10,7 +10,7 @@ from openai.types.chat.chat_completion_message_function_tool_call import Functio
 from airo import meta_api
 from airo.body import Body, posterior, surprise
 from airo.probes import SCHEDULE
-from airo.scientist import RELEARN, Scientist
+from airo.scientist import RELEARN, Scientist, describe
 from airo.sim import SimRig
 
 TRUTH = Body(g_l=0.0030, g_r=0.0033, dz=25, eta=0.3, tau=0.2, lag=0.1, kappa=-0.1)
@@ -187,3 +187,11 @@ def test_wonder_cannot_conclude_unconfirmed(surprised, monkeypatch):
                        fail_after=2)
     asyncio.run(sci.relearn(window))
     assert "not confirmed" in results(seen)[-1]["error"] and not sci.verified
+
+
+def test_scripted_bodies_get_descriptive_names(surprised):
+    sci, window = surprised
+    assert sci.name == "bare chassis"
+    asyncio.run(sci.relearn(window))
+    assert sci.name.startswith("heavier: −2") and "turn" in sci.name
+    assert describe(TRUTH, replace(TRUTH, g_r=-TRUTH.g_r)) == "right motor reversed"
