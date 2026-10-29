@@ -80,7 +80,20 @@ def describe(before: Body, after: Body) -> str:
 def _verdict(probe: str, pred: dict, meas: dict) -> str:
     i = max(range(len(QTY)), key=lambda i: abs(pred[QTY[i]][0]))
     (m, sd), u = pred[QTY[i]], "°" if QTY[i] == "turn_deg" else " cm"
-    return f"{probe} predicted {m:.0f}{u} ± {math.hypot(sd, FLOOR[i]):.0f}, measured {meas[QTY[i]]:.0f}{u}"
+    return f"{probe} {m:.0f}{u} ± {math.hypot(sd, FLOOR[i]):.0f} vs {meas[QTY[i]]:.0f}{u}"
+
+
+def regime(probe: str) -> str:
+    return "turn" if LIBRARY[probe].kind in ("pivot", "arc") else "straight"
+
+
+def regimes(seg: Segment) -> set[str]:
+    """How the car was driving in seg, with body._excited's turn threshold."""
+    win = seg.cmd[(seg.cmd_t >= seg.t[0]) & (seg.cmd_t <= seg.t[-1])].reshape(-1, 2)
+    moving = win[np.abs(win).max(axis=1) > 0]
+    turning = np.abs(moving[:, 0] - moving[:, 1]) > 20
+    out = ({"turn"} if turning.any() else set()) | ({"straight"} if (~turning).any() else set())
+    return out or {"straight"}
 
 
 def _fmt(d: dict) -> str:
@@ -113,7 +126,8 @@ class Scientist:
         self._budget = 0
         self._ran: list[str] = []
         self._stale = self._done = self._fallback = self._verify = False
-        self._confirmed: str | None = None
+        self._confirmed: dict[str, str] = {}
+        self._needed: set[str] = set()
         self.verified = True
 
     async def learn(self, budget: int = 10):
@@ -136,12 +150,14 @@ class Scientist:
         await self._note("alert", f"Body changed, {what}. Camera: {seen}", predicted=pred, measured=meas, seen=seen)
         before = self.best
         self.segments, self._stale, self._anchor, self._verify = [window_seg], True, self.best, True
+        self._needed = regimes(window_seg)
         await self.refit()
+        need = " and ".join(f"a {r} probe ({'pivot or arc' if r == 'turn' else 'step'})" for r in sorted(self._needed))
         await self._session(f"The body just changed while driving, {what}. Muse Spark sees: \"{seen}\". The body "
-                            f"is already refitted on that window. You have up to {budget} probes and little floor, "
-                            f"so prefer pivots. Refit after each probe; the next probe then confirms the refit. Stop "
-                            f"once a probe is confirmed (|z| < {CONFIRM_Z:g} on every quantity, with a tight "
-                            f"prediction).", RELEARN, budget,
+                            f"is already refitted on that window. You have up to {budget} probes and little floor. "
+                            f"Refit after each probe; the next probe then tests the refit. The surprise happened while "
+                            f"driving {' and '.join(sorted(self._needed))}, so confirm with {need}: |z| < "
+                            f"{CONFIRM_Z:g} on every quantity, with a tight prediction.", RELEARN, budget,
                             start=before)
         return time.monotonic() - t0
 
@@ -157,7 +173,7 @@ class Scientist:
     async def _session(self, prompt: str, plan: list[str], budget: int, start: Body | None = None):
         self._start, self._budget, self._ran = start or self.best, budget, []
         self._done = self._fallback = False
-        self._confirmed = None
+        self._confirmed = {}
         msgs = [{"role": "system", "content": SYSTEM}, {"role": "user", "content": prompt}]
         try:
             for _ in range(2 * budget + 6):
@@ -182,8 +198,10 @@ class Scientist:
         left = [p for p in plan if p not in self._ran][:self._budget - len(self._ran)]
         await self._note("fallback", f"Wonder unavailable ({why}); scripted probes: {', '.join(left) or 'none'}.")
         for name in left:
-            if self._confirmed:
+            if self._verify and self._needed <= self._confirmed.keys():
                 break
+            if self._verify and regime(name) in self._confirmed:
+                continue
             await self.refit()
             await self.run_probe(name, f"Scripted {name} for {MEASURES[LIBRARY[name].kind]}.")
         moved = [f"{k} {v:+.0f}%" for k, v in (await self.refit())["change_pct"].items() if abs(v) >= 10]
@@ -237,7 +255,7 @@ class Scientist:
         tol = np.hypot([pred[q][1] for q in QTY], FLOOR)
         confirmed = confirming and max(map(abs, z.values())) < CONFIRM_Z and bool((tol <= CONFIRM_TOL).all())
         if confirmed:
-            self._confirmed = _verdict(probe, pred, meas)
+            self._confirmed.setdefault(regime(probe), _verdict(probe, pred, meas))
         await self._note("result", f"{probe}: {_fmt(meas)}; z {', '.join(f'{v:+.1f}' for v in z.values())}"
                          + ("; confirms the refit" if confirmed else ""),
                          probe=probe, hypothesis=hypothesis, predicted=pred, measured=meas, z=z, confirmed=confirmed)
@@ -258,15 +276,19 @@ class Scientist:
     async def conclude(self, text: str, body_name: str) -> dict:
         if not self._ran and not self._fallback:
             return {"error": "run at least one probe first"}
-        if self._verify and not self._confirmed and len(self._ran) < self._budget and not self._fallback:
-            return {"error": "not confirmed yet: refit, then run a probe whose |z| stays under "
-                             f"{CONFIRM_Z:g}, or use up the probe budget"}
+        if (self._verify and not self._needed <= self._confirmed.keys() and len(self._ran) < self._budget
+                and not self._fallback):
+            missing = " and ".join(sorted(self._needed - self._confirmed.keys()))
+            return {"error": f"not confirmed yet for {missing} driving: refit, then run such a probe whose |z| "
+                             f"stays under {CONFIRM_Z:g}, or use up the probe budget"}
         await self.refit()
         text += "".join(f" The {side} motor runs backwards: g_{side[0]} = {g:.4f}."
                         for side, g in (("left", self.best.g_l), ("right", self.best.g_r)) if g < 0)
         if self._verify:
-            self.verified = self._confirmed is not None
-            text += f" Confirmed: {self._confirmed}." if self.verified else " Partial fit, continuing with caution."
+            self.verified = self._needed <= self._confirmed.keys()
+            done = "; ".join(self._confirmed.values())
+            text += (f" Confirmed: {done}." if self.verified else
+                     f" Partial fit, continuing with caution{f' (confirmed only {done})' if done else ''}.")
         self.n += 1
         self.name = body_name
         self._done = True

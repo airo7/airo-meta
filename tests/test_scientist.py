@@ -1,5 +1,6 @@
 import asyncio
 import json
+import re
 from dataclasses import replace
 
 import numpy as np
@@ -8,9 +9,9 @@ from openai.types.chat import ChatCompletionMessage, ChatCompletionMessageFuncti
 from openai.types.chat.chat_completion_message_function_tool_call import Function
 
 from airo import meta_api
-from airo.body import Body, posterior, surprise
+from airo.body import Body, Segment, posterior, surprise
 from airo.probes import SCHEDULE
-from airo.scientist import RELEARN, Scientist, describe
+from airo.scientist import RELEARN, Scientist, describe, regime, regimes
 from airo.sim import SimRig
 
 TRUTH = Body(g_l=0.0030, g_r=0.0033, dz=25, eta=0.3, tau=0.2, lag=0.1, kappa=-0.1)
@@ -126,7 +127,7 @@ def test_relearn_after_heavy_load(monkeypatch):
     assert "budget" in results(seen)[-1]["error"]
     assert sci.notebook[[e["kind"] for e in sci.notebook].index("alert")]["seen"].startswith("a weight")
     assert len(sci.segments) == 1 + len(RELEARN)
-    assert sci.verified and " predicted " in sci.notebook[-1]["text"].split("Confirmed: ")[1]
+    assert sci.verified and re.search(r"Confirmed: \w+ -?\d+(°| cm) ± \d+ vs -?\d+", sci.notebook[-1]["text"])
 
     asyncio.run(teleport(rig))
     after = asyncio.run(drive(rig, mission))
@@ -168,6 +169,8 @@ def test_scripted_relearn_stops_once_confirmed(surprised):
     ran = [e for e in sci.notebook[alert:] if e["kind"] == "result"]
     assert ran[-1]["confirmed"] and len(ran) < len(RELEARN) and sci.verified
     assert "Confirmed:" in sci.notebook[-1]["text"] and "g_l -2" in sci.notebook[-1]["text"]
+    verdicts = sci.notebook[-1]["text"].split("Confirmed: ")[1].split("; ")
+    assert {regime(v.split()[0]) for v in verdicts} == {"straight", "turn"}, "the window drove straight and turned"
 
 
 @pytest.mark.parametrize("name, value", [("CONFIRM_Z", 0.01), ("CONFIRM_TOL", np.full(3, 0.5))])
@@ -195,3 +198,10 @@ def test_scripted_bodies_get_descriptive_names(surprised):
     asyncio.run(sci.relearn(window))
     assert sci.name.startswith("heavier: −2") and "turn" in sci.name
     assert describe(TRUTH, replace(TRUTH, g_r=-TRUTH.g_r)) == "right motor reversed"
+
+
+@pytest.mark.parametrize("cmd, expected", [([(140, 140)], {"straight"}), ([(-100, 100)], {"turn"}),
+                                           ([(140, 140), (80, 140)], {"straight", "turn"}), ([(0, 0)], {"straight"})])
+def test_regimes_of_a_window(cmd, expected):
+    t = np.arange(len(cmd)) * 0.05
+    assert regimes(Segment(t, np.array(cmd), t, np.zeros((len(cmd), 3)))) == expected
