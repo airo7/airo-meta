@@ -303,6 +303,14 @@ def test_three_robots_fetch_and_deliver_without_colliding_or_deadlock():
     assert all(not line.robots for line in world.cell.lines.values())
 
 
+def test_a_fleet_run_is_the_same_every_time():
+    """Lockstep simulation must not depend on the host's timing: missions wake on events, not on the wall clock."""
+    runs = [run_fleet(3, ["airo 1 deliver to assembly", "airo 2 deliver to packing", "airo 3 deliver to dock"],
+                      Feeling) for _ in range(2)]
+    ends = [(round(w.t, 3), [tuple(np.round(r.rig.true_pose, 4)) for r in f.robots]) for f, w, _, _ in runs]
+    assert ends[0] == ends[1]
+
+
 def test_the_real_check_body_runs_at_both_cells():
     f, world, _, seen = run_fleet(1, ["airo 1 bring a heavy tote to qa"], scientist, until=250)
     texts = [n["text"] for n in f.robots[0].mission.notes]
