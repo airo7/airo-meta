@@ -173,3 +173,15 @@ def test_only_the_straight_run_in_is_unwatched(mission, x, y, theta, quiet):
 
     mission._near = (0.5, 0.5, 0.0)
     assert mission._running_in(Pose(x, y, theta, 0.0)) == quiet
+
+
+def test_timeline_shows_each_probe_and_refit(mission):
+    t = mission.t0
+    mission.status = "learning"
+    mission.sci.notebook += [{"t": t + 1, "kind": "hypothesis", "probe": "ramp_120", "text": ""},
+                             {"t": t + 2, "kind": "result", "probe": "ramp_120", "text": ""},
+                             {"t": t + 3, "kind": "hypothesis", "probe": "arc_r", "text": ""},
+                             {"t": t + 4, "kind": "conclusion", "name": "bare chassis", "text": ""}]
+    phases = mission.state()["episode"]["phases"]
+    assert [(p["kind"], p["label"]) for p in phases] == [("probe", "learn the body"), ("probe", "ramp_120"),
+                                                         ("probe", "arc_r"), ("refit", "bare chassis")]

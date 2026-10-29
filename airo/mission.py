@@ -317,8 +317,16 @@ class Mission:
             "surprise": {"values": list(self.values), "threshold": self.threshold},
             "notebook": [_gauge({**n, "t": n["t"] - self.t0})
                          for n in sorted(self.notes + list(self.sci.notebook), key=lambda n: n["t"])],
-            "mode": self.mode, "episode": {"phases": self.phases}, "relearn": self._relearn_state(),
+            "mode": self.mode, "episode": {"phases": self._timeline()}, "relearn": self._relearn_state(),
         }
+
+    def _timeline(self) -> list[dict]:
+        """Mission phases plus each probe and refit from the scientist's notebook, in time order."""
+        probes = [{"t": e["t"] - self.t0, "kind": "probe", "label": e["probe"]}
+                  for e in self.sci.notebook if e["kind"] == "hypothesis" and "probe" in e]
+        refits = [{"t": e["t"] - self.t0, "kind": "refit", "label": e.get("name", "refit")}
+                  for e in self.sci.notebook if e["kind"] == "conclusion"]
+        return sorted(self.phases + probes + refits, key=lambda p: p["t"])
 
     def _relearn_state(self) -> dict | None:
         """The relearn overlay, held for a few seconds after it finishes."""
