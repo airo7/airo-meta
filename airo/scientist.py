@@ -13,7 +13,7 @@ import numpy as np
 
 from airo import meta_api
 from airo.body import PRIOR, Body, Segment, ensemble, fit, surprise
-from airo.memory import Entry, Memory
+from airo.memory import Entry, Memory, since_change
 from airo.probes import FLOOR, QTY, LIBRARY, SCHEDULE, Recentre, halt, measure, outcome, predict, run, safe, valid, zscore
 from airo.rig import BaseRig, RigAbort
 
@@ -149,8 +149,9 @@ class Scientist:
                             "is attached to the car yet; name the body after how it drives.", SCHEDULE, budget)
 
     async def relearn(self, window_seg: Segment, budget: int = len(RELEARN)) -> float:
-        """window_seg holds only motion since the body changed; it seeds the refit and older segments are dropped."""
+        """window_seg ends with the surprise; its part since the change seeds the refit, older segments are dropped."""
         t0 = time.monotonic()
+        window_seg = since_change(self.members, window_seg)
         s = surprise(self.members, window_seg)
         s = s[np.isfinite(s)]
         t, pose = valid(window_seg)

@@ -5,7 +5,7 @@ import json
 import pytest
 
 from airo.body import ensemble, save
-from airo.memory import Memory
+from airo.memory import Memory, since_change
 from airo.scientist import Scientist
 from airo.sim import SimRig
 from test_scientist import HEAVY, TRUTH, drive, fake_wonder, results, teleport
@@ -77,6 +77,20 @@ def test_match_ranks_the_body_that_explains_the_window(library):
     window = asyncio.run(changed(SimRig(TRUTH, log_dir=None), HEAVY))
     assert [e.n for e, _ in mem.match(window)] == [2]
     assert mem.match(window, exclude=2) == []
+
+
+def test_match_ignores_the_motion_before_the_change(library):
+    mem = Memory()
+    for e in library:
+        mem.add(e.name, e.cause, e.body, e.members, e.verified)
+    rig = SimRig(HEAVY, log_dir=None)
+    asyncio.run(changed(rig, HEAVY))
+    t = rig.t
+    rig.truth = TRUTH
+    asyncio.run(drive(rig, [(80, 140, 10), (140, 140, 8)]))
+    window = rig.segment(rig.t - 1.5)
+    assert window.t[0] < t <= since_change(library[1].members, window).t[0]
+    assert [e.n for e, _ in mem.match(window, library[1].members, exclude=2)] == [1]
 
 
 @pytest.mark.parametrize("current, truth, expect", [(2, TRUTH, 1), (1, HEAVY, 2)])

@@ -12,6 +12,7 @@ from airo.body import THRESHOLD, Body, Segment, load, surprise
 
 MEMORY_DIR = Path("data/memory")
 MODEL = "elegoo-v4"
+WINDOW = 0.5
 
 
 @dataclass
@@ -74,8 +75,12 @@ class Memory:
         self.active[self.robot] = e.n
         self.save()
 
-    def match(self, seg: Segment, exclude: int | None = None, threshold: float = THRESHOLD) -> list[tuple[Entry, float]]:
-        """Entries whose ensemble explains seg (median window surprise under threshold), best first."""
+    def match(self, seg: Segment, current: list[Body] | None = None, exclude: int | None = None,
+              threshold: float = THRESHOLD) -> list[tuple[Entry, float]]:
+        """Entries whose ensemble explains seg (median window surprise under threshold), best first. Windows the
+        current body still explains come from before the change, so they are left out."""
+        if current:
+            seg = since_change(current, seg, threshold)
         out = []
         for e in self.entries:
             s = surprise(e.members, seg) if e.n != exclude else []
@@ -89,3 +94,17 @@ class Memory:
             self.path.parent.mkdir(parents=True, exist_ok=True)
             self.path.write_text(json.dumps({"active": self.active, "entries": [asdict(e) for e in self.entries]},
                                             indent=1))
+
+
+def since_change(members: list[Body], seg: Segment, threshold: float = THRESHOLD) -> Segment:
+    """The end of seg after the change: windows are counted back from the end so the latest motion is scored, and
+    the first window members cannot explain is dropped too when a later one exists, as the change falls inside it."""
+    seg = _since(seg, seg.t[-1] - int((seg.t[-1] - seg.t[0]) / WINDOW + 1e-6) * WINDOW)
+    s = surprise(members, seg)
+    bad = [i for i, v in enumerate(s) if v > threshold]
+    return _since(seg, seg.t[0] + min(bad[0] + 1, len(s) - 1) * WINDOW) if bad else seg
+
+
+def _since(seg: Segment, t: float) -> Segment:
+    i = int(np.searchsorted(seg.t, t - 1e-6))
+    return Segment(seg.cmd_t, seg.cmd, seg.t[i:], seg.pose[i:])
