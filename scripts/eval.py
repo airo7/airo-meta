@@ -43,13 +43,18 @@ SIM_CHANGES = {
     "slippery": lambda b: replace(b, g_l=b.g_l * 0.9, g_r=b.g_r * 0.9, eta=b.eta * 0.6),
     "flip_motor": lambda b: replace(b, g_l=-b.g_l),
 }
+SIM_CHANGES |= {"loaded": None, "tow_loaded": SIM_CHANGES["tow"]}
 MJ_CHANGES = {
     "none": None,
     "weight": lambda r: r.add_weight(),
     "tow": lambda r: r.attach_tow(),
     "slippery": lambda r: r.slippery_patch(),
     "flip_motor": lambda r: r.flip_motor("l"),
+    "loaded": None,
+    "tow_loaded": lambda r: r.attach_tow(),
 }
+# These start with the weight on and a body learned with it, as a car carrying a heavy tote.
+LOADED = ("loaded", "tow_loaded")
 PATROL = [(1.5, 0.55), (1.5, 0.9), (0.7, 0.9), (0.7, 0.55)]
 LEGS = 4
 RECALL_STAGES = [("weight on", "relearn", 2), ("weight off", "recall", 1), ("weight on", "recall", 2)]
@@ -76,6 +81,13 @@ def make_rig(kind: str, seed: int, pose0):
     return rig
 
 
+def load(rig):
+    if isinstance(rig, SimRig):
+        rig.truth = SIM_CHANGES["weight"](rig.truth)
+    else:
+        rig.add_weight()
+
+
 def change(rig, name: str):
     if isinstance(rig, SimRig):
         rig.truth = SIM_CHANGES[name](rig.truth)
@@ -88,8 +100,10 @@ def scientist(rig, memory: Memory | None = None) -> Scientist:
     return sci
 
 
-async def learn(kind: str, seed: int) -> tuple[dict, tuple[Body, list[Body]]]:
+async def learn(kind: str, seed: int, loaded: bool = False) -> tuple[dict, tuple[Body, list[Body]]]:
     rig = make_rig(kind, seed, LEARN_POSE)
+    if loaded:
+        load(rig)
     sci = scientist(rig)
     t0 = time.perf_counter()
     await sci.learn()
@@ -115,6 +129,8 @@ async def learn(kind: str, seed: int) -> tuple[dict, tuple[Body, list[Body]]]:
 
 async def episode(kind: str, seed: int, name: str, learned) -> dict:
     rig = make_rig(kind, seed, DELIVER_POSE)
+    if name in LOADED:
+        load(rig)
     sci = scientist(rig)
     sci.best, sci.members = learned
     sci.n, sci.name = 1, "learned"
@@ -127,7 +143,7 @@ async def episode(kind: str, seed: int, name: str, learned) -> dict:
             if not log or log[-1][1] != m.status:
                 log.append((rig.t, m.status))
             moved = math.dist((rig.pose.x, rig.pose.y), start)
-            if name != "none" and t_change is None and m.status == "delivering" and moved > CHANGE_AFTER_M:
+            if SIM_CHANGES[name] and t_change is None and m.status == "delivering" and moved > CHANGE_AFTER_M:
                 change(rig, name)
                 t_change = rig.t
             await asyncio.sleep(0)
@@ -217,7 +233,7 @@ async def patrol(m: Mission):
                  v_max=m.v_max)
 
 
-async def carry_episode(seed: int, learned) -> tuple[list[dict], dict]:
+async def carry_episode(seed: int, learned, busy: str = "normal") -> tuple[list[dict], dict]:
     """Three robots share one library seeded with the bare body. Each check_body is graded against the real load:
     the body it ends on must have been learned under the same load, a light tote and none counting as alike."""
     from airo.fleet import Fleet, crew
@@ -255,6 +271,8 @@ async def carry_episode(seed: int, learned) -> tuple[list[dict], dict]:
         return sci
 
     f = Fleet(FACTORY, crew(FACTORY, rigs, make))
+    if f.life is not None:
+        f.life.set_level(busy)
 
     async def deliveries(r, jobs):
         for kind, station in jobs:
@@ -274,9 +292,12 @@ async def carry_episode(seed: int, learned) -> tuple[list[dict], dict]:
             await rig.close()
         rigs[0].world.close()
     done = {r.id: sum(n["text"].startswith("Delivered a") for n in r.mission.notes) for r in f.robots}
+    relearns = sum(e["kind"] == "alert" and e["text"].startswith("Body changed") for r in f.robots
+                   for e in r.sci.notebook)
     stops = {r.id: n["text"] for r in f.robots for n in r.mission.notes if n["text"].startswith("Safety stop")}
-    print(f"seed {seed} delivered {done}{f', stopped: {stops}' if stops else ''}", flush=True)
-    return rows, {"seed": seed, "delivered": done, "stops": stops}
+    print(f"seed {seed} delivered {done}, {relearns} surprise relearns{f', stopped: {stops}' if stops else ''}",
+          flush=True)
+    return rows, {"seed": seed, "delivered": done, "stops": stops, "relearns": relearns}
 
 
 def _shoved(result: dict) -> bool:
@@ -300,7 +321,8 @@ def carry_table(rows: list[dict], runs: list[dict]) -> str:
     hit = [r for r in rows if r["disturbed"]]
     out.append(f"\nChecks with a pushed probe, apart: {len(hit)}, {_rate([r['right'] for r in hit])} right. Delivered "
                f"{sum(sum(r['delivered'].values()) for r in runs)}/{jobs}; robots stopped after leaving the floor: "
-               f"{sum(len(r['stops']) for r in runs)}.")
+               f"{sum(len(r['stops']) for r in runs)}; surprise relearns, all false here: "
+               f"{sum(r.get('relearns', 0) for r in runs)}.")
     return "\n".join(out)
 
 
@@ -339,7 +361,7 @@ def table(learned: list[dict], episodes: list[dict]) -> str:
                 "relearn s | delivered | parcel error cm | aborted |", "|---|" * 1 + "---|" * 10]
     for name in dict.fromkeys(e["change"] for e in episodes):
         es = [e for e in episodes if e["change"] == name]
-        out.append(f"| {name} | {_rate([e['detected'] for e in es]) if name != 'none' else '–'} | "
+        out.append(f"| {name} | {_rate([e['detected'] for e in es]) if SIM_CHANGES[name] else '–'} | "
                    f"{sum(e['false_triggers'] for e in es)} | {_med([e['latency_s'] for e in es])} | "
                    f"{sum(e['relearns'] for e in es)} | {_rate([e['confirmed'] for e in es])} | "
                    f"{_med([e['relearn_probes'] or None for e in es], '{:.0f}')} | "
@@ -361,10 +383,11 @@ async def main(args):
         if "recall" in args.changes:
             recalls += await recall_episode(args.rig, seed, body)
         if "carry" in args.changes and args.rig == "mujoco":
-            rows, summary = await carry_episode(seed, body)
+            rows, summary = await carry_episode(seed, body, args.busy)
             carries, carry_runs = carries + rows, carry_runs + [summary]
+        loaded = (await learn(args.rig, seed, loaded=True))[1] if set(LOADED) & set(args.changes) else None
         for name in (c for c in args.changes if c not in ("recall", "carry")):
-            episodes.append(await episode(args.rig, seed, name, body))
+            episodes.append(await episode(args.rig, seed, name, loaded if name in LOADED else body))
             e = episodes[-1]
             print(f"seed {seed} {name}: detected {e['detected']} after {e['latency_s']}, delivered {e['delivered']}"
                   f"{', aborted: ' + e['aborted'] if e['aborted'] else ''}", flush=True)
@@ -385,7 +408,10 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--n", type=int, default=10)
     p.add_argument("--rig", choices=("sim", "mujoco"), default="sim")
-    p.add_argument("--changes", nargs="+", choices=[*SIM_CHANGES, "recall", "carry"], default=[*SIM_CHANGES, "recall"])
+    p.add_argument("--changes", nargs="+", choices=[*SIM_CHANGES, "recall", "carry"],
+                   default=[*(c for c in SIM_CHANGES if c not in LOADED), "recall"])
+    p.add_argument("--busy", choices=("calm", "normal", "busy"), default="normal",
+                   help="how often warehouse events happen in the carry condition")
     p.add_argument("--wonder", action="store_true", help="live Muse Wonder and Spark; needs MODEL_API_KEY")
     p.add_argument("--out", default="data/eval.json")
     asyncio.run(main(p.parse_args()))

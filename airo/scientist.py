@@ -28,6 +28,7 @@ MEASURES = {"step": "per-side gain, drift kappa, delay", "ramp": "dead zone", "p
 # check_body: one pivot decides same / remembered / new; a new body then gets a forward step if the bay allows it,
 # since pivots alone only see eta times gain.
 CHECK = "pivot_l_100"
+CHECK_AGAIN = "pivot_r_150"
 CHECK_PLAN = ["step_60", "step_back_60", "pivot_r_150", "pivot_l_60"]
 # A surprise relearn this soon after check_body left a body unverified completes that entry rather than minting one.
 MERGE_S = 60.0
@@ -128,6 +129,10 @@ def _compact(x):
     if isinstance(x, (list, tuple)):
         return [_compact(v) for v in x]
     return x
+
+
+def _n(e, current: int) -> int:
+    return current if e is None else e.n
 
 
 def _agree(a: dict, b: dict) -> bool:
@@ -413,7 +418,7 @@ class Scientist:
         before, recentre, self.recentre = self.best, self.recentre, None
         self._t0, self._cause, self._unfinished, self._merge = self.rig.pose.t, cause, None, None
         self.segments, self._stale, self._anchor, self._verify, self._fallback = [], False, before, True, False
-        self._ran, self._budget, self._confirmed, self._start = [], 2 + len(CHECK_PLAN), {}, before
+        self._ran, self._budget, self._confirmed, self._start = [], 3 + len(CHECK_PLAN), {}, before
         self._needed, self._signs = {"straight", "turn"}, False
         try:
             await halt(self.rig)
@@ -421,16 +426,25 @@ class Scientist:
             out = await self.run_probe(CHECK, f"If my body did not change, {CHECK} lands in the current cloud.")
             if "error" in out:
                 return self._checked("same")
-            if (body := self._explains(self.segments[-1], out["measured"])) is None:
+            runs = [(self.segments[-1], out["measured"])]
+            if not (fits := self._weigh(runs)):
                 # Unexplained by every body I know: once more, in case something bumped the car.
                 self._stale = False
                 again = await self.run_probe(CHECK, f"Again: if {CHECK} repeats, the body really changed.")
-                body = self._explains(self.segments[-1], again["measured"])
-                if body is None and not _agree(out["measured"], again["measured"]):
+                runs = [(self.segments[-1], again["measured"])]
+                if not (fits := self._weigh(runs)) and not _agree(out["measured"], again["measured"]):
                     await self._note("alert", f"Two {CHECK} runs disagree and no body explains either: something "
                                               f"is moving the car. Keeping Body #{self.n}; the drive will show a "
                                               "change.")
                     return self._checked("same")
+            elif len(fits) > 1 and fits[0][0] - fits[1][0] < CHANGE_LL:
+                # Two bodies explain it about as well: a pivot the other way tells them apart.
+                self._stale = False
+                again = await self.run_probe(CHECK_AGAIN, f"{CHECK_AGAIN} tells #{_n(fits[0][1], self.n)} and "
+                                                          f"#{_n(fits[1][1], self.n)} apart.")
+                runs.append((self.segments[-1], again["measured"]))
+                fits = self._weigh(runs)
+            body = self._choose(fits, runs[-1][1], CHECK_AGAIN if len(runs) > 1 else CHECK)
             if body == "current":
                 await self._note("result", f"Same body: Body #{self.n} ({self.name}) still explains {CHECK}.")
                 return self._checked("same")
@@ -445,24 +459,33 @@ class Scientist:
     def _checked(self, result: str) -> dict:
         return {"result": result, "n": self.n, "name": self.name, "seconds": self.rig.pose.t - self._t0}
 
-    def _explains(self, seg: Segment, meas: dict) -> str | tuple | None:
-        """Which body explains a check probe: "current", recall args for a remembered body, or None. Every body
-        that fits (|z| under CONFIRM_Z, tight) is scored by its Gaussian log-likelihood, which also charges a wide
-        cloud for its spread: a vague body can fit a changed car too. The current body wins unless another is
-        CHANGE_LL more likely."""
+    def _weigh(self, runs: list[tuple[Segment, dict]]) -> list[tuple]:
+        """(log-likelihood, body, prediction, z) of the last run for each body that fits every run (|z| under
+        CONFIRM_Z, tight), most likely first; body None is the current one. The Gaussian log-likelihood, summed over
+        runs, also charges a wide cloud for its spread: a vague body can fit a changed car too."""
         fits = []
         for e in [None] + [e for e in self.memory.entries if e.n != self.n]:
-            pred = executed(self.members if e is None else e.members, seg)
-            z = zscore(pred, meas)
-            sd = np.hypot([pred[q][1] for q in QTY], FLOOR)
-            if max(map(abs, z.values())) < CONFIRM_Z and (sd <= CONFIRM_TOL).all():
-                fits.append((-sum(v * v for v in z.values()) / 2 - float(np.log(sd).sum()), e, pred, z))
+            ll, ok = 0.0, True
+            for seg, meas in runs:
+                pred = executed(self.members if e is None else e.members, seg)
+                z = zscore(pred, meas)
+                sd = np.hypot([pred[q][1] for q in QTY], FLOOR)
+                ok = ok and max(map(abs, z.values())) < CONFIRM_Z and bool((sd <= CONFIRM_TOL).all())
+                ll += -sum(v * v for v in z.values()) / 2 - float(np.log(sd).sum())
+            if ok:
+                fits.append((ll, e, pred, z))
+        return sorted(fits, key=lambda f: -f[0])
+
+    def _choose(self, fits: list[tuple], meas: dict, probe: str) -> str | tuple | None:
+        """"current", recall args for a remembered body, or None to learn: the current body is kept unless another
+        is CHANGE_LL more likely."""
         if not fits:
             return None
-        ll, e, pred, z = max(fits, key=lambda f: f[0])
-        if fits[0][1] is None and fits[0][0] >= ll - CHANGE_LL:
+        current = next((f for f in fits if f[1] is None), None)
+        if current and current[0] >= fits[0][0] - CHANGE_LL:
             return "current"
-        return e, CHECK, pred, meas, z
+        _, e, pred, z = fits[0]
+        return e, probe, pred, meas, z
 
     async def _learn_here(self, cause: str, before: Body):
         for name in CHECK_PLAN:

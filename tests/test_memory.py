@@ -261,3 +261,10 @@ def probes_run(monkeypatch, shoves: list[float]) -> list[float]:
 
     monkeypatch.setattr("airo.scientist.run", bumped)
     return shoves
+
+
+def test_two_bodies_that_fit_alike_get_a_second_pivot(carried):
+    twin = carried.memory.add("twin", "", carried.best, carried.members, True)
+    out = asyncio.run(carried.check_body("loaded a light tote"))
+    ran = [e["probe"] for e in carried.notebook if e["kind"] == "result" and "probe" in e]
+    assert ran == ["pivot_l_100", "pivot_r_150"] and out["result"] == "same" and twin.recalls == 0
