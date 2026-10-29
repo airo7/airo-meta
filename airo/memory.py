@@ -3,6 +3,7 @@ One JSON file per robot model; entries name the robot that learned them, so a fl
 
 import copy
 import json
+import math
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -97,14 +98,12 @@ class Memory:
     def match(self, seg: Segment, current: list[Body] | None = None, exclude: int | None = None,
               threshold: float = THRESHOLD) -> list[tuple[Entry, float]]:
         """Entries whose ensemble explains seg (median window surprise under threshold), best first. Windows the
-        current body still explains come from before the change, so they are left out."""
-        if current:
-            seg = since_change(current, seg, threshold, strict=True)
+        current body still explains come from before the change, so they are left out. The change falls inside the
+        first window it cannot explain or before it, so each entry is scored from both starts and keeps the better."""
+        starts = [since_change(current, seg, threshold, strict=s) for s in (False, True)] if current else [seg]
         out = []
         for e in self.entries:
-            s = surprise(e.members, seg) if e.n != exclude else []
-            s = np.asarray(s)[np.isfinite(s)]
-            if len(s) and (m := float(np.median(s))) < threshold:
+            if e.n != exclude and (m := min(_score(e.members, cut) for cut in starts)) < threshold:
                 out.append((e, m))
         return sorted(out, key=lambda c: c[1])
 
@@ -123,6 +122,12 @@ def since_change(members: list[Body], seg: Segment, threshold: float = THRESHOLD
     s = surprise(members, seg)
     bad = [i for i, v in enumerate(s) if v > threshold]
     return _since(seg, seg.t[0] + min(bad[0] + strict, len(s) - 1) * WINDOW) if bad else seg
+
+
+def _score(members: list[Body], seg: Segment) -> float:
+    s = surprise(members, seg)
+    s = s[np.isfinite(s)]
+    return float(np.median(s)) if len(s) else math.inf
 
 
 def _since(seg: Segment, t: float) -> Segment:

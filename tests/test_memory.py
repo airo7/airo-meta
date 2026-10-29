@@ -1,10 +1,12 @@
 import asyncio
 import copy
 import json
+from pathlib import Path
 
+import numpy as np
 import pytest
 
-from airo.body import ensemble, save
+from airo.body import Body, Segment, ensemble, save
 from airo.memory import Memory, since_change
 from airo.scientist import Scientist
 from airo.sim import SimRig
@@ -95,6 +97,17 @@ def test_match_ignores_the_motion_before_the_change(library):
     t = window.t[0] + CHANGE_AT
     assert window.t[0] < t <= since_change(library[1].members, window, strict=True).t[0]
     assert [e.n for e, _ in mem.match(window, library[1].members, exclude=2)] == [1]
+
+
+def test_match_on_the_factory_miss():
+    """Recorded on the factory twin: restarted with the heavy body active on a bare car, so the whole window is the
+    new body. Scored only after the first surprising window, the bare body missed it; it scores 3.2 there."""
+    d = json.loads((Path(__file__).parent / "fixtures" / "factory_miss.json").read_text())
+    window = Segment(*(np.array(d[k]) for k in ("cmd_t", "cmd", "t", "pose")))
+    mem = Memory()
+    for e in d["entries"]:
+        mem.add(f"#{e['n']}", "", Body(**e["members"][0]), [Body(**m) for m in e["members"]], True)
+    assert [e.n for e, _ in mem.match(window, [Body(**b) for b in d["current"]], exclude=2)] == [1]
 
 
 @pytest.mark.parametrize("current, truth, expect", [(2, TRUTH, 1), (1, HEAVY, 2)])
