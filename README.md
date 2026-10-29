@@ -1,111 +1,86 @@
 # AIRO
 
-**Adaptive Intelligence for Robots.** A $50 robot car that learns its own body.
+**A $50 robot that learns its own body, and a fleet that shares what it learned.**
 
-AIRO watches a cheap, encoder-less robot car from an overhead phone camera and learns how the car's body moves by
-running physical experiments on it, like a newborn testing its limbs. It fits a seven-parameter motion model, shows
-its uncertainty as a calibrated "ghost cloud" of predicted futures, and delivers parcels on voice command. When the
-body changes (a weight strapped on, a box in tow, a motor wired backwards) it notices that reality has left the cloud,
-runs a few targeted probes, confirms the new body with a prediction it then tests, and carries on. Meta's models plan
-the experiments, look at the scene and write the lab notebook; they are never inside the 20 Hz control loop.
+AIRO starts with a cheap, encoder-less robot car and an overhead camera. It does not know how fast the car goes, how
+late it responds or how well it turns, so it finds out the way a newborn tests its limbs: it runs small physical
+experiments, fits a seven-parameter body model, and draws its uncertainty as a ghost cloud of predicted futures.
+Then it goes to work. When reality leaves the cloud (a weight strapped on, a box in tow, a motor wired backwards) it
+notices, probes, confirms a new body with a prediction it then tests, and carries on.
 
-![The MuJoCo twin: the car and its ghost cloud of predicted poses](docs/chase.jpg)
-![Dashboard after a relearn: Body #3 "heavier", the lab notebook, surprise trace and probe timeline](docs/dashboard.jpg)
+Every body it has been goes into a memory the whole fleet shares. A car that meets a known body again (a heavy tote
+another car already learned) recalls it with one probe in about 2 seconds instead of relearning. In the factory twin,
+three cars fetch heavy and light totes that robot arms load onto them, feel each new body at the cell, and deliver
+across a living warehouse with workers walking, a forklift working and goods dropping in the aisles.
+
+Meta's models plan the experiments, look at the car, name the bodies and take voice commands. They are never inside
+the 20 Hz control loop: every number comes from the fit.
+
+![The factory twin from the observation deck: three cars, arm cells at the stations, the pick cell on the left](docs/factory.jpg)
+![A car carrying a heavy tote with its ghost cloud of predicted poses](docs/carry.jpg)
+
+## What it does
+
+- **Learns its body.** Ten probes (steps, pivots, arcs, a ramp, a pulse) fit gains, dead zone, delay, wheel lag,
+  turn efficiency and drift, with a calibrated Laplace posterior. The ghost cloud is that posterior rolled forward.
+- **Notices change.** Each half-second window is scored against the cloud. Surprise fires when three windows run
+  above threshold, or when moderate surprise persists (a capped CUSUM catches a tow on an already loaded car).
+- **Relearns, verified.** Probes go where the surprise happened (turning or straight), and a relearn only counts once
+  a probe it predicted tightly lands within 2σ. A refit with each gain's sign flipped finds a reversed motor.
+- **Remembers.** Bodies are kept per robot model and shared by the fleet. Before relearning, a remembered body that
+  explains the surprise is tried with one confirming probe. After a known load or unload, one in-place pivot decides
+  "same", "recalled" or "learned", with a second pivot when two bodies explain it about equally well.
+- **Works in a fleet.** Robots plan around each other, queue for bays, give way to people and the forklift, and plan
+  around dropped pallets and cartons. Commands address one robot ("airo 2 …") or the selected one.
+- **Talks.** Voice or the command bar: `airo 2 bring a heavy tote to packing`, `select airo 3`, `send a worker
+  across`, `drop a carton`, `jam at packing`, `spill`, `busy`.
 
 ## Run it
 
 ```sh
 uv sync
-uv run scripts/fetch_models.py       # optional: UR5e, Robotiq and Unitree G1 for the factory (see disclosure)
+uv run scripts/fetch_models.py      # optional: UR5e, Robotiq 2F-85 and Unitree G1 from MuJoCo Menagerie
 uv run --env-file .env scripts/demo.py --site factory --busy normal   # the warehouse fleet; http://127.0.0.1:8000
-uv run scripts/demo.py --mujoco      # physics twin with the 3D chase view; open http://127.0.0.1:8000
-uv run scripts/demo.py --sim         # lightweight model-exact simulator
-uv run scripts/demo.py --floor W H --marker-h 0.1           # the real car (see Setup)
-uv run scripts/demo.py --floor W H --marker-h 0.1 --dry     # camera, pose and dashboard, nothing drives
+uv run scripts/demo.py --mujoco     # one car on the home floor's physics twin, with the 3D chase view
+uv run scripts/demo.py --sim        # lightweight model-exact simulator
+uv run scripts/demo.py --floor W H --marker-h 0.1          # the real car (see Setup); add --dry to drive nothing
 ```
 
-On `--mujoco` the 3D view is interactive: drag to orbit, right- or shift-drag to pan, scroll to zoom, click a part
-to name it and double-click to fly to it; the bar above offers chase, iso, top and floor views, close-ups of the
-wheel, motor, battery, board, sensor and marker, pause and ¼–2× speed, and one-click body changes and missions.
+Without a `MODEL_API_KEY` in `.env` a scripted scientist runs a fixed probe schedule and the twins segment their own
+frames; with it, Muse Wonder runs the experiments and SAM reads the camera. In the factory: `deliver to qa`,
+`bring a light tote to dock`, `learn`, `stop`, `weight`, `tow`, `flip`, `remove weight`, `clean`, `calm`, `pause`,
+`speed 0.5`; `--voice` takes them spoken. The 3D view orbits, zooms, names a clicked part and has chase, iso, top,
+floor and deck (the mezzanine) presets.
 
-In the factory, three cars fetch totes that an arm loads onto them, feel their new body with one pivot (recalling it
-from the fleet's shared memory, or learning it the first time), drive them to a station and get unloaded. Say or type
-`airo 2 bring a heavy tote to packing`, `select airo 3`, `spill`, `drop a pallet`, `send a worker across`, `busy`.
-
-Type into the dashboard's command bar or the terminal: `learn`, `deliver to blue` (or `red`), `status`, `stop`; with
-`--voice`, say them. In simulation, `weight`, `tow`, and on `--mujoco` also `slippery` and `flip`, change the body
-mid-run. For the Meta models put a `MODEL_API_KEY` in `.env` and run `uv run --env-file .env scripts/demo.py …`;
-without it a scripted scientist runs a fixed probe schedule. Either way every number comes from the fit, never from
-a language model.
-
-Other entry points: `scripts/learn.py` (the learning gate: fit vs the hand-measured key, ±2σ, cloud radius per probe),
-`scripts/goto.py` (click a point, the car drives there), `scripts/eval.py` (the benchmark below; `--wonder` runs it
-with the live scientist).
+Other entry points: `scripts/learn.py` (learn and gate a body against the hand-measured key), `scripts/goto.py`
+(click a point, the car drives there), `scripts/eval.py` (the benchmark below; `--wonder` uses the live scientist).
 
 ## Meta models
 
 | Model | Role |
 |---|---|
-| `muse-wonder-1.0` | The scientist: picks each probe, states a falsifiable hypothesis, refits, concludes and names the body. Tools return every number; it never steers. |
-| `muse-spark-1.3` | Looks at the camera frame when the body changes ("a weight pack strapped on top") to inform the hypothesis. |
-| `sam-3.1` | Segments the floor scene: parcel, stations and boxes become polygons and an occupancy grid for the planner. |
+| `muse-wonder-1.0` | The scientist: picks each probe with a falsifiable hypothesis, recalls a remembered body or relearns, concludes and names the body. Tools return every number; it never steers. A 12 s budget per relearn, then the scripted policy finishes. |
+| `muse-spark-1.3` | Looks at the car when the body changes ("a weight pack strapped on top"), in parallel with Wonder's first turn. |
+| `sam-3.1` | Segments the floor: parcel or totes, stations and obstacles become polygons and an occupancy grid. |
 | `muse-voice-transcribe-1.0` | Realtime speech to commands; the text bar is the fallback. |
-| `muse-image-1.0` | A self-portrait of each confirmed body for the body card. |
+| `muse-image-1.0` | A self-portrait of each confirmed body for its memory card. |
 
-## Architecture
+## How it works
 
-- `airo/protocol.py`: CMD/SENS bytes of the car firmware
-- `airo/car.py`: asyncio BLE link, one reconnect on drop
-- `airo/camera.py`: ArUco floor homography and car pose
-- `airo/rig.py`: 20 Hz loop over car and camera with a safety envelope and jsonl logs; shared CLI flags
-- `airo/sim.py`: model-exact simulated rig and floor world; `airo/mjsim.py`: MuJoCo twin with contact physics
-- `airo/body.py`: the body model, rollout, fit with sign search, Laplace posterior, surprise, inverse
-- `airo/control.py`: delay-compensated pure pursuit, goto, follow, face
-- `airo/probes.py`: probe library, free-space check, predicted vs measured outcomes
-- `airo/scientist.py`: Wonder tool loop and scripted fallback, verified relearn, lab notebook
-- `airo/planner.py`: SAM masks to a floor grid, A* with clearance, push poses
-- `airo/mission.py`: commands in, deliveries out; surprise monitor, relearn, dashboard state
-- `airo/server.py`: dashboard server (state websocket, video streams, portrait); `web/`: the page
-- `airo/meta_api.py`: SAM, Spark, Wonder and Image clients; `airo/voice.py`: realtime transcription and intents
-- `airo/portrait.py`: Muse Image self-portrait prompts
-
-## Hardware
-
-Elegoo Smart Robot Car V4 (Arduino UNO, 4 TT motors, skid steer, no encoders), HM-10 BLE module ("HC-05"), and
-an iPhone as an overhead camera (~1.8 m) via Continuity Camera.
-
-## Setup
-
-```sh
-uv sync
-cp .env.example .env              # add MODEL_API_KEY
-uv run scripts/markers.py         # A4 pages in data/markers, print at 100%
-```
-
-Floor frame: tape corner markers 1–4 counter-clockwise (1 → 2 is +x, 1 → 4 is +y), all with their top edge
-toward +y, and measure the centre-to-centre distances W and H. Tape marker 0 flat on the car, top edge forward.
-Stations are a red and a blue A4 sheet, the parcel is a small box wrapped in yellow, obstacles are plain boxes; the
-planner asks SAM for "red rectangle", "blue rectangle", "yellow box" and "box".
-On the phone, turn off Center Stage, Portrait and Studio Light; auto-cropping breaks the floor homography.
-
-## Day-1 checks
-
-| Check | Command | Pass |
-|---|---|---|
-| Pose | `uv run scripts/pose_check.py --floor W H --marker-h 0.1 --show` | ≥15 Hz, residual and still-car jitter ≤10 mm |
-| Dry run | `uv run scripts/goto.py --floor W H --marker-h 0.1 --dry` | pose arrow on the car; clicks print floor coordinates that match a tape measure |
-| BLE | `uv run scripts/drive_check.py` | drives straight then pivots, ack ≈66 ms, SENS ≈25 Hz |
-| Meta API | `uv run --env-file .env scripts/bench_api.py --concept box` | latency printed, overlay in `data/` looks right |
-| Offline | `uv run pytest` | geometry, protocol and SAM parsing tests pass |
-
-## Uncertainty
-
-The ghost cloud is a Laplace posterior around the fitted body with a broad physical prior; a parameter keeps its
-prior spread until some probe has excited it (eta and drift need a turn, the dead zone a command near it). The noise
-variance is inflated by 14 × the residuals' autocorrelation time, calibrated on held-out probes in simulation: over
-30 seeds the true outcome falls within 2σ of the prediction 87–100% of the time (93/87/100% for x/y/heading with
-all probes, 100/100/97% with four), and the true parameters 87–100%, except the dead zone at 73% when only four probes
-are available.
+- **Car and camera:** `protocol.py` (firmware bytes), `car.py` (BLE), `camera.py` (ArUco floor homography and pose),
+  `rig.py` (20 Hz loop with a safety envelope and jsonl logs).
+- **Body:** `body.py` (model, rollout, fit with sign search, Laplace posterior, surprise), `probes.py` (probe
+  library, free-space check, predicted vs measured outcomes), `scientist.py` (Wonder tool loop, scripted fallback,
+  verified relearn, `check_body`, lab notebook), `memory.py` (the shared body library and recall matching).
+- **Driving:** `control.py` (delay-compensated pure pursuit), `planner.py` (SAM masks to a grid, A* with clearance),
+  `mission.py` (deliveries and the carry workflow, surprise monitor, dashboard state), `fleet.py` (robots, command
+  routing, give-way guard).
+- **Twin:** `world.py` and `mjsim.py` (one MuJoCo world for every car, a DC-motor model per wheel), `sim.py` (the
+  model-exact simulator), `scene.py`, `hall.py`, `mezzanine.py` (the factory hall), `warehouse.py` (totes, conveyor,
+  bays, queues), `loader.py` and `cobot.py` (pick and station arms), `life.py`, `workers.py`, `forklift.py`,
+  `walkmap.py` (people, the forklift and floor events), `orbit.py` (the interactive camera).
+- **Interface:** `server.py` and `web/` (dashboard), `meta_api.py` (Meta model clients and the model feed),
+  `voice.py`, `portrait.py`.
 
 ## Measured numbers
 
@@ -117,15 +92,14 @@ loop instead: weight on, off, and on again.
 |---|---|---|
 | Learn: 10 probes, cloud radius | 0.3 cm, parameters within 7% of truth | 1.1 cm |
 | Held-out probes within 2σ | 100% | 100% |
-| False surprise triggers (50 runs) | 0 | 0 |
+| False surprise triggers (70 runs, bare and loaded) | 0 | 0 |
 | Weight: detected / confirmed / delivered | 10/10 at 1.1 s, 10/10, 10/10 (gains −35%) | 10/10 at 6.5 s, 10/10, 10/10 (0.8 kg) |
 | Tow: detected / confirmed / delivered | 4/10, 4/4, 10/10 (gains −15%, lag ×2) | 10/10 at 1.7 s, 10/10, 10/10 |
 | Tow on a loaded car: detected / confirmed / delivered | 0/10, –, 10/10 | 10/10 at 2.4 s, 8/10, 10/10 |
-| Loaded car, nothing changes: false triggers | 0/10 | 0/10 |
 | Slippery floor: detected / confirmed / delivered | 10/10 at 6.0 s, 10/10, 10/10 | 0/10, –, 10/10 (a 0.4 × 0.5 m patch) |
 | Reversed left motor: detected / confirmed / delivered | 10/10 at 1.1 s, 9/10, 10/10 | 10/10 at 1.1 s, 10/10, 10/10 |
 | Parcel distance from the station centre (clean) | 5.8 cm median | 8.1 cm median |
-| Memory: weight on → relearn #2, off → recall #1, on → recall #2 | 10/10, 10/10, 10/10 | 10/10, 9/10, 9/9 (one weight-off went unnoticed) |
+| Memory: weight on → relearn #2, off → recall #1, on → recall #2 | 10/10, 10/10, 10/10 | 10/10, 10/10, 10/10 |
 | Recall vs relearn, sim time | 2.1 s and 1 probe vs 3.7 s and 2 probes | same |
 
 **Factory carry** (`uv run scripts/eval.py --rig mujoco --changes carry --n 5 [--busy calm]`): three robots each
@@ -139,33 +113,52 @@ fetch six heavy (0.8 kg) and light (0.2 kg) totes; every check after a load or u
 | Surprise relearns (none are real changes here) | 0 | 0 |
 | Delivered | 81/90 (one run's robots could not reach their bays) | 90/90 |
 
-A relearn must confirm in every regime the surprise happened in: a pivot or arc if the car was turning, a step if it
-was driving straight, each predicted tightly (±3 cm, ±6°) and within 2σ. Before relearning, AIRO checks its memory:
-a remembered body whose cloud explains the surprising window is tried with one confirming probe, and a confirmed recall
-takes back that body's number. Relearning finds a reversed motor by restarting the fit with each gain's sign flipped
-and says so ("the left motor runs backwards"). Besides the median of three windows passing 3, surprise also fires when
-it stays raised: windows above 1.8 add their excess, each capped at the threshold, and a sum past 3 triggers, so a tow
-on a loaded car (about 2.4 per window) is caught. A body check after a load runs one pivot (the largest the bay has room for), a second the other way
-when two remembered bodies explain it about equally well, and keeps the current body unless another is clearly more
-likely. A towed box is a drag force the body model has no term for; its
-slack string in reverse and its swing in pivots stay unmodelled. An unconfirmed relearn continues at 0.6× speed; one
-no fit can explain stops with a hardware-fault alert.
+The first heavy load of each run is learned at the cell in about 12 s; every later one, on any robot, is recalled.
+After these runs the fleet's gridlock was fixed (planning around the forklift and dropped goods, giving way to
+people): 10 stress runs from calm to busy delivered 180/180 with no give-ups.
+
+## Uncertainty
+
+The ghost cloud is a Laplace posterior around the fitted body with a broad physical prior; a parameter keeps its
+prior spread until some probe has excited it (eta and drift need a turn, the dead zone a command near it). The noise
+variance is inflated by 14 × the residuals' autocorrelation time, calibrated on held-out probes in simulation: over
+30 seeds the true outcome falls within 2σ of the prediction 87–100% of the time. Probes are scored against the
+commands the rig actually ran, so a late tick does not read as a changed body, and a probe that ran into something
+is left out of a learn.
+
+## Hardware and setup
+
+Elegoo Smart Robot Car V4 (Arduino UNO, 4 TT motors, skid steer, no encoders), HM-10 BLE module, and an iPhone as an
+overhead camera (~1.8 m) via Continuity Camera.
+
+```sh
+cp .env.example .env              # add MODEL_API_KEY
+uv run scripts/markers.py         # A4 pages in data/markers, print at 100%
+```
+
+Tape floor markers 1–4 counter-clockwise (1 → 2 is +x, 1 → 4 is +y), top edges toward +y, and measure the
+centre-to-centre distances W and H; tape marker 0 on the car, top edge forward. Stations are red and blue A4 sheets,
+the parcel a box wrapped in yellow. On the phone, turn off Center Stage, Portrait and Studio Light.
+
+| Day-1 check | Command | Pass |
+|---|---|---|
+| Pose | `uv run scripts/pose_check.py --floor W H --marker-h 0.1 --show` | ≥15 Hz, jitter ≤10 mm |
+| Dry run | `uv run scripts/goto.py --floor W H --marker-h 0.1 --dry` | clicks print floor coordinates that match a tape measure |
+| BLE | `uv run scripts/drive_check.py` | drives straight then pivots, ack ≈66 ms |
+| Meta API | `uv run --env-file .env scripts/bench_api.py --concept box` | latency printed, overlay looks right |
+| Offline | `uv run pytest` | passes |
 
 ## Limitations
 
-- All numbers so far are from simulation; hardware runs are next.
-- The body model has seven parameters and no term for drag, slip or battery sag. A towed box's relearn is confirmed
-  on a forward step only. Changes under ~8% speed (0.4 kg on the twin) and the twin's small slippery patch go
-  unnoticed; the 0.8 kg weight is only caught in the turns near the parcel.
-- A reversed motor is identified and driven around, but its relearn stays partial: confirming both turning and
-  straight driving within five probes needs a tighter fit than the window gives.
-- Drift is weakly identifiable; the learning gate reports its sign as undetermined when it is within 2σ of zero.
+- All numbers are from simulation; hardware runs are next.
+- The body model has seven parameters and no term for drag, slip or battery sag. Changes under ~8% speed and the
+  twin's small slippery patch go unnoticed, and in the model-exact simulator a tow on a loaded car stays below the
+  sustained-surprise allowance.
+- A light tote sits between the bare and heavy bodies, so its check usually takes a second pivot (3.7 s).
+- Drift is weakly identifiable; the learning gate reports its sign as undetermined within 2σ of zero.
 - The uncertainty inflation is calibrated in simulation; on hardware only its autocorrelation factor adapts.
-- Probes check free floor, not obstacles, so learning needs a clear centre band; pushes are kept straight because a
-  curved push slides the parcel off the bumper.
-- The benchmark uses the scripted scientist for repeatability. Live, on the twin: Wonder runs a 6-probe learn and a
-  weight relearn (confirmed in 2 probes) and names the body itself; SAM's scan puts the parcel within 1 cm; Voice
-  turns a spoken "deliver the parcel to blue" into the intent.
+- Muse Wonder takes 6–20 s per turn, so live it often gets one turn of its 12 s budget before the scripted policy
+  finishes a relearn; the benchmark uses the scripted scientist for repeatability.
 
 ## Hackathon disclosure
 
@@ -179,7 +172,8 @@ Built for the Meta Global AI Developer Hackathon, Oct 26 – Nov 4 2026.
 - **Third-party robot models:** the UR5e arm, Robotiq 2F-85 gripper and Unitree G1 humanoid in the factory scene come
   from [MuJoCo Menagerie](https://github.com/google-deepmind/mujoco_menagerie) under their own licences, fetched by
   `uv run scripts/fetch_models.py` into the git-ignored `third_party/`; without them the scene falls back to our own arm.
-  The car model, the pick-cell arm, the warehouse and everything else in the scene were built for this project.
+  The car model, the pick-cell arm, the warehouse, the forklift and everything else in the scene were built for this
+  project.
 - **Meta models:** `muse-wonder-1.0`, `muse-spark-1.3`, `sam-3.1`, `muse-voice-transcribe-1.0`, `muse-image-1.0`.
 
 ## License
