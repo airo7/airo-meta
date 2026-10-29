@@ -240,6 +240,9 @@ class Mission:
         recentre = getattr(self.sci, "recentre", None)
         if recentre and parcel and math.dist((p.x, p.y), parcel) < PROBE_REACH:
             self.note("alert", f"Reality left the cloud ({why}). Moving clear of the parcel to probe.")
+            centre = (self.rig.floor[0] / 2, self.rig.floor[1] / 2)
+            if path := planner.plan(self.scene, (p.x, p.y), centre):
+                await follow(self.rig, self.body, path, v_max=CAUTION * V_MAX)
             await recentre(self.rig)
         t_probe = self.rig.pose.t
         await self.sci.relearn(seg, RELEARN_PROBES)
