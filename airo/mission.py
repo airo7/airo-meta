@@ -79,8 +79,10 @@ class Mission:
     """sci follows the scientist contract: best, members, n, name, notebook, learn(), relearn(seg) -> seconds."""
 
     def __init__(self, rig: BaseRig, sci, inbox: asyncio.Queue | None = None, scan=None, threshold=THRESHOLD,
-                 watch_push: bool = False, mode: str = "real", body_path=None, portraits: Path | None = PORTRAITS):
+                 watch_push: bool = False, mode: str = "real", body_path=None, portraits: Path | None = PORTRAITS,
+                 stations: dict[str, str] = planner.STATIONS):
         self.rig, self.sci = rig, sci
+        self.stations = stations
         self.watch_push = watch_push
         self.mode = mode
         self.body_path = body_path
@@ -92,7 +94,7 @@ class Mission:
         self._relearn_t: float | None = None
         self._relearn_end: float | None = None
         self.inbox = inbox or asyncio.Queue()
-        self.scan = scan or (lambda: planner.scan(rig.frame(), rig.H, rig.floor))
+        self.scan = scan or (lambda: planner.scan(rig.frame(), rig.H, rig.floor, stations=stations))
         self.threshold = threshold
         self._status, self.command = "idle", ""
         self.scene: planner.Scene | None = None
@@ -269,7 +271,7 @@ class Mission:
             save(self.sci.best, self.sci.members, self.sci.name, self.body_path)
 
     async def handle(self, text: str):
-        intent = parse_intent(text)
+        intent = parse_intent(text, self.stations)
         if intent is None:
             self.note("alert", f'Not understood: "{text}"')
             return
@@ -282,12 +284,12 @@ class Mission:
             b = self.body
             self.note("result", f"Body #{self.sci.n} {self.sci.name}: gains {b.g_l * 1000:.2f}/{b.g_r * 1000:.2f} "
                                 f"mm/s/PWM, dead zone {b.dz:.0f}, delay {b.tau * 1000:.0f} ms.")
-        elif intent.kind == "learn" or intent.target in planner.STATIONS:
+        elif intent.kind == "learn" or intent.target in self.stations:
             await self._cancel()
             work = self.learn() if intent.kind == "learn" else self.deliver(intent.target)
             self._task = asyncio.create_task(self._run(work))
         else:
-            self.note("alert", f"Deliver where? Stations: {', '.join(planner.STATIONS)}.")
+            self.note("alert", f"Deliver where? Stations: {', '.join(self.stations)}.")
 
     async def _run(self, work):
         try:

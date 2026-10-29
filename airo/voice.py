@@ -90,7 +90,8 @@ _LEARN = re.compile(r"\b(re)?learn|\bcalibrat|\bexperiment|\bprobe")
 _STATUS = re.compile(r"\bhow\b.*\b(feel|doing|going)\b|\bstatus\b|\bare you (ok|okay|alright)\b")
 
 
-def parse_intent(text: str) -> Intent | None:
+def parse_intent(text: str, stations=None) -> Intent | None:
+    """With the site's station names, a station named anywhere in a delivery counts ("bring it over to Q.A.")."""
     t = text.lower()
     if _STOP.search(t):
         return Intent("stop")
@@ -99,5 +100,9 @@ def parse_intent(text: str) -> Intent | None:
     if _STATUS.search(t):
         return Intent("status")
     if m := _DELIVER.search(t):
-        return Intent("deliver", m[2])
+        target = m[2]
+        if stations and target not in stations:
+            words = re.sub(r"[^a-z ]", "", t).split()
+            target = next((s for s in stations if s in words), target)
+        return Intent("deliver", target)
     return None
