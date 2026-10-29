@@ -25,8 +25,9 @@ RUN_IN = 0.4
 NEAR_PARCEL = 0.35
 RUN_IN_WIDTH = 0.08
 RUN_IN_HEADING = math.radians(30)
-# Bumper tip (0.17 m from the centre) plus half a tote and a margin: a pivot this close can sweep the parcel.
-CONTACT = 0.3
+# The bumper's arm tips are 0.18 m from the centre and the parcel is 0.1 m square: a pivot closer than this can sweep
+# it. No wider: the alignment pivot at the push pose (~0.27 m) is where a heavier body shows first.
+CONTACT = 0.24
 STANDOFF = 0.22
 PORTRAITS = Path("data/portraits")
 PROBE_REACH = 0.6

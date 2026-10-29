@@ -57,7 +57,7 @@ def scientist(library, monkeypatch, tmp_path, current: int, truth, wonder=()):
 
 
 def since_alert(sci, kind):
-    alert = max(i for i, e in enumerate(sci.notebook) if e["kind"] == "alert")
+    alert = max(i for i, e in enumerate(sci.notebook) if e["text"].startswith("Body changed"))
     return [e for e in sci.notebook[alert:] if e["kind"] == kind]
 
 
