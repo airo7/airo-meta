@@ -10,7 +10,7 @@ from contextlib import suppress
 import numpy as np
 
 from airo import planner
-from airo.body import KEY, Body, cloud, save, surprise
+from airo.body import KEY, Body, cloud, save, surprise, wrap
 from airo.control import V_MAX, follow
 from airo.rig import DT, BaseRig, RigAbort
 from airo.server import topdown
@@ -23,6 +23,8 @@ RESCAN_S = 2.0
 DRIFT_M = 0.08
 RUN_IN = 0.4
 NEAR_PARCEL = 0.35
+RUN_IN_WIDTH = 0.08
+RUN_IN_HEADING = math.radians(30)
 STANDOFF = 0.22
 PROBE_REACH = 0.6
 RELEARN_PROBES = 5
@@ -96,7 +98,7 @@ class Mission:
         self._recent: deque[float | None] = deque(maxlen=3)
         self._next_window = -math.inf
         self._quiet_until = -math.inf
-        self._near: tuple[float, float] | None = None
+        self._near: tuple[float, float, float] | None = None
         self._task: asyncio.Task | None = None
 
     @property
@@ -132,7 +134,7 @@ class Mission:
         cmd = np.abs(seg.cmd[seg.cmd_t >= seg.t[0]])
         p = self.rig.pose
         quiet = (now < self._quiet_until or not len(cmd) or cmd.max(axis=1).min() <= self.body.dz
-                 or (self._near is not None and math.dist((p.x, p.y), self._near) < NEAR_PARCEL))
+                 or self._running_in(p))
         s = [] if quiet else surprise(self.sci.members, seg, WINDOW)
         score = None if not len(s) or np.isnan(s[-1]) else float(s[-1])
         self.values.append(score or 0.0)
@@ -140,6 +142,17 @@ class Mission:
         if len(self._recent) == 3 and None not in self._recent and (m := np.median(self._recent)) > self.threshold:
             self._recent.clear()
             raise Surprised(f"surprise {m:.1f}")
+
+    def _running_in(self, p) -> bool:
+        """On the last straight stretch into the push pose, where parcel contact would read as surprise. Turns near
+        the parcel stay watched: that is where a heavier body shows."""
+        if self._near is None:
+            return False
+        x, y, th = self._near
+        along = (p.x - x) * math.cos(th) + (p.y - y) * math.sin(th)
+        across = -(p.x - x) * math.sin(th) + (p.y - y) * math.cos(th)
+        return (-NEAR_PARCEL <= along <= 0.05 and abs(across) < RUN_IN_WIDTH
+                and abs(wrap(p.theta - th)) < RUN_IN_HEADING)
 
     async def deliver(self, station: str, attempts: int = 5) -> bool:
         for _ in range(attempts):
@@ -178,7 +191,7 @@ class Mission:
         run_in = next(((x - r * math.cos(th), y - r * math.sin(th)) for r in np.linspace(RUN_IN, 0.1, 7)
                        if self.rig.inside(x - r * math.cos(th), y - r * math.sin(th))), (x, y))
         self.status = "delivering"
-        self._near = (x, y)
+        self._near = (x, y, th)
         self.path = self._plan(run_in) + [(x, y)]
         await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
         return True

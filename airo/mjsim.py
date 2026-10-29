@@ -19,6 +19,7 @@ from airo.sim import PARCEL, world
 
 ASSETS = Path(__file__).parent / "assets"
 DELAY = 0.17
+WEIGHT_KG = 0.8
 IMBALANCE = 0.009
 CAM_H = 1.8
 MARKER_H = 0.1
@@ -146,7 +147,7 @@ class MjRig(BaseRig):
 
     # body changes, as scene options or between steps
 
-    def add_weight(self, kg: float = 0.4):
+    def add_weight(self, kg: float = WEIGHT_KG):
         """A steel block strapped between the decks in front of the battery; more stack on the rear deck."""
         n = sum(b.name.startswith("weight") for b in self.spec.bodies)
         w = kg / 7850 / 0.045 / 0.022

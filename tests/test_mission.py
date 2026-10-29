@@ -161,3 +161,16 @@ def test_notebook_outcomes_become_gauge_numbers():
                 "measured": {"forward_cm": 0.5, "lateral_cm": 0.0, "turn_deg": 68.8}})
     assert (e["predicted"], e["sd"], e["measured"], e["unit"]) == (51.3, 11.0, 68.8, "°")
     assert _gauge({"kind": "prediction", "predicted": {"turn_deg": (5.0, 1.0)}})["predicted"] == {"turn_deg": (5.0, 1.0)}
+
+
+@pytest.mark.parametrize("x, y, theta, quiet", [
+    (0.3, 0.5, 0.0, True),            # straight run-in behind the push pose
+    (0.3, 0.5, math.radians(80), False),  # pivoting near the parcel
+    (0.5, 0.65, 0.0, False),          # beside the push axis
+    (0.1, 0.5, 0.0, False),           # further back than the run-in
+])
+def test_only_the_straight_run_in_is_unwatched(mission, x, y, theta, quiet):
+    from airo.camera import Pose
+
+    mission._near = (0.5, 0.5, 0.0)
+    assert mission._running_in(Pose(x, y, theta, 0.0)) == quiet

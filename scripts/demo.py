@@ -17,13 +17,12 @@ from airo import meta_api
 from airo.body import cloud, load
 from airo.control import recentre
 from airo.mission import Mission
-from airo.mjsim import MjRig
+from airo.mjsim import WEIGHT_KG, MjRig
 from airo.rig import add_args, body_path, open_rig
 from airo.scientist import Scientist
 from airo.server import Dashboard
 from airo.sim import SimRig, world
 
-WEIGHT_KG = 0.8
 FPS = 15
 HORIZON = 1.2
 

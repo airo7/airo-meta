@@ -40,7 +40,7 @@ SIM_CHANGES = {
 }
 MJ_CHANGES = {
     "none": None,
-    "weight": lambda r: r.add_weight(0.4),
+    "weight": lambda r: r.add_weight(),
     "tow": lambda r: r.attach_tow(),
     "slippery": lambda r: r.slippery_patch((0, 0, *r.floor)),
     "flip_motor": lambda r: r.flip_motor("l"),
