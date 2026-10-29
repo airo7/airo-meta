@@ -23,7 +23,6 @@ STATIC = {"contype": 0, "conaffinity": 0}
 SPEED = 0.16
 TURN = 2.4
 EASE = 0.18
-RADIUS = 0.06
 SIDES = ("left", "right")
 LEG = ("hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll")
 ARM = ("shoulder_pitch", "shoulder_roll", "shoulder_yaw", "elbow", "wrist_roll", "wrist_pitch", "wrist_yaw")
@@ -164,22 +163,16 @@ class Worker:
         self.blocked_s = 0.0
         self._posture = dict(STAND)
         self._t: float | None = None
-        self._clock = 0.0
         self._fidget = 0.0
 
     @property
     def pose(self) -> tuple[float, float, float]:
         return self.x, self.y, self.heading
 
-    @property
-    def busy(self) -> bool:
-        return bool(self.plan)
-
     # building
 
     def build(self, spec, vest: str):
-        """The G1 under a mocap pelvis, a hi-vis vest with the worker's number, and a carton it holds when carrying.
-        """
+        """The G1 under a mocap pelvis, a hi-vis vest, and a carton it shows when carrying."""
         self.lod = menagerie.Lod(self.prefix + "torso_link")
         links = graft(spec, G1, "pelvis", spec.worldbody, self.prefix, pos=(self.x, self.y, 0.2), joints=False,
                       lod=self.lod)
@@ -218,7 +211,6 @@ class Worker:
     def update(self, t: float, cars) -> None:
         dt = 0.0 if self._t is None else min(t - self._t, 0.1)
         self._t = t
-        self._clock += dt
         want, walking, turning = "stand", 0.0, 0.0
         step = self.plan[0] if self.plan else None
         if step is not None:
@@ -234,7 +226,7 @@ class Worker:
             self.phase = (self.phase + rate * dt) % 1.0
         elif self.phase % 0.5 > 0.02:
             self.phase = min(self.phase + 1.5 * dt, math.floor(self.phase / 0.5) * 0.5 + 0.5) % 1.0
-        self._fidget = 1.0 if want in ("work",) else 0.0
+        self._fidget = 1.0 if want == "work" else 0.0
 
     def _do(self, step: Step, dt: float, cars) -> tuple[str, float, float]:
         if step.kind == "walk":

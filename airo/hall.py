@@ -440,7 +440,7 @@ def _contact(c: Canvas, site, cs):
     end = cs["pick"].at(0.27)
     rect(-MARGIN, end[1] - 0.08, end[0] + 0.08, end[1] + 0.08, 0.7)
     for cl in cs.values():
-        out, along, base = np.array(cl.out), np.array(cl.along), np.array(cl.base)
+        base = np.array(cl.base)
         pts = [cl.at(f, s) for f, s in ((cl.front, -cl.side), (cl.front, cl.side), (cl.rear, cl.side),
                                         (cl.rear, -cl.side))]
         cv2.polylines(m, [np.array([c.p(*q) for q in pts], np.int32)], True, 0.8, c.w(0.03))

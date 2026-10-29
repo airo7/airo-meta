@@ -49,10 +49,6 @@ class Forklift:
     def pose(self) -> tuple[float, float, float]:
         return self.x, self.y, self.heading
 
-    @property
-    def busy(self) -> bool:
-        return bool(self.plan)
-
     def footprint(self) -> np.ndarray:
         """Corners of the truck and its forks (and any pallet on them) on the floor."""
         c, s = math.cos(self.heading), math.sin(self.heading)
@@ -66,8 +62,7 @@ class Forklift:
     def build(self, spec):
         body = spec.worldbody.add_body(name="forklift", pos=[self.x, self.y, 0], mocap=True)
         b = Batch("forklift")
-        L, W = LENGTH, WIDTH
-        hw = W / 2 - 0.012
+        hw = WIDTH / 2 - 0.012
         b.box("forklift_body", (0.15, hw, 0.045), (-0.2, 0, 0.07))
         b.box("forklift_body", (0.07, hw, 0.03), (-0.02, 0, 0.055))
         b.cylinder("forklift_weight", 0.075, hw, (-0.36, 0, 0.09), axis=(0, 1, 0), sides=20)

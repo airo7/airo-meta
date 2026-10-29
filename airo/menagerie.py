@@ -167,12 +167,5 @@ def _material(spec, m, g: int, tag: str) -> str:
     return name
 
 
-def recolour(spec, tag: str, colours: dict[str, list[float]]):
-    """Override a grafted model's materials by their source names."""
-    for name, rgba in colours.items():
-        if (mat := spec.material(f"{tag}/{name}")) is not None:
-            mat.rgba = rgba
-
-
 def yaw_quat(theta: float) -> list[float]:
     return [math.cos(theta / 2), 0, 0, math.sin(theta / 2)]

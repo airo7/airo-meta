@@ -6,7 +6,7 @@ kinematically, at rest they are pinned in place, and on a car's deck a weld hold
 loads the car it rides."""
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import mujoco
 import numpy as np
