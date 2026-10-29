@@ -435,5 +435,8 @@ $("ask").addEventListener("click", (e) => {
   $("cmdtext").focus();
 });
 new ResizeObserver(() => app.state && sizeMap()).observe($("rail"));
-connect();
-frame();
+// feed.js and view.js load after this file; state must not arrive before they have.
+addEventListener("DOMContentLoaded", () => {
+  connect();
+  frame();
+});
