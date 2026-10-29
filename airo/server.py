@@ -8,7 +8,7 @@ State contract, published as one dict (numpy values are fine, they are converted
      "cloud": [[[x, y], ...], ...],                 # k predicted paths, floor metres
      "path": [[x, y], ...],                         # planned path
      "polygons": [{"label": str, "points": [[x, y], ...]}],
-     "body": {"n": int, "name": str, "relearned_s": float | None,
+     "body": {"n": int, "name": str, "relearned_s": float | None, "probing_s": float | None,
               "params": [{"name", "value", "key", "unit", "lo", "hi"}]},
      "surprise": {"values": [float], "threshold": float},
      "notebook": [{"t": float, "kind": "alert|hypothesis|prediction|result|conclusion|fallback", "text": str}]}

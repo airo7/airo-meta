@@ -31,6 +31,8 @@ class FakeScientist:
         self.best = self.rig.truth
 
     async def relearn(self, seg, budget=3):
+        for _ in range(20):
+            await self.rig.step(0, 0)
         self.best, self.n = self.rig.truth, self.n + 1
         return 1.0
 
@@ -67,7 +69,7 @@ def test_body_change_triggers_relearn_then_delivers(mission):
         return await mission.deliver("blue")
 
     assert asyncio.run(run())
-    assert mission.sci.n == 2 and mission.relearned_s == 1.0
+    assert mission.sci.n == 2 and mission.relearned_s == pytest.approx(1.0) == mission.probing_s
     assert [n["kind"] for n in mission.notes] == ["conclusion", "result"]
     state = mission.state()
     assert [p["kind"] for p in state["episode"]["phases"]][:3] == ["drive", "surprise", "relearn"]
@@ -163,12 +165,9 @@ def test_notebook_outcomes_become_gauge_numbers():
     assert _gauge({"kind": "prediction", "predicted": {"turn_deg": (5.0, 1.0)}})["predicted"] == {"turn_deg": (5.0, 1.0)}
 
 
-@pytest.mark.parametrize("x, y, theta, quiet", [
-    (0.3, 0.5, 0.0, True),            # straight run-in behind the push pose
-    (0.3, 0.5, math.radians(80), False),  # pivoting near the parcel
-    (0.5, 0.65, 0.0, False),          # beside the push axis
-    (0.1, 0.5, 0.0, False),           # further back than the run-in
-])
+@pytest.mark.parametrize("x, y, theta, quiet", [(0.3, 0.5, 0.0, True), (0.3, 0.5, math.radians(80), False),
+                                                (0.5, 0.65, 0.0, False), (0.1, 0.5, 0.0, False)],
+                         ids=["run-in", "pivot near parcel", "beside the axis", "behind the run-in"])
 def test_only_the_straight_run_in_is_unwatched(mission, x, y, theta, quiet):
     from airo.camera import Pose
 

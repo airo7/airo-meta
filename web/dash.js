@@ -84,7 +84,8 @@ function renderBody(b) {
   $("prevkey").hidden = !body.prev;
   body.target = body.last;
   $("bodyname").textContent = b.name || "";
-  $("relearned").innerHTML = b.relearned_s == null ? "" : `<b>${b.relearned_s.toFixed(1)} s</b>to relearn`;
+  $("relearned").innerHTML = b.relearned_s == null ? "" : `<b>${b.relearned_s.toFixed(1)} s</b>to relearn` +
+    (b.probing_s == null ? "" : ` <small>(${b.probing_s.toFixed(1)} s probing)</small>`);
   b.params.forEach((p, i) => {
     const row = $("params").children[i], prev = body.prev?.[i];
     const pct = (v) => `${Math.max(0, Math.min(100, ((v - p.lo) / (p.hi - p.lo)) * 100))}%`;

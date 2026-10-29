@@ -94,6 +94,8 @@ class Mission:
         self.notes: list[dict] = []
         self.t0 = time.time()
         self.relearned_s: float | None = None
+        self.probing_s: float | None = None
+        self._relearn_rig0 = 0.0
         self.values: deque[float] = deque(maxlen=120)
         self._recent: deque[float | None] = deque(maxlen=3)
         self._next_window = -math.inf
@@ -223,7 +225,8 @@ class Mission:
     async def relearn(self, why: str = ""):
         """Probes drive blind, so first leave the parcel's reach for the probe area if recentring is available."""
         await self.rig.stop()
-        self._relearn_t, self._relearn_end = time.time(), None
+        self._relearn_t, self._relearn_end, t0 = time.time(), None, self.rig.pose.t
+        self._relearn_rig0 = t0
         self.status = "surprised"
         seg = self.rig.segment(self.rig.pose.t - 3 * WINDOW)
         self.status = "relearning"
@@ -232,7 +235,9 @@ class Mission:
         if recentre and parcel and math.dist((p.x, p.y), parcel) < PROBE_REACH:
             self.note("alert", f"Reality left the cloud ({why}). Moving clear of the parcel to probe.")
             await recentre(self.rig)
-        self.relearned_s = await self.sci.relearn(seg, RELEARN_PROBES)
+        t_probe = self.rig.pose.t
+        await self.sci.relearn(seg, RELEARN_PROBES)
+        self.relearned_s, self.probing_s = self.rig.pose.t - t0, self.rig.pose.t - t_probe
         self._relearn_end = time.time()
         z = [abs(v) for e in self.sci.notebook if e["t"] >= self._relearn_t and e["kind"] == "result"
              for v in e["z"].values()]
@@ -242,7 +247,8 @@ class Mission:
                                "Stopping; check the motors and wiring.")
             raise RigAbort("hardware fault")
         self._quiet_until = self.rig.pose.t + QUIET_S
-        self.note("conclusion", f"Body #{self.sci.n}, relearned in {self.relearned_s:.1f} s.")
+        self.note("conclusion", f"Body #{self.sci.n}, relearned in {self.relearned_s:.1f} s "
+                                f"({self.probing_s:.1f} s probing).")
 
     async def learn(self):
         self.status = "learning"
@@ -304,6 +310,7 @@ class Mission:
             "floor": {"w": self.rig.floor[0], "h": self.rig.floor[1]},
             "pose": pose, "cloud": ghost, "path": self.path, "polygons": polygons,
             "body": {"n": self.sci.n, "name": self.sci.name, "relearned_s": self.relearned_s,
+                     "probing_s": self.probing_s,
                      "params": [{"name": nm, "value": getattr(b, f) * k, "key": getattr(KEY, f) * k if first else None,
                                  "unit": u,
                                  "lo": lo, "hi": hi} for f, nm, u, k, lo, hi in PARAMS]},
@@ -319,7 +326,7 @@ class Mission:
             return None
         ran = [e for e in self.sci.notebook if e["t"] >= self._relearn_t and e["kind"] == "result"]
         return {"phase": "done" if self._relearn_end else "testing" if ran else "changed",
-                "elapsed_s": (self._relearn_end or time.time()) - self._relearn_t,
+                "elapsed_s": self.relearned_s if self._relearn_end else self.rig.pose.t - self._relearn_rig0,
                 "probe": ran[-1].get("probe", "") if ran else "", "step": len(ran), "steps": RELEARN_PROBES}
 
     async def run(self, dash=None):
