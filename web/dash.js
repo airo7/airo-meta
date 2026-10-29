@@ -399,12 +399,22 @@ function frame() {
   }
 }
 
+function fold(on = !document.body.classList.contains("sidefold")) {
+  document.body.classList.toggle("sidefold", on);
+  localStorage.setItem("sidefold", on ? "1" : "");
+}
+fold(!!localStorage.getItem("sidefold"));
+$("fold").addEventListener("click", () => fold(true));
+$("unfold").addEventListener("click", () => fold(false));
+
 addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return e.key === "Escape" && e.target.blur();
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === "v") toggleMap();
   else if (k === "h") document.body.classList.toggle("clean");
+  else if (k === "m") fold();
+  else if (k === "t") listen();
   else if (k === "n") tab($("notebook").hidden ? "notebook" : "models");
   else if (k === "r" && app.state) {
     const ids = app.state.robots.map((r) => r.id);
@@ -418,6 +428,52 @@ addEventListener("keydown", (e) => {
     $("cmdtext").focus();
   }
 });
+
+const talk = { ws: null };
+async function listen() {
+  if (talk.ws) return talk.ws.readyState === 1 && talk.ws.send("end");
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+  } catch {
+    return toast("No microphone: allow it for this page", null, "#ff453a");
+  }
+  // Muse Voice takes 24 kHz int16; the browser resamples the mic to the context's rate.
+  const ctx = new AudioContext({ sampleRate: 24000 }), src = ctx.createMediaStreamSource(stream);
+  const tap = ctx.createScriptProcessor(2048, 1, 1), ws = new WebSocket(`ws://${location.host}/voice`);
+  const ask = $("ask"), input = $("cmdtext"), hint = input.placeholder;
+  ws.binaryType = "arraybuffer";
+  talk.ws = ws;
+  tap.onaudioprocess = (e) => {
+    if (ws.readyState !== 1) return;
+    const f = e.inputBuffer.getChannelData(0), pcm = new Int16Array(f.length);
+    for (let i = 0; i < f.length; i++) pcm[i] = Math.max(-1, Math.min(1, f[i])) * 32767;
+    ws.send(pcm.buffer);
+  };
+  src.connect(tap);
+  tap.connect(ctx.destination);
+  ask.classList.remove("heard");
+  ask.classList.add("listening");
+  input.value = "";
+  input.placeholder = "Listening…";
+  ws.onmessage = (e) => {
+    const m = JSON.parse(e.data);
+    if (m.error) return toast(`Voice: ${m.error}`, null, "#ff453a");
+    if (m.text) input.value = m.text;
+    if (m.final && m.text.trim()) ws.send("end");
+  };
+  ws.onclose = () => {
+    tap.disconnect();
+    src.disconnect();
+    ctx.close();
+    stream.getTracks().forEach((t) => t.stop());
+    ask.classList.remove("listening");
+    input.placeholder = hint;
+    input.value = "";
+    talk.ws = null;
+  };
+}
+$("mic").addEventListener("click", (e) => (e.stopPropagation(), listen()));
 
 $("ask").addEventListener("submit", (e) => {
   e.preventDefault();

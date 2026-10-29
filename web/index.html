@@ -62,7 +62,7 @@
       <div id="nowgauge"></div>
     </div>
     <form id="ask">
-      <svg id="mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      <button type="button" id="mic" title="Talk to AIRO (T)"><svg viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg></button>
       <input id="cmdtext" autocomplete="off" spellcheck="false">
       <span id="heard"></span>
       <div id="acts">
@@ -77,7 +77,8 @@
 
 <aside id="side" class="mat">
   <header>
-    <div class="seg" id="tabs"><button data-tab="models" class="on">Meta models</button><button data-tab="notebook">Lab notebook</button></div>
+    <div class="row"><div class="seg" id="tabs"><button data-tab="models" class="on">Meta models</button><button data-tab="notebook">Lab notebook</button></div>
+      <button id="fold" class="icon" title="Hide the panel (M)"><svg viewBox="0 0 12 12"><path d="m4.5 3 3 3-3 3"/></svg></button></div>
     <div class="seg small" id="filter">
       <button data-kind="" class="on">All</button><button data-kind="segment">SAM</button><button data-kind="describe">Spark</button><button data-kind="wonder">Wonder</button><button data-kind="transcribe">Voice</button><button data-kind="image">Image</button>
     </div>
@@ -86,12 +87,13 @@
   <div id="notebook" class="scroll" hidden></div>
 </aside>
 
+<button id="unfold" class="mat" title="Show Meta models (M)"><svg viewBox="0 0 12 12"><path d="m7.5 3-3 3 3 3"/></svg><b>Meta models</b><span id="lastcall"></span></button>
 <div id="tag" class="mat"><b></b><span></span></div>
 <aside id="help" class="mat" hidden>
   <h2>Keyboard</h2>
-  <dl><dt>R</dt><dd>Next robot</dd><dt>V</dt><dd>Swap 3D view and floor plan</dd><dt>N</dt><dd>Models or notebook</dd>
+  <dl><dt>R</dt><dd>Next robot</dd><dt>V</dt><dd>Swap 3D view and floor plan</dd><dt>N</dt><dd>Models or notebook</dd><dt>M</dt><dd>Hide or show the models panel</dd>
   <dt>H</dt><dd>Hide the interface</dd><dt>1–4</dt><dd>Chase, iso, top, floor</dd><dt>Space</dt><dd>Pause</dd>
-  <dt>F</dt><dd>Full screen</dd><dt>/</dt><dd>Type a command</dd></dl>
+  <dt>T</dt><dd>Talk: click the mic or press T, then speak</dd><dt>F</dt><dd>Full screen</dd><dt>/</dt><dd>Type a command</dd></dl>
 </aside>
 
 <script src="/static/map.js"></script>

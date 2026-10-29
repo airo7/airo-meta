@@ -282,7 +282,13 @@ body.mapview #hero {
   display: flex; align-items: center; gap: 10px; margin-top: 14px; padding: 0 5px 0 12px; height: 42px;
   border-radius: calc(12px * var(--k)); background: var(--fill2); position: relative;
 }
-#mic { width: 18px; height: 18px; color: var(--label2); flex: none; transition: color 0.3s; }
+#mic { width: 30px; height: 30px; margin-left: -6px; padding: 0; display: grid; place-items: center; border-radius: 50%;
+  color: var(--label2); background: none; flex: none; transition: color 0.3s, background 0.3s; }
+#mic svg { width: 18px; height: 18px; }
+#mic:hover { color: var(--label); background: var(--fill2); }
+#ask.listening #mic { color: #fff; background: var(--red); animation: listening 1.4s ease-in-out infinite; }
+@keyframes listening { 50% { box-shadow: 0 0 0 7px rgba(255, 69, 58, 0.18); } }
+@media (prefers-reduced-motion: reduce) { #ask.listening #mic { animation: none; } }
 #acts { display: flex; gap: 2px; flex: none; }
 #acts button { height: 30px; padding: 0 10px; border-radius: calc(8px * var(--k)); color: var(--label2); font-weight: 500; }
 #acts button:hover, #acts .open { color: var(--label); background: var(--fill2); }
@@ -319,6 +325,20 @@ body.mapview #hero {
   position: fixed; z-index: 3; right: var(--pad); top: var(--top); bottom: var(--pad); width: var(--side);
   display: flex; flex-direction: column; border-radius: calc(22px * var(--k)); overflow: hidden;
 }
+#side { transition: transform 0.5s var(--spring), opacity 0.35s; }
+body.sidefold #side { transform: translateX(calc(100% + var(--pad))); opacity: 0; pointer-events: none; }
+#side > header .row { display: flex; gap: 8px; align-items: center; }
+#side > header .row #tabs { flex: 1; }
+#fold, #unfold svg { flex: none; }
+#fold { width: 30px; height: 30px; padding: 0; display: grid; place-items: center; border-radius: 9px; }
+#fold svg, #unfold svg { width: 12px; height: 12px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+#unfold { position: fixed; z-index: 3; right: var(--pad); top: var(--top); display: flex; align-items: center; gap: 8px;
+  max-width: 340px; height: 36px; padding: 0 14px 0 10px; border-radius: 18px; font-size: 13px; color: var(--label);
+  opacity: 0; pointer-events: none; transform: translateX(12px); transition: opacity 0.35s, transform 0.5s var(--spring); }
+body.sidefold #unfold { opacity: 1; pointer-events: auto; transform: none; }
+#lastcall { color: var(--label2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#lastcall:empty { display: none; }
+body.clean #unfold { opacity: 0; pointer-events: none; }
 #side > header { display: flex; flex-direction: column; gap: 10px; padding: 12px 12px 10px; border-bottom: 1px solid var(--sep); }
 #tabs button { flex: 1; height: 30px; font-weight: 600; font-size: 13px; }
 #filter button { flex: 1; height: 24px; padding: 0 4px; font-size: 12px; }

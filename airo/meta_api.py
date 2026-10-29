@@ -64,6 +64,8 @@ def _call(model: str, kind: str, input: str):
     t0 = time.perf_counter()
     try:
         yield out
+    except asyncio.CancelledError:
+        raise
     except BaseException as e:
         record(model, kind, input, f"{type(e).__name__}: {e}", (time.perf_counter() - t0) * 1000, ok=False)
         raise

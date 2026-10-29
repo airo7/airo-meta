@@ -59,17 +59,18 @@ def _on_event(ev: dict, on_text: Callable[[str, bool], None], turn: dict) -> Non
             raise RuntimeError(f"ASR error: {ev.get('message')}")
 
 
-async def _send_audio(ws: ClientConnection, device) -> None:
+async def _send_audio(ws: ClientConnection, source: AsyncIterator[bytes]) -> None:
     with suppress(ConnectionClosed):
-        async with aclosing(mic(device)) as frames:
+        async with aclosing(source) as frames:
             async for frame in frames:
                 await ws.send(frame)
         # Closing the socket instead would drop pending transcripts; the server closes with 1000 when done.
         await ws.send(json.dumps({"type": "endStream"}))
 
 
-async def transcribe(on_text: Callable[[str, bool], None], device=None) -> None:
-    """Stream the mic until cancelled. Partials are cumulative (replace, don't append); finals end a turn."""
+async def transcribe(on_text: Callable[[str, bool], None], device=None, frames: AsyncIterator[bytes] | None = None):
+    """Stream the mic, or frames (80 ms of 24 kHz int16) until they end, until cancelled. Partials are cumulative
+    (replace, don't append); finals end a turn."""
     async with connect(REALTIME_URL) as ws:
         await ws.send(json.dumps(_handshake()))
         ack = json.loads(await ws.recv())
@@ -78,7 +79,7 @@ async def transcribe(on_text: Callable[[str, bool], None], device=None) -> None:
         turn: dict = {}
         try:
             async with asyncio.TaskGroup() as tg:
-                tg.create_task(_send_audio(ws, device))
+                tg.create_task(_send_audio(ws, frames or mic(device)))
                 async for raw in ws:
                     _on_event(json.loads(raw), on_text, turn)
         except ExceptionGroup as eg:

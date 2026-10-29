@@ -78,6 +78,7 @@ function renderFeed(s) {
         setTimeout(() => c.classList.remove("fresh"), 2400);
       }
       c.toolsKey = JSON.stringify(m.tools);
+      $("lastcall").textContent = `${MODEL_NAME[m.kind] || m.model} · ${words(m.output || m.input).slice(0, 48)}`;
     } else if (m.tools && JSON.stringify(m.tools) !== c.toolsKey) {
       c.toolsKey = JSON.stringify(m.tools);
       const tl = c.querySelector(".tl");

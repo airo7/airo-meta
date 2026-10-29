@@ -27,6 +27,7 @@ Floor frame: x right, y up, origin at corner marker 1. /video (set_frame) covers
 
 import asyncio
 import json
+from contextlib import suppress
 from pathlib import Path
 
 import cv2
@@ -92,6 +93,14 @@ class Dashboard:
 
     def _routes(self, app: FastAPI) -> FastAPI:
         app.mount("/static", StaticFiles(directory=WEB), name="static")
+
+        @app.middleware("http")
+        async def revalidate(request, call_next):
+            # Browsers otherwise keep an old dash.js after an update and the page breaks half-new.
+            response = await call_next(request)
+            if request.url.path == "/" or request.url.path.startswith("/static/"):
+                response.headers["Cache-Control"] = "no-cache"
+            return response
         PORTRAITS.mkdir(parents=True, exist_ok=True)
         app.mount("/portraits", StaticFiles(directory=PORTRAITS), name="portraits")
 
@@ -122,6 +131,46 @@ class Dashboard:
         def model_image(i: int):
             jpg = meta_api.IMAGES.get(i)
             return Response(jpg, media_type="image/jpeg") if jpg else Response(status_code=404)
+
+        @app.websocket("/voice")
+        async def voice(sock: WebSocket):
+            """Push-to-talk from the page: its mic audio goes to Muse Voice, partials come back, the final transcript
+            becomes a command."""
+            from airo.voice import FRAME, transcribe
+
+            await sock.accept()
+            audio: asyncio.Queue[bytes | None] = asyncio.Queue()
+
+            async def frames():
+                buf = b""
+                while (chunk := await audio.get()) is not None:
+                    buf += chunk
+                    while len(buf) >= 2 * FRAME:
+                        yield buf[:2 * FRAME]
+                        buf = buf[2 * FRAME:]
+
+            async def receive():
+                with suppress(WebSocketDisconnect):
+                    while (msg := await sock.receive())["type"] != "websocket.disconnect" and msg.get("text") != "end":
+                        if msg.get("bytes"):
+                            audio.put_nowait(msg["bytes"])
+                audio.put_nowait(None)
+
+            def heard(text: str, final: bool):
+                if final and text.strip():
+                    self.commands.put_nowait(text)
+                asyncio.create_task(sock.send_json({"text": text, "final": final}))
+
+            listening = asyncio.create_task(receive())
+            try:
+                await transcribe(heard, frames=frames())
+            except Exception as e:
+                with suppress(Exception):
+                    await sock.send_json({"error": f"{type(e).__name__}: {e}"})
+            finally:
+                listening.cancel()
+                with suppress(Exception):
+                    await sock.close()
 
         @app.get("/video")
         def video():
