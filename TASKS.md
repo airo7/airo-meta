@@ -137,3 +137,37 @@ Initial learn: 8–10 probes. Relearn: ≤3 probes chosen by the agent.
 | Floor too small | probes self-check space; relearn prefers pivots |
 | BLE drop | one reconnect; firmware watchdog |
 | Voice API format unknown | ask at office hours; text bar fallback; voice is cut first |
+
+## v3 · Oct 29 – Nov 1 · memory, factory fleet, new UI
+Order: recall → factory + fleet → UI → place memory → GRU first guess (last).
+
+Workstreams (worktrees under ~/airo/airo-wt, merged by the controller):
+- memory (airo-8e): `airo/memory.py` body library, recall before relearn, eval of recall vs relearn.
+- fleet: factory site in MuJoCo, N cars in one physics world, per-car body changes, the spill as a place change.
+- ui: the dashboard rebuilt against the state below, driven by `scripts/dash_demo.py`.
+- controller: Meta model feed, fleet coordinator (shared memory, zones, command routing), integration.
+
+### Dashboard state v3 (`/ws`, 10 Hz)
+```
+{
+  "t": s, "mode": "sim" | "real",
+  "site": {"name": "Factory", "floor": {"w", "h"}, "stations": {"packing": [x, y], ...},
+           "zones": [{"kind": "slippery", "polygon": [[x, y], ...], "label": "Oil spill", "found_by": "airo-2", "t": s}]},
+  "selected": "airo-1",
+  "robots": [{
+    "id": "airo-1", "name": "AIRO 1", "color": "#ffb340", "real": bool,
+    "now": "one plain sentence: what it is doing and why",
+    ... every key of today's Mission.state(): status, command, pose, cloud, path, polygons, body, surprise,
+        notebook, episode, relearn ...,
+    "memory": [{"n", "name", "cause", "params": [same shape as body.params], "portrait": url | null,
+                "learned_t": s, "recalls": int, "active": bool, "from": robot id | null, "verified": bool}]
+  }],
+  "models": [{"id": int, "t": s, "robot": id | null, "model": "sam-3.1", "kind": "segment" | "describe" | "wonder"
+              | "transcribe" | "image", "input": str, "output": str, "ms": int, "ok": bool,
+              "image": "/models/<id>.jpg" | null, "tools": [{"name", "args", "result"}] | null}],   # newest last, ≤40
+  "sim": {"camera", "preset", "paused", "speed", "presets", "parts", "changes"}
+}
+```
+Notebook gains kind "recall": {"text", "n", "name", "predicted", "measured", "z", "recall_s"}.
+Commands: "<robot> <command>" targets one robot ("airo 2 deliver to packing"); no prefix targets the selected one;
+"select airo 2" switches; body changes apply to the selected robot, "spill" is a place change.
