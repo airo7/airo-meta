@@ -4,6 +4,7 @@ import json
 import math
 from dataclasses import replace
 
+import numpy as np
 import pytest
 
 from airo import planner
@@ -250,3 +251,24 @@ def test_an_internal_error_stops_the_car_and_says_so(mission):
 
     asyncio.run(mission._run(broken()))
     assert mission.status == "error" and "KeyError" in mission.notes[-1]["text"]
+
+
+@pytest.mark.parametrize("scores, fires", [([2.6] * 12, True), ([1.0, 5.0] + [1.0] * 10, False)],
+                         ids=["steady just under threshold", "one spike"])
+def test_sustained_surprise_below_threshold_still_fires(mission, monkeypatch, scores, fires):
+    from airo.mission import Surprised
+
+    feed = iter(scores)
+    monkeypatch.setattr("airo.mission.surprise", lambda *a, **k: np.array([next(feed)]))
+
+    async def run():
+        for k in range(len(scores)):
+            for _ in range(10):
+                await mission.rig.step(*(2 * [60 if k % 2 else -60]))
+            mission.watch()
+
+    if fires:
+        with pytest.raises(Surprised, match="sustained"):
+            asyncio.run(run())
+    else:
+        asyncio.run(run())

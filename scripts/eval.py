@@ -274,6 +274,18 @@ async def carry_episode(seed: int, learned, busy: str = "normal") -> tuple[list[
     if f.life is not None:
         f.life.set_level(busy)
 
+    trail = {r.id: [] for r in f.robots}
+
+    async def track():
+        """Status changes with poses, for the report of a car that leaves the floor."""
+        while True:
+            for r in f.robots:
+                p, t = r.rig.pose, trail[r.id]
+                if p and (not t or t[-1][1] != r.mission.status):
+                    t.append((round(r.rig.world.t, 1), r.mission.status, round(p.x, 2), round(p.y, 2)))
+                    del t[:-6]
+            await asyncio.sleep(0.05)
+
     async def deliveries(r, jobs):
         for kind, station in jobs:
             r.mission.inbox.put_nowait(f"bring a {kind} tote to {station}")
@@ -282,7 +294,7 @@ async def carry_episode(seed: int, learned, busy: str = "normal") -> tuple[list[
             while r.mission.busy:
                 await asyncio.sleep(0.01)
 
-    runs = [asyncio.create_task(r.mission.run()) for r in f.robots]
+    runs = [asyncio.create_task(r.mission.run()) for r in f.robots] + [asyncio.create_task(track())]
     try:
         await asyncio.gather(*(deliveries(r, jobs) for r, jobs in zip(f.robots, CARRY)))
     finally:
@@ -294,7 +306,8 @@ async def carry_episode(seed: int, learned, busy: str = "normal") -> tuple[list[
     done = {r.id: sum(n["text"].startswith("Delivered a") for n in r.mission.notes) for r in f.robots}
     relearns = sum(e["kind"] == "alert" and e["text"].startswith("Body changed") for r in f.robots
                    for e in r.sci.notebook)
-    stops = {r.id: n["text"] for r in f.robots for n in r.mission.notes if n["text"].startswith("Safety stop")}
+    stops = {r.id: (n["text"], trail[r.id]) for r in f.robots for n in r.mission.notes
+             if n["text"].startswith("Safety stop")}
     print(f"seed {seed} delivered {done}, {relearns} surprise relearns{f', stopped: {stops}' if stops else ''}",
           flush=True)
     return rows, {"seed": seed, "delivered": done, "stops": stops, "relearns": relearns}
