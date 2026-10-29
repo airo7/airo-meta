@@ -119,18 +119,35 @@ loop instead: weight on, off, and on again.
 | Held-out probes within 2σ | 100% | 100% |
 | False surprise triggers (50 runs) | 0 | 0 |
 | Weight: detected / confirmed / delivered | 10/10 at 1.1 s, 10/10, 10/10 (gains −35%) | 10/10 at 6.5 s, 10/10, 10/10 (0.8 kg) |
-| Tow: detected / confirmed / delivered | 2/10, 2/2, 10/10 (gains −15%, lag ×2) | 10/10 at 1.7 s, 10/10, 10/10 |
+| Tow: detected / confirmed / delivered | 4/10, 4/4, 10/10 (gains −15%, lag ×2) | 10/10 at 1.7 s, 10/10, 10/10 |
+| Tow on a loaded car: detected / confirmed / delivered | 0/10, –, 10/10 | 10/10 at 2.4 s, 8/10, 10/10 |
+| Loaded car, nothing changes: false triggers | 0/10 | 0/10 |
 | Slippery floor: detected / confirmed / delivered | 10/10 at 6.0 s, 10/10, 10/10 | 0/10, –, 10/10 (a 0.4 × 0.5 m patch) |
 | Reversed left motor: detected / confirmed / delivered | 10/10 at 1.1 s, 9/10, 10/10 | 10/10 at 1.1 s, 10/10, 10/10 |
 | Parcel distance from the station centre (clean) | 5.8 cm median | 8.1 cm median |
 | Memory: weight on → relearn #2, off → recall #1, on → recall #2 | 10/10, 10/10, 10/10 | 10/10, 9/10, 9/9 (one weight-off went unnoticed) |
 | Recall vs relearn, sim time | 2.1 s and 1 probe vs 3.7 s and 2 probes | same |
 
+**Factory carry** (`uv run scripts/eval.py --rig mujoco --changes carry --n 5 [--busy calm]`): three robots each
+fetch six heavy (0.8 kg) and light (0.2 kg) totes; every check after a load or unload is graded against the real load.
+
+| | normal warehouse | calm warehouse |
+|---|---|---|
+| Heavy tote: right body (learned / recalled), median check | 44/44 (5 / 39), 2.1 s | 45/45 (5 / 40), 2.1 s |
+| Light tote: right body, all "same", median check | 43/43, 3.7 s | 43/44, 3.7 s |
+| Unloaded: right body (same / recalled), median check | 87/87 (43 / 44), 2.1 s | 88/88 (42 / 46), 2.1 s |
+| Surprise relearns (none are real changes here) | 0 | 0 |
+| Delivered | 87/90 | 88/90 |
+
 A relearn must confirm in every regime the surprise happened in: a pivot or arc if the car was turning, a step if it
 was driving straight, each predicted tightly (±3 cm, ±6°) and within 2σ. Before relearning, AIRO checks its memory:
 a remembered body whose cloud explains the surprising window is tried with one confirming probe, and a confirmed recall
 takes back that body's number. Relearning finds a reversed motor by restarting the fit with each gain's sign flipped
-and says so ("the left motor runs backwards"). A towed box is a drag force the body model has no term for; its
+and says so ("the left motor runs backwards"). Besides the median of three windows passing 3, surprise also fires when
+it stays raised: windows above 1.8 add their excess, each capped at the threshold, and a sum past 3 triggers, so a tow
+on a loaded car (about 2.4 per window) is caught. A body check after a load runs one pivot, a second the other way
+when two remembered bodies explain it about equally well, and keeps the current body unless another is clearly more
+likely. A towed box is a drag force the body model has no term for; its
 slack string in reverse and its swing in pivots stay unmodelled. An unconfirmed relearn continues at 0.6× speed; one
 no fit can explain stops with a hardware-fault alert.
 
