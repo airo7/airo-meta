@@ -81,6 +81,27 @@ function drawPlan(cv, state, selected, rect) {
   }
   g.textAlign = "left";
 
+  for (const m of state.site.movers || []) {
+    const [cx, cy] = P(m.pose), s = big ? 7 : 4.5;
+    g.save();
+    g.translate(cx, cy);
+    g.rotate(-m.pose[2]);
+    g.beginPath();
+    if (m.kind === "forklift") g.roundRect(-s * 1.6, -s, s * 3.2, s * 2, 2);
+    else g.arc(0, 0, s, 0, 7);
+    g.fillStyle = "rgba(235,235,245,0.85)";
+    g.strokeStyle = "rgba(0,0,0,0.45)";
+    g.lineWidth = 1.2;
+    g.fill();
+    g.stroke();
+    g.restore();
+    if (big) {
+      font(11, 500);
+      g.fillStyle = "rgba(235,235,245,0.6)";
+      g.fillText(m.kind === "human" ? "Worker" : "Forklift", cx + s * 1.8, cy + 4);
+    }
+  }
+
   const robots = [...state.robots].sort((a, b) => (a.id === selected) - (b.id === selected));
   for (const r of robots) {
     const col = r.color || "#0a84ff", on = r.id === selected;
