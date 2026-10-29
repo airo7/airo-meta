@@ -11,6 +11,7 @@ const KIND = { alert: "Surprise", hypothesis: "Hypothesis", prediction: "Predict
 const clock = (t) => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, "0")}`;
 const decimals = (v) => (v == null ? 0 : (String(+v.toPrecision(3)).split(".")[1] || "").length);
 const el = (tag, cls, html = "") => Object.assign(document.createElement(tag), { className: cls, innerHTML: html });
+const post = (url, body) => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
 let state = null, loaded = false, msgAt = 0;
 const trail = [];
@@ -53,6 +54,7 @@ function update(s) {
   renderLog(s.notebook || []);
   renderMeter(s.surprise);
   renderRelearn(s.relearn, s.body);
+  renderSim(s.sim || {});
   loaded = true;
 }
 
@@ -272,7 +274,7 @@ $("cmdform").addEventListener("submit", (e) => {
   e.preventDefault();
   const text = $("cmdtext").value.trim();
   if (!text) return;
-  fetch("/cmd", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }) });
+  post("/cmd", { text });
   $("cmdtext").value = "";
   $("cmdtext").blur();
 });
