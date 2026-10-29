@@ -27,13 +27,13 @@ def predict(rig: BaseRig, body: Body, horizon: float | None = None, stop: bool =
     return rollout(body, [p.t, p.t + h], cmd_t, cmd, (p.x, p.y, p.theta))[-1]
 
 
-def _steer(pose, target, v: float, pivoting: bool) -> tuple[float, float, bool]:
+def _steer(pose, target, v: float, pivoting: bool, om_max: float = OM_MAX) -> tuple[float, float, bool]:
     d = np.asarray(target) - pose[:2]
     dist = math.hypot(*d)
     alpha = float(wrap(math.atan2(d[1], d[0]) - pose[2]))
     if abs(alpha) > (RESUME if pivoting else PIVOT):
-        return 0.0, float(np.clip(3 * alpha, -OM_MAX, OM_MAX)), True
-    return v, float(np.clip(2 * v * math.sin(alpha) / max(dist, 1e-3), -OM_MAX, OM_MAX)), False
+        return 0.0, float(np.clip(3 * alpha, -om_max, om_max)), True
+    return v, float(np.clip(2 * v * math.sin(alpha) / max(dist, 1e-3), -om_max, om_max)), False
 
 
 async def _settle(rig: BaseRig, seconds: float = 0.5):
@@ -41,7 +41,8 @@ async def _settle(rig: BaseRig, seconds: float = 0.5):
         await rig.step(0, 0)
 
 
-async def goto(rig: BaseRig, body: Body, xy, tol: float = 0.04, timeout: float = 30, v_max: float = V_MAX) -> float:
+async def goto(rig: BaseRig, body: Body, xy, tol: float = 0.04, timeout: float = 30, v_max: float = V_MAX,
+               om_max: float = OM_MAX) -> float:
     """Drive to xy and stop; returns the final distance once the car has settled."""
     goal = np.asarray(xy, float)
     pivoting = False
@@ -50,19 +51,20 @@ async def goto(rig: BaseRig, body: Body, xy, tol: float = 0.04, timeout: float =
             break
         pose = predict(rig, body)
         v = float(np.clip(v_max * math.dist(pose[:2], goal) / SLOW_R, V_MIN, v_max))
-        v, om, pivoting = _steer(pose, goal, v, pivoting)
+        v, om, pivoting = _steer(pose, goal, v, pivoting, om_max)
         await rig.step(*inverse(body, v, om))
     await _settle(rig)
     return math.dist((rig.pose.x, rig.pose.y), goal)
 
 
-async def face(rig: BaseRig, body: Body, theta: float, tol: float = math.radians(8), timeout: float = 10):
+async def face(rig: BaseRig, body: Body, theta: float, tol: float = math.radians(8), timeout: float = 10,
+               om_max: float = OM_MAX):
     """Pivot in place until the car will come to rest within tol of heading theta."""
     for _ in range(round(timeout * HZ)):
         err = float(wrap(theta - predict(rig, body, body.tau + 3 * body.lag, stop=True)[2]))
         if abs(err) < tol:
             break
-        await rig.step(*inverse(body, 0, float(np.clip(3 * err, -OM_MAX, OM_MAX))))
+        await rig.step(*inverse(body, 0, float(np.clip(3 * err, -om_max, om_max))))
     await _settle(rig)
 
 
@@ -80,7 +82,7 @@ def _densify(path: np.ndarray, step: float = 0.02) -> np.ndarray:
 
 
 async def follow(rig: BaseRig, body: Body, path, tol: float = 0.04, lookahead: float = LOOKAHEAD,
-                 timeout: float = 60, v_max: float = V_MAX) -> float:
+                 timeout: float = 60, v_max: float = V_MAX, om_max: float = OM_MAX) -> float:
     """Pure pursuit along path with a fixed lookahead, then goto its last point."""
     path = _densify(np.asarray(path, float))
     i, pivoting = 0, False
@@ -91,6 +93,6 @@ async def follow(rig: BaseRig, body: Body, path, tol: float = 0.04, lookahead: f
         ahead = np.nonzero(dist[dist.argmin():] >= lookahead)[0]
         if math.dist(pose[:2], path[-1]) < lookahead or not len(ahead):
             break
-        v, om, pivoting = _steer(pose, path[i + ahead[0]], v_max, pivoting)
+        v, om, pivoting = _steer(pose, path[i + ahead[0]], v_max, pivoting, om_max)
         await rig.step(*inverse(body, v, om))
-    return await goto(rig, body, path[-1], tol, timeout, v_max)
+    return await goto(rig, body, path[-1], tol, timeout, v_max, om_max)

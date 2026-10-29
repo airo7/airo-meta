@@ -13,8 +13,8 @@ from contextlib import suppress
 import numpy as np
 
 from airo import planner, portrait
-from airo.body import KEY, THRESHOLD, Body, cloud, save, surprise, wrap
-from airo.control import V_MAX, face, follow
+from airo.body import KEY, THRESHOLD, Body, cloud, inverse, save, surprise, wrap
+from airo.control import OM_MAX, V_MAX, face, follow
 from airo.rig import DT, BaseRig, RigAbort
 from airo.server import topdown
 from airo.voice import parse_intent
@@ -39,6 +39,7 @@ CAUTION = 0.6
 BLOCKED_S = 2.0
 PERSON_S = 8.0
 PEOPLE_CLEAR = 0.6
+CARRY_PWM = 100
 GIVE_WAY_S = 1.2
 GIVE_WAY_PWM = 80
 GIVE_WAY_M = 0.1
@@ -351,7 +352,7 @@ class Mission:
         moment and plan again."""
         p = self.rig.pose
         if math.dist(pose[:2], (p.x, p.y)) < 0.05:
-            await face(_Watched(self), self.body, pose[2])
+            await face(_Watched(self), self.body, pose[2], om_max=self._turn_rate())
             return
         for _ in range(attempts):
             self.scene = await self.scan()
@@ -364,8 +365,8 @@ class Mission:
                     self._plan(pose[:2])
                 else:
                     self.path = self._plan(via) + [tuple(pose[:2])]
-                await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
-                await face(_Watched(self), self.body, pose[2])
+                await follow(_Watched(self), self.body, self.path, v_max=self.v_max, om_max=self._turn_rate())
+                await face(_Watched(self), self.body, pose[2], om_max=self._turn_rate())
                 return
             except Surprised as e:
                 await self.relearn(str(e))
@@ -375,6 +376,16 @@ class Mission:
                 for _ in range(round(WAIT_S / DT)):
                     await self.rig.step(0, 0)
         raise Blocked(f"Could not get to ({pose[0]:.2f}, {pose[1]:.2f}).")
+
+    def _turn_rate(self) -> float:
+        """The fastest turn for the current body that pivots within CARRY_PWM and arcs at full speed without
+        either wheel running backwards. Carrying, the car turns like an AMR, not at full tilt: a hard pivot out of
+        a bay, and the arc after it, are also where model error looks like a changed body."""
+        body, v = self.body, self.v_max
+        rates = np.linspace(0.3, OM_MAX, 18)
+        within = [om for om in rates if max(map(abs, inverse(body, 0.0, om))) <= CARRY_PWM
+                  and min(inverse(body, v, om)) >= 0]
+        return within[-1] if within else rates[0]
 
     async def _give_way(self):
         """Back off a little, straight, so the robot this one is deadlocked with has room to pass; the guard still
