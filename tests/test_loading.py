@@ -49,6 +49,12 @@ class Feeling(Scientist):
         self.best, self.members, self.n, self.name = TWIN, [TWIN], 1, "twin"
         return {"result": "recalled", "n": 1, "name": "twin", "seconds": 0.9}
 
+    async def relearn(self, window, budget=3):
+        """The fleet tests check the flow, not the fit: a relearn just takes a second."""
+        for _ in range(20):
+            await self.rig.step(0, 0)
+        return 1.0
+
 
 def deck_offset(car) -> float:
     cell = car.world.cell
@@ -208,15 +214,23 @@ def test_one_robot_fetches_feels_its_body_and_delivers():
 
 def test_three_robots_fetch_and_deliver_without_colliding_or_deadlock():
     f, world, gaps, seen = run_fleet(3, ["airo 1 deliver to assembly", "airo 2 deliver to packing",
-                                         "airo 3 deliver to dock"])
+                                         "airo 3 deliver to dock"], Feeling)
     for r, station in zip(f.robots, ("assembly", "packing", "dock")):
         assert any(n["text"].startswith(f"Delivered a ") and n["text"].endswith(f"{station.capitalize()}.")
                    for n in r.mission.notes), r.name
         assert math.dist(r.rig.true_pose[:2], r.mission.dock[:2]) < 0.06
-    assert world.t < 110 and min(gaps) > 0.25
+    assert world.t < 130 and min(gaps) > 0.25
     assert any(s == "queued" for s, _ in seen["airo-3"])
     assert {t.slot.station for t in world.cell.totes if t.slot} == {"assembly", "packing", "dock"}
     assert all(not line.robots for line in world.cell.lines.values())
+
+
+def test_the_real_check_body_runs_at_both_cells():
+    f, world, _, seen = run_fleet(1, ["airo 1 bring a heavy tote to qa"], scientist, until=250)
+    texts = [n["text"] for n in f.robots[0].mission.notes]
+    assert [t.split(":")[0] for t in texts if t.startswith(("Loaded", "Unloaded"))] == ["Loaded a heavy tote",
+                                                                                     "Unloaded"]
+    assert "Delivered a heavy tote to QA." in texts and not f.robots[0].mission.busy
 
 
 def test_conveyor_keeps_a_tote_for_every_order():

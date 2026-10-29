@@ -77,10 +77,11 @@ def tote(k: int) -> str:
 # The fulfilment cell: totes come in on a conveyor at the left wall, an arm loads them onto the car in the pick bay,
 # and an arm at each station's drop bay takes them off. Cars charge at docks along the bottom edge and queue below
 # the pick bay. Every loader stands outside the floor's driving inset.
-PICK = Bay(0.36, 1.05, UP, 1, wait=((0.36, 0.64, UP), (0.36, 0.3, UP)))
-DROPS = {"assembly": Bay(1.15, 1.68, RIGHT, 1, wait=((0.72, 1.6, RIGHT),)),
+# Queue spots sit far enough behind their bay that check_body's short reverse probe stays clear of the guard's reach.
+PICK = Bay(0.36, 1.15, UP, 1, wait=((0.36, 0.55, UP), (0.36, 0.22, UP)))
+DROPS = {"assembly": Bay(1.15, 1.68, RIGHT, 1, wait=((0.56, 1.62, RIGHT),)),
          "qa": Bay(2.05, 1.68, RIGHT, 1, wait=((1.6, 1.42, RIGHT),)),
-         "packing": Bay(2.66, 0.95, UP, -1, wait=((2.66, 0.5, UP),)),
+         "packing": Bay(2.66, 0.95, UP, -1, wait=((2.66, 0.36, UP),)),
          "dock": Bay(2.15, 0.32, RIGHT, -1, wait=((1.78, 0.68, RIGHT),))}
 DOCKS = ((0.7, 0.3, UP), (1.06, 0.3, UP), (1.42, 0.3, UP))
 PAD_BGR = {"assembly": (176, 110, 38), "qa": (96, 150, 52), "packing": (36, 120, 226), "dock": (58, 58, 196)}

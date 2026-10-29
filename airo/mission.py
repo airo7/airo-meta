@@ -36,6 +36,7 @@ RELEARN_PROBES = 5
 FAULT_Z = 5.0
 CAUTION = 0.6
 BLOCKED_S = 2.0
+WAIT_S = 1.0
 CLEAR = 0.3
 BAY_RUN = 0.3
 DOCK_RUN = 0.38
@@ -324,6 +325,7 @@ class Mission:
                 await self.rig.step(0, 0)
                 self._release()
             k, spot = line.spot(self)
+            self.status = status if k == 0 else "queued"
             if spot is not None:
                 x, y, th = spot
                 behind = (x - BAY_RUN * math.cos(th), y - BAY_RUN * math.sin(th))
@@ -335,9 +337,10 @@ class Mission:
                 await self.rig.step(0, 0)
                 self._release()
 
-    async def _go(self, pose, via=None, attempts: int = 8):
+    async def _go(self, pose, via=None, attempts: int = 20):
         """Drive to pose (x, y, heading) around the loader cells and the other robots, through via if given and
-        not already passed; relearn on surprise, replan when another robot stays in the way."""
+        not already passed; relearn on surprise; when another robot stays in the way or blocks every path, wait a
+        moment and plan again."""
         p = self.rig.pose
         if math.dist(pose[:2], (p.x, p.y)) < 0.05:
             await face(_Watched(self), self.body, pose[2])
@@ -358,8 +361,9 @@ class Mission:
                 return
             except Surprised as e:
                 await self.relearn(str(e))
-            except Stuck:
-                pass
+            except (Stuck, Blocked):
+                for _ in range(round(WAIT_S / DT)):
+                    await self.rig.step(0, 0)
         raise Blocked(f"Could not get to ({pose[0]:.2f}, {pose[1]:.2f}).")
 
     def moved(self):
