@@ -139,3 +139,11 @@ def test_sam_stand_in_and_ghosts():
     plain = rig.view(320, 180)
     rig.render_ghosts(np.array([[[1.0, 0.6, 0.0], [1.3, 0.6 + dy, 0.0]] for dy in (-0.05, 0, 0.05)]), 0.2)
     assert np.abs(rig.view(320, 180).astype(int) - plain).sum() > 0
+
+
+def test_tow_and_slippery_apply_once():
+    rig = MjRig(objects=(), log_dir=None)
+    for _ in range(2):
+        rig.attach_tow()
+        rig.slippery_patch()
+    assert rig.changes == ["tow", "slippery"]

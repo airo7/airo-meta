@@ -83,8 +83,14 @@ async def route(rig, commands: asyncio.Queue, inbox: asyncio.Queue, dry: bool = 
         text = await commands.get()
         if dry:
             print(f"dry run, not driving: {text}")
-        elif not change_body(rig, text.lower()):
-            inbox.put_nowait(text)
+        else:
+            try:
+                handled = change_body(rig, text.lower())
+            except Exception as e:  # a bad body change must not take the dashboard down with it
+                print(f"{text}: {e}")
+                handled = True
+            if not handled:
+                inbox.put_nowait(text)
 
 
 async def film(rig: MjRig, sci: Scientist, dash: Dashboard):

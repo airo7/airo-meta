@@ -177,6 +177,8 @@ class MjRig(BaseRig):
 
     def attach_tow(self, box=(0.12, 0.1, 0.08), mass: float = 0.15, length: float = 0.25):
         """A cardboard box on a string from the rear hitch, dragging on the floor."""
+        if "tow" in self.changes:
+            return
         self.changes.append("tow")
         x, y, th = self.true_pose if self.m is not None else (*self.spec.body("car").pos[:2],
                                                                 _yaw(self.spec.body("car").quat))
@@ -197,6 +199,8 @@ class MjRig(BaseRig):
 
     def slippery_patch(self, rect=(1.2, 0.35, 1.6, 0.85), friction: float = 0.12):
         """A glossy low-friction floor zone (x0, y0, x1, y1) that overrides the tyre friction."""
+        if "slippery" in self.changes:
+            return
         self.changes.append("slippery")
         x0, y0, x1, y1 = rect
         size, pos = [(x1 - x0) / 2, (y1 - y0) / 2, 4e-4], [(x0 + x1) / 2, (y0 + y1) / 2, 4e-4]
