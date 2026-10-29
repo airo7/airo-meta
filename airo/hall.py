@@ -8,6 +8,7 @@ import math
 import cv2
 import numpy as np
 
+from airo import mezzanine
 from airo.meshes import Batch
 from airo.scene import (BLACK, GEOM, MARGIN, PX, STATIC, WHITE, YELLOW, Canvas, _noise, concrete, quat, texture)
 from airo.warehouse import BELT_Z, TABLE_Z, Cell, belt, cells, slots
@@ -21,7 +22,10 @@ COLUMNS = (-0.13, 1.31, 3.47)
 FORKLIFT_SLOT = 3.11
 STAGE = (3.85, 0.25)
 CAGES = ((-0.22, 1.98, 0.0), (2.78, -0.42, 0.0))
-CROSSING = 1.27
+GOODS = ((3.32, -0.4, 0.05), (3.45, 1.75, -0.04), (-0.62, 0.35, 1.6))
+# People cross onto the floor between the last charging dock and the dock cell: over the dock bay's run-in lane,
+# clear of anywhere a robot parks.
+CROSSING = 1.7
 
 
 def rack_front(site) -> float:
@@ -49,6 +53,7 @@ def build(spec, site):
     _cells(spec, site, cs)
     _docks(spec, site)
     _building(spec, site, rng)
+    mezzanine.build(spec)
 
 
 def _walls(spec, site, rng):
@@ -300,7 +305,7 @@ def _building(spec, site, rng):
             lamps.box("steel", (0.002, 0.002, 0.15), (x, y, 2.12))
     lamps.emit(spec)
     goods = Batch("goods")
-    for x, y, th in [(3.32, -0.4, 0.05), (3.45, 1.75, -0.04), (-0.62, 0.35, 1.6)]:
+    for x, y, th in GOODS:
         _pallet(goods, rng, (x, y, 0.0), yaw=th)
     goods.emit(spec)
     cage = Batch("cage")

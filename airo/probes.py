@@ -48,7 +48,8 @@ def commands(probe: Probe, dt: float = DT) -> np.ndarray:
 
 
 def safe(rig: BaseRig, probe: Probe, body: Body, speed: float = 1.3, margin: float = 0.05) -> bool:
-    """Rolls out the command history too, so a car still coasting from earlier commands is accounted for."""
+    """Whether the probe stays inside the floor and, on a rig that can tell (rig.clear), clear of everything on it.
+    Rolls out the command history too, so a car still coasting from earlier commands is accounted for."""
     fast = replace(body, g_l=body.g_l * speed, g_r=body.g_r * speed)
     p = rig.pose
     cmd_t, cmd = rig.history
@@ -56,7 +57,8 @@ def safe(rig: BaseRig, probe: Probe, body: Body, speed: float = 1.3, margin: flo
     new = commands(probe)
     t = t0 + np.arange(len(new) + 1) * DT
     path = rollout(fast, np.r_[p.t, t], np.r_[cmd_t, t[:-1]], np.vstack([cmd, new]), (p.x, p.y, p.theta))
-    return all(rig.inside(x, y, margin) for x, y, _ in path)
+    clear = getattr(rig, "clear", None)
+    return all(rig.inside(x, y, margin) for x, y, _ in path) and (clear is None or clear(path))
 
 
 async def halt(rig: BaseRig, seconds: float = 0.5):

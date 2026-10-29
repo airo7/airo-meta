@@ -9,6 +9,7 @@ from dataclasses import dataclass, replace
 import mujoco
 import numpy as np
 
+from airo import mezzanine
 from airo.site import robot
 
 
@@ -23,11 +24,20 @@ class Shot:
     spin: bool = True
 
 
+def _from_eye(eye, target) -> Shot:
+    d = np.subtract(target, eye)
+    dist = float(np.linalg.norm(d))
+    return Shot(tuple(target), math.degrees(math.atan2(d[1], d[0])), math.degrees(math.asin(d[2] / dist)), dist,
+                follow=False, spin=False)
+
+
 VIEWS = {
     "chase": Shot((0.25, 0, 0.03), 30, -27, 1.15),
     "iso": Shot((0, 0, 0.05), 45, -35.26, 0.95, spin=False),
     "top": Shot((0, 0, 0), 90, -89.5, 0.8, spin=False),
     "floor": Shot((0, 0, 0), 60, -48, 2.9, follow=False, spin=False),
+    # from the factory's observation mezzanine: a person's eye over the glass railing, the whole floor in view
+    "deck": _from_eye(mezzanine.EYE, mezzanine.LOOK),
 }
 PARTS = {
     "wheel": Shot((0.065, 0.0725, 0.0325), -110, -12, 0.24),
@@ -66,6 +76,7 @@ DECOR = {
     "lamp": ("High-bay lamp", "LED, under the roof"),
     "door": ("Fire exit", "the hatched floor in front stays clear"),
     "sign": ("Station sign", ""),
+    "deck": ("Observation mezzanine", "steel deck over the walkway, glass railing, control room; the deck view"),
 }
 WHEELS = {"fl": "Front-left", "rl": "Rear-left", "fr": "Front-right", "rr": "Rear-right"}
 EASE = 0.15
@@ -81,8 +92,10 @@ class Orbit:
         self.set(preset)
 
     def set(self, name: str):
-        shot = VIEWS.get(name) or PARTS[name]
-        if name == "floor":
+        # only the factory has a mezzanine: elsewhere "deck" watches from the floor view
+        view = "floor" if name == "deck" and self.rig.world.site.scene != "factory" else name
+        shot = VIEWS.get(view) or PARTS[view]
+        if view == "floor":
             w, h = self.rig.floor
             shot = replace(shot, target=(w / 2, h / 2, 0), distance=shot.distance * max(1.0, w / 2.0, h / 1.4))
         self.shot, self.preset = shot, name

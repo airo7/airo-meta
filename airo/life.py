@@ -13,17 +13,20 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from airo import hall, scene, workers
+from airo import hall, mezzanine, scene, workers
 from airo.forklift import Forklift, shuttle
 from airo.planner import OBSTACLE
 from airo.sim import Thing
-from airo.workers import Step, Worker
+from airo.walkmap import WalkMap
+from airo.workers import Car, Step, Worker
 
 GEOM = mujoco.mjtGeom
 STATIC = {"contype": 0, "conaffinity": 0}
 RATE = 1 / 60
 HIDDEN = 5
 WALKWAY = -0.76
+ENTRY = 0.45
+ORDERS = (0.1, 1.9)
 LANE = 2.25
 PARKED = (-4.0, -4.0, -1.0)
 CLEAR_S = 45.0
@@ -89,7 +92,11 @@ class Life:
         self.level = level
         self.rng = np.random.default_rng(seed)
         self.workers = ([Worker(1, "walker", (-0.4, WALKWAY, 0.0)), Worker(2, "racks", (0.23, 2.5, math.pi / 2)),
-                         Worker(3, "dock", (3.0, -0.4, math.pi))] if workers.available() else [])
+                         Worker(3, "dock", (3.0, -0.4, math.pi)),
+                         Worker(4, "supervisor", (*mezzanine.SPOTS[0], 0.0))] if workers.available() else [])
+        for w in self.workers:
+            if w.role == "supervisor":
+                w.z, w.name = mezzanine.Z, "Supervisor"
         rack = (hall.FORKLIFT_SLOT, hall.rack_front(self.site) + hall.RACK_DEPTH / 2)
         self.rack, self.stage = rack, hall.STAGE
         self.forklift = Forklift("Autonomous forklift", (hall.STAGE[0], hall.STAGE[1] + 0.55, -math.pi / 2),
@@ -97,9 +104,18 @@ class Life:
         self._outbound = False
         self.drops: list[Drop] = []
         self.paths: Callable[[], list] = lambda: []
+        self.map = WalkMap(self.site, world.cell.cells)
+        self._seen: dict = {}
+        for w in self.floor:
+            w.planner = self.walk_path
         self.tripped: dict[str, bool] = {}
         self._t: float | None = None
         self._next: dict[str, float] = {}
+
+    @property
+    def floor(self) -> list[Worker]:
+        """The workers down on the floor, among the robots: everyone but the supervisor up on the mezzanine."""
+        return [w for w in self.workers if w.role != "supervisor"]
 
     @property
     def walker(self) -> Worker | None:
@@ -173,7 +189,7 @@ class Life:
         for d in self.drops:
             if d.placed and d.kind == "carton" and not d.clearing and t - d.t > CLEAR_S:
                 self._fetch(d)
-        cars = [c.true_pose[:2] for c in self.world.cars]
+        cars = self._cars(t)
         for w in self.workers:
             if not w.plan:
                 self._program(w)
@@ -184,9 +200,28 @@ class Life:
                              self._outbound)
             f.doing = "taking a pallet to the rack" if not self._outbound else "bringing a pallet down from the rack"
             self._outbound = not self._outbound
-        f.update(t, [(w, (w.x, w.y)) for w in self.workers])
+        f.update(t, [(w, (w.x, w.y)) for w in self.floor])
         self._cells(t)
         self._apply()
+
+    def _cars(self, t: float) -> list[Car]:
+        """Every car with whether it is moving, from how far it went since the last look."""
+        out = []
+        for c in self.world.cars:
+            x, y, th = c.true_pose
+            last = self._seen.get(c)
+            moving = last is not None and t > last[2] and math.dist((x, y), last[:2]) / (t - last[2]) > 0.02
+            if last is None or t - last[2] > 0.2:
+                self._seen[c] = (x, y, t)
+            out.append(Car(x, y, th, moving))
+        return out
+
+    def walk_path(self, start, goal):
+        """A path for a person around the static floor, every car, the forklift and anything dropped."""
+        things = [d.outline() for d in self.drops if d.placed] + [self.forklift.footprint()]
+        things += [o.corners() for o in self.world.objects if o.kind == "pallet" and o.xy != PARKED[:2]
+                   and not any(o is d.thing for d in self.drops)]
+        return self.map.plan(start, goal, [c.true_pose for c in self.world.cars], things)
 
     def _schedule(self, t: float):
         lv = LEVELS[self.level]
@@ -235,8 +270,8 @@ class Life:
         rng = self.rng
         if w.role == "walker":
             end = -0.7 if w.x > 1.5 else 3.6
-            back = [(hall.CROSSING, -0.1), (hall.CROSSING, WALKWAY)] if w.y > WALKWAY + 0.3 else []
-            w.plan = [Step("walk", back + [(end, WALKWAY)]), Step("hold", posture="work", secs=rng.uniform(2, 5))]
+            back = self._to_walkway() if w.y > WALKWAY + 0.3 else []
+            w.plan = back + [Step("walk", [(end, WALKWAY)]), Step("hold", posture="work", secs=rng.uniform(2, 5))]
             w.doing = "walking the walkway"
         elif w.role == "racks":
             x = rng.choice([-0.715, -0.49, 0.23, 0.455])
@@ -252,29 +287,42 @@ class Life:
                 w.plan = w.plan[3:6] + [Step("walk", [(x, front)]), Step("face", heading=math.pi / 2),
                                         Step("put", posture="reach_low", secs=2.2)]
             w.doing = "restocking the racks" if restock else "picking cartons from the racks"
-        else:
+        elif w.role == "dock":
             cage = hall.CAGES[1]
             w.plan = [Step("walk", [(3.16, -0.4)]), Step("face", heading=0.0),
                       Step("take", posture="reach_low", secs=2.0), Step("walk", [(cage[0] + 0.17, cage[1])]),
                       Step("face", heading=math.pi), Step("put", posture="work", secs=1.8),
                       Step("wait", secs=rng.uniform(2, 6))]
             w.doing = "loading cartons into a roll cage at the dock"
+        if w.role == "supervisor":
+            x, y = mezzanine.SPOTS[int(rng.integers(len(mezzanine.SPOTS)))]
+            look = math.atan2(1.0 - y, 1.45 - x)
+            w.plan = [Step("walk", [(x, y)]), Step("face", heading=look + rng.uniform(-0.4, 0.4)),
+                      Step("hold", posture="lean", secs=rng.uniform(4, 9)), Step("face", heading=look),
+                      Step("hold", posture="point", secs=rng.uniform(1.5, 2.5)),
+                      Step("hold", posture="stand", secs=rng.uniform(2, 5))]
+            w.doing = "watching the floor from the mezzanine"
 
     def cross(self) -> str:
         """The walker takes an order from the rack cage to the dock, across the robots' lanes and back."""
         w = self.walker
         if w is None:
             return "no workers on this floor: the Unitree G1 model is not installed (uv run scripts/fetch_models.py)"
-        x0 = hall.CROSSING
-        route = [(x0, 0.62), (1.0, 1.05), (0.78, 1.42), (0.76, 1.88), (0.1, 1.9)]
-        cage = hall.CAGES[1]
-        w.plan = [Step("walk", [(x0, WALKWAY), (x0, -0.1)] + route), Step("face", heading=math.pi),
-                  Step("take", posture="reach_mid", secs=1.6), Step("walk", route[::-1][1:] + [(x0, -0.1),
-                                                                                             (x0, WALKWAY)]),
+        x0, cage = hall.CROSSING, hall.CAGES[1]
+        on_floor = (x0, ENTRY)
+        to_crossing = self._to_walkway() if w.y > WALKWAY + 0.3 else [Step("walk", [(x0, WALKWAY)])]
+        w.plan = [*to_crossing, Step("walk", [on_floor], route=True),
+                  Step("walk", [ORDERS], route=True), Step("face", heading=math.pi),
+                  Step("take", posture="reach_mid", secs=1.6), *self._to_walkway(),
                   Step("walk", [(cage[0], WALKWAY + 0.15)]), Step("face", heading=math.pi / 2),
                   Step("put", posture="work", secs=1.6)]
         w.doing = "crossing the robots' floor to fetch an order"
         return f"{w.name} is crossing the floor"
+
+    def _to_walkway(self) -> list[Step]:
+        """Back off the floor the way people come on: to the crossing, then down it."""
+        return [Step("walk", [(hall.CROSSING, ENTRY)], route=True),
+                Step("walk", [(hall.CROSSING, WALKWAY)], route=True)]
 
     def jam(self, station: str = "packing") -> str:
         """The dock worker steps into a cell's guarding to clear a jammed carton: the curtain trips, the arm stops."""
@@ -300,10 +348,10 @@ class Life:
         x, y = d.thing.xy
         here = (w.x, w.y)
         to = np.array([x, y]) - 0.12 * (np.array([x, y]) - here) / max(1e-6, math.dist((x, y), here))
-        back = [(hall.CROSSING, -0.1), (hall.CROSSING, WALKWAY)]
-        w.plan = [Step("walk", [(hall.CROSSING, WALKWAY), (hall.CROSSING, -0.1), tuple(to)]),
+        to_crossing = self._to_walkway() if w.y > WALKWAY + 0.3 else [Step("walk", [(hall.CROSSING, WALKWAY)])]
+        w.plan = [*to_crossing, Step("walk", [tuple(to)], route=True),
                   Step("face", heading=math.atan2(y - to[1], x - to[0])),
-                  Step("take", posture="reach_low", secs=1.8, then=lambda: self._park(d)), Step("walk", back)]
+                  Step("take", posture="reach_low", secs=1.8, then=lambda: self._park(d)), *self._to_walkway()]
         w.doing = "clearing a dropped carton from the aisle"
 
     # things in the aisles
@@ -359,7 +407,7 @@ class Life:
     # outputs
 
     def hazards(self) -> list[Hazard]:
-        out = [Hazard(f"{w.name}", np.array([[w.x, w.y]]), True, "is crossing its path") for w in self.workers]
+        out = [Hazard(f"{w.name}", np.array([[w.x, w.y]]), True, "is crossing its path") for w in self.floor]
         out.append(Hazard("the forklift", self.forklift.footprint(), False, "is in its way"))
         out += [Hazard(f"a dropped {d.kind}", d.outline(), False, "is in its way") for d in self.drops if d.placed]
         return out

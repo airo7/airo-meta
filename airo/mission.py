@@ -13,8 +13,8 @@ from contextlib import suppress
 import numpy as np
 
 from airo import planner, portrait
-from airo.body import KEY, THRESHOLD, Body, cloud, save, surprise, wrap
-from airo.control import V_MAX, face, follow
+from airo.body import KEY, THRESHOLD, Body, cloud, inverse, save, surprise, wrap
+from airo.control import OM_MAX, V_MAX, face, follow
 from airo.rig import DT, BaseRig, RigAbort
 from airo.server import topdown
 from airo.voice import parse_intent
@@ -39,8 +39,12 @@ CAUTION = 0.6
 BLOCKED_S = 2.0
 PERSON_S = 8.0
 PEOPLE_CLEAR = 0.6
+CARRY_PWM = 100
 GIVE_WAY_S = 1.2
-GIVE_WAY_PWM = 90
+GIVE_WAY_PWM = 80
+GIVE_WAY_M = 0.1
+# the car rolls on for a while after the last reverse command: keep this much floor behind it
+GIVE_WAY_ROOM = 0.25
 WAIT_S = 1.0
 CLEAR = 0.3
 BAY_RUN = 0.3
@@ -348,7 +352,7 @@ class Mission:
         moment and plan again."""
         p = self.rig.pose
         if math.dist(pose[:2], (p.x, p.y)) < 0.05:
-            await face(_Watched(self), self.body, pose[2])
+            await face(_Watched(self), self.body, pose[2], om_max=self._turn_rate())
             return
         for _ in range(attempts):
             self.scene = await self.scan()
@@ -361,8 +365,8 @@ class Mission:
                     self._plan(pose[:2])
                 else:
                     self.path = self._plan(via) + [tuple(pose[:2])]
-                await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
-                await face(_Watched(self), self.body, pose[2])
+                await follow(_Watched(self), self.body, self.path, v_max=self.v_max, om_max=self._turn_rate())
+                await face(_Watched(self), self.body, pose[2], om_max=self._turn_rate())
                 return
             except Surprised as e:
                 await self.relearn(str(e))
@@ -373,12 +377,29 @@ class Mission:
                     await self.rig.step(0, 0)
         raise Blocked(f"Could not get to ({pose[0]:.2f}, {pose[1]:.2f}).")
 
+    def _turn_rate(self) -> float:
+        """The fastest turn for the current body that pivots within CARRY_PWM and arcs at full speed without
+        either wheel running backwards. Carrying, the car turns like an AMR, not at full tilt: a hard pivot out of
+        a bay, and the arc after it, are also where model error looks like a changed body."""
+        body, v = self.body, self.v_max
+        rates = np.linspace(0.3, OM_MAX, 18)
+        within = [om for om in rates if max(map(abs, inverse(body, 0.0, om))) <= CARRY_PWM
+                  and min(inverse(body, v, om)) >= 0]
+        return within[-1] if within else rates[0]
+
     async def _give_way(self):
         """Back off a little, straight, so the robot this one is deadlocked with has room to pass; the guard still
-        stops it for anything behind."""
+        stops it for anything behind, and it stops short of the floor's edge (a bay near the edge leaves no room
+        behind)."""
+        start = self.rig.pose
         for _ in range(round(GIVE_WAY_S / DT)):
+            p = self.rig.pose
+            back = (p.x - GIVE_WAY_ROOM * math.cos(p.theta), p.y - GIVE_WAY_ROOM * math.sin(p.theta))
+            if math.dist((p.x, p.y), (start.x, start.y)) > GIVE_WAY_M or not self.rig.inside(*back):
+                break
             await self.rig.step(-GIVE_WAY_PWM, -GIVE_WAY_PWM)
-        await self.rig.stop()
+        for _ in range(round(WAIT_S / DT)):
+            await self.rig.step(0, 0)
 
     def moved(self):
         """After every watched step on a carry site: give up the bay just left once clear of it, and notice a robot
@@ -408,9 +429,9 @@ class Mission:
         if check is None:
             return
         self.status = "feeling"
-        near = getattr(self.rig, "people_near", None)
-        while near is not None and near(PEOPLE_CLEAR):
-            # the probe pivots and drives a little: not with someone standing next to the car
+        near, t0 = getattr(self.rig, "people_near", None), self.rig.pose.t
+        while near is not None and near(PEOPLE_CLEAR) and self.rig.pose.t - t0 < PERSON_S:
+            # the probe pivots and drives a little: not with someone standing next to the car, if they move on
             await self.rig.step(0, 0)
         r = await check(cause)
         self.felt = {**r, "cause": cause, "at": time.time()}

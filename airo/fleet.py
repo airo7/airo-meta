@@ -10,7 +10,7 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from airo import planner
+from airo import geometry, planner
 from airo.camera import Pose
 from airo.life import LEVELS, Hazard
 from airo.mission import Mission
@@ -25,7 +25,7 @@ HORIZON = 0.4
 CONTACT = 0.03
 PERSON = 0.07
 PIVOT_PWM = 70
-FOOTPRINT = (0.13, 0.08)
+FOOTPRINT = geometry.CAR
 WEIGHT_KG = 0.8
 NUMBERS = {"one": 1, "two": 2, "to": 2, "too": 2, "three": 3, "four": 4}
 _ROBOT = re.compile(r"^\s*(?:(select|switch to|follow|use)\s+)?(?:airo|aero|arrow|robot)[\s#-]*"
@@ -128,19 +128,9 @@ class Guard:
             if ((f > 0) & (f < REACH) & (np.abs(side) < LANE)).any():
                 return other
             # two cars turning into each other: where both will be once the motors have caught up with a stop
-            if _overlap(footprint(self._ahead_of(self.rig), CONTACT), footprint(self._ahead_of(other), CONTACT)):
+            if geometry.overlap(footprint(self._ahead_of(self.rig), CONTACT), footprint(self._ahead_of(other), CONTACT)):
                 return other
         return next((h for h in self._hazards() if h.blocks(p.x, p.y, p.theta, direction)), None)
-
-
-def _overlap(a: np.ndarray, b: np.ndarray) -> bool:
-    """Whether two convex outlines overlap: no edge normal of either separates them."""
-    for poly in (a, b):
-        for e in np.diff(np.vstack([poly, poly[:1]]), axis=0):
-            n = (-e[1], e[0])
-            if (a @ n).max() < (b @ n).min() or (b @ n).max() < (a @ n).min():
-                return False
-    return True
 
 
 def footprint(pose, pad: float = 0.02) -> np.ndarray:

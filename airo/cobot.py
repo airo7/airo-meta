@@ -54,6 +54,7 @@ class UR5e:
     """At zero yaw the arm faces +x of its frame; base is its pedestal's floor position."""
 
     MODEL = "UR5e"
+    FOOTING = 0.045
     HOP, LIFT = 0.05, 0.075
     OPEN, CLOSED = 0.05, 0.62
     RIM = 0.006
