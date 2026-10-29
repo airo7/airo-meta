@@ -14,7 +14,8 @@ import numpy as np
 from airo import meta_api
 from airo.body import PRIOR, THRESHOLD, Body, Segment, ensemble, fit, surprise
 from airo.memory import Entry, Memory, since_change
-from airo.probes import FLOOR, QTY, LIBRARY, SCHEDULE, Recentre, halt, measure, outcome, predict, run, safe, valid, zscore
+from airo.probes import (FLOOR, QTY, LIBRARY, SCHEDULE, Recentre, executed, halt, measure, outcome, predict, run, safe,
+                         valid, zscore)
 from airo.rig import BaseRig, RigAbort
 
 # A forward step first: it tests the refit in the regime the delivery drives in, so it confirms or refutes soonest.
@@ -30,6 +31,8 @@ CHECK = "pivot_l_100"
 CHECK_PLAN = ["step_60", "step_back_60", "pivot_r_150", "pivot_l_60"]
 # A surprise relearn this soon after check_body left a body unverified completes that entry rather than minting one.
 MERGE_S = 60.0
+# A remembered body must be this much more likely (log-likelihood, ~2.7x) than the current one to replace it.
+CHANGE_LL = 1.0
 UNITS = ("cm forward", "cm lateral", "deg turn")
 LOOK = "In one short line: is anything attached to, sitting on or towed behind the small robot car?"
 
@@ -127,6 +130,11 @@ def _compact(x):
     return x
 
 
+def _agree(a: dict, b: dict) -> bool:
+    """Two outcomes of the same probe within three noise floors of each other."""
+    return all(abs(a[q] - b[q]) < 3 * f for q, f in zip(QTY, FLOOR))
+
+
 def _brief(out: dict) -> str:
     """A tool result in a few words for the dashboard's model feed."""
     if "error" in out:
@@ -171,6 +179,7 @@ class Scientist:
         self._looking: asyncio.Task | None = None
         self._unfinished: tuple[float, int, Body] | None = None
         self._merge: int | None = None
+        self._signs = True
         self._t0 = 0.0
 
     def adopt(self, e: Entry):
@@ -352,7 +361,7 @@ class Scientist:
         self.segments.append(await run(self.rig, p))
         self._ran.append(probe)
         self._stale = True
-        meas = measure(self.segments[-1])
+        pred, meas = executed(self.members, self.segments[-1]), measure(self.segments[-1])
         z = zscore(pred, meas)
         tol = np.hypot([pred[q][1] for q in QTY], FLOOR)
         confirmed = confirming and max(map(abs, z.values())) < CONFIRM_Z and bool((tol <= CONFIRM_TOL).all())
@@ -398,45 +407,62 @@ class Scientist:
                          n=e.n, name=e.name, predicted=pred, measured=meas, z=z, recall_s=secs)
 
     async def check_body(self, cause: str) -> dict:
-        """After a known load or unload, parked at a cell: one in-place pivot tells whether the body is the same, a
+        """After a known load or unload, parked at a cell: an in-place pivot tells whether the body is the same, a
         remembered one, or new; a new one is then learned at the cell. Scripted throughout, so driving never waits
         on Wonder. The car never recentres here, and straight probes run only where safe() allows."""
         before, recentre, self.recentre = self.best, self.recentre, None
         self._t0, self._cause, self._unfinished, self._merge = self.rig.pose.t, cause, None, None
         self.segments, self._stale, self._anchor, self._verify, self._fallback = [], False, before, True, False
-        self._ran, self._budget, self._confirmed, self._start = [], 1 + len(CHECK_PLAN), {}, before
-        self._needed = {"straight", "turn"}
+        self._ran, self._budget, self._confirmed, self._start = [], 2 + len(CHECK_PLAN), {}, before
+        self._needed, self._signs = {"straight", "turn"}, False
         try:
             await halt(self.rig)
             await self._note("alert", f"{cause}: checking my body with {CHECK}.")
-            start = self._pose()
             out = await self.run_probe(CHECK, f"If my body did not change, {CHECK} lands in the current cloud.")
             if "error" in out:
-                result = "same"
-            elif out["confirmed"]:
-                result = "same"
+                return self._checked("same")
+            if (body := self._explains(self.segments[-1], out["measured"])) is None:
+                # Unexplained by every body I know: once more, in case something bumped the car.
+                self._stale = False
+                again = await self.run_probe(CHECK, f"Again: if {CHECK} repeats, the body really changed.")
+                body = self._explains(self.segments[-1], again["measured"])
+                if body is None and not _agree(out["measured"], again["measured"]):
+                    await self._note("alert", f"Two {CHECK} runs disagree and no body explains either: something "
+                                              f"is moving the car. Keeping Body #{self.n}; the drive will show a "
+                                              "change.")
+                    return self._checked("same")
+            if body == "current":
                 await self._note("result", f"Same body: Body #{self.n} ({self.name}) still explains {CHECK}.")
-            elif fit := self._remembered(LIBRARY[CHECK], start, out["measured"]):
-                result = "recalled"
-                await self._recalled(*fit)
-            else:
-                result = "learned"
-                await self._learn_here(cause, before)
+                return self._checked("same")
+            if body is not None:
+                await self._recalled(*body)
+                return self._checked("recalled")
+            await self._learn_here(cause, before)
+            return self._checked("learned")
         finally:
-            self.recentre = recentre
+            self.recentre, self._signs = recentre, True
+
+    def _checked(self, result: str) -> dict:
         return {"result": result, "n": self.n, "name": self.name, "seconds": self.rig.pose.t - self._t0}
 
-    def _remembered(self, p, start, meas: dict) -> tuple | None:
-        """Recall args for the remembered body that predicts the check probe best, if it confirms it."""
-        best = None
-        for e in self.memory.entries:
-            pred = predict(e.members, p, start)
+    def _explains(self, seg: Segment, meas: dict) -> str | tuple | None:
+        """Which body explains a check probe: "current", recall args for a remembered body, or None. Every body
+        that fits (|z| under CONFIRM_Z, tight) is scored by its Gaussian log-likelihood, which also charges a wide
+        cloud for its spread: a vague body can fit a changed car too. The current body wins unless another is
+        CHANGE_LL more likely."""
+        fits = []
+        for e in [None] + [e for e in self.memory.entries if e.n != self.n]:
+            pred = executed(self.members if e is None else e.members, seg)
             z = zscore(pred, meas)
-            worst = max(map(abs, z.values()))
-            tight = (np.hypot([pred[q][1] for q in QTY], FLOOR) <= CONFIRM_TOL).all()
-            if e.n != self.n and tight and worst < CONFIRM_Z and (best is None or worst < best[0]):
-                best = worst, (e, p.name, pred, meas, z)
-        return best and best[1]
+            sd = np.hypot([pred[q][1] for q in QTY], FLOOR)
+            if max(map(abs, z.values())) < CONFIRM_Z and (sd <= CONFIRM_TOL).all():
+                fits.append((-sum(v * v for v in z.values()) / 2 - float(np.log(sd).sum()), e, pred, z))
+        if not fits:
+            return None
+        ll, e, pred, z = max(fits, key=lambda f: f[0])
+        if fits[0][1] is None and fits[0][0] >= ll - CHANGE_LL:
+            return "current"
+        return e, CHECK, pred, meas, z
 
     async def _learn_here(self, cause: str, before: Body):
         for name in CHECK_PLAN:
@@ -454,7 +480,7 @@ class Scientist:
 
     async def refit(self) -> dict:
         if self._stale and self.segments:
-            self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor, signs=True)
+            self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor, signs=self._signs)
             self.members = await asyncio.to_thread(ensemble, self.segments, self.best, self.k, anchor=self._anchor)
             self._stale = False
             await self._emit()

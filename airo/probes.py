@@ -93,6 +93,13 @@ def predict(members: list[Body], probe: Probe, pose0) -> dict:
     return outcome(members, [DT, t[-1] + DT], t, cmd, pose0, wheels0=(0, 0))
 
 
+def executed(members: list[Body], seg: Segment) -> dict:
+    """The outcome for the commands the rig actually ran, from the probe's first pose: a rig that falls behind its
+    tick, as a car in a busy shared world does, holds each command longer than the probe planned."""
+    t, pose = valid(seg)
+    return outcome(members, t[[0, -1]], seg.cmd_t, seg.cmd, pose[0])
+
+
 def valid(seg: Segment) -> tuple[np.ndarray, np.ndarray]:
     ok = ~np.isnan(seg.pose).any(axis=1)
     t, pose = seg.t[ok], seg.pose[ok].copy()
