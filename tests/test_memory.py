@@ -268,7 +268,7 @@ def test_two_bodies_that_fit_alike_get_a_second_pivot(carried):
     twin = carried.memory.add("twin", "", carried.best, carried.members, True)
     out = asyncio.run(carried.check_body("loaded a light tote"))
     ran = [e["probe"] for e in carried.notebook if e["kind"] == "result" and "probe" in e]
-    assert ran == ["pivot_l_100", "pivot_r_150"] and out["result"] == "same" and twin.recalls == 0
+    assert ran == ["pivot_l_100", "pivot_r_100"] and out["result"] == "same" and twin.recalls == 0
 
 
 @pytest.mark.parametrize("current", [1, 2])
@@ -280,3 +280,16 @@ def test_a_relearn_that_lands_on_a_known_body_refines_it(library, monkeypatch, t
     asyncio.run(sci.relearn(asyncio.run(changed(sci.rig, TRUTH, library[current - 1].body))))
     assert (sci.n, len(sci.memory.entries), sci.name) == (1, 2, "bare chassis")
     assert "same body as #1" in sci.notebook[-1]["text"] and sci.memory.get(1).verified
+
+
+@pytest.mark.parametrize("room, result", [({"pivot_l_60"}, "recalled"), (set(), "same")])
+def test_a_tight_bay_checks_with_the_pivot_it_has_room_for(carried, monkeypatch, room, result):
+    from airo import probes
+
+    monkeypatch.setattr("airo.scientist.safe", lambda rig, p, body: p.name in room or p.kind != "pivot"
+                        and probes.safe(rig, p, body))
+    carried.rig.truth = HEAVY
+    out = asyncio.run(carried.check_body("loaded a heavy tote"))
+    ran = {e["probe"] for e in carried.notebook if e["kind"] == "result" and "probe" in e}
+    assert out["result"] == result and ran <= room
+    assert result != "same" or "no pivot clears this bay" in carried.notebook[-1]["text"]

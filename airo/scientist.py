@@ -28,7 +28,8 @@ MEASURES = {"step": "per-side gain, drift kappa, delay", "ramp": "dead zone", "p
 # check_body: one pivot decides same / remembered / new; a new body then gets a forward step if the bay allows it,
 # since pivots alone only see eta times gain.
 CHECK = "pivot_l_100"
-CHECK_AGAIN = "pivot_r_150"
+# In order of preference; a bay's structures can leave room only for a smaller turn one way.
+CHECKS = [CHECK, "pivot_r_100", "pivot_l_60", "pivot_r_60"]
 CHECK_PLAN = ["step_60", "step_back_60", "pivot_r_150", "pivot_l_60"]
 # A surprise relearn this soon after check_body left a body unverified completes that entry rather than minting one.
 MERGE_S = 60.0
@@ -425,31 +426,37 @@ class Scientist:
         self._needed, self._signs = {"straight", "turn"}, False
         try:
             await halt(self.rig)
-            await self._note("alert", f"{cause}: checking my body with {CHECK}.")
-            out = await self.run_probe(CHECK, f"If my body did not change, {CHECK} lands in the current cloud.")
+            if (first := self._clear(CHECKS)) is None:
+                await self._note("alert", f"{cause}: no pivot clears this bay, so I cannot check my body here. Keeping "
+                                          f"Body #{self.n}; the drive will show a change.")
+                return self._checked("same")
+            await self._note("alert", f"{cause}: checking my body with {first}.")
+            out = await self.run_probe(first, f"If my body did not change, {first} lands in the current cloud.")
             if "error" in out:
                 return self._checked("same")
             runs = [(self.segments[-1], out["measured"])]
             if not (fits := self._weigh(runs)):
                 # Unexplained by every body I know: once more, in case something bumped the car.
                 self._stale = False
-                again = await self.run_probe(CHECK, f"Again: if {CHECK} repeats, the body really changed.")
+                again = await self.run_probe(first, f"Again: if {first} repeats, the body really changed.")
                 runs = [(self.segments[-1], again["measured"])]
                 if not (fits := self._weigh(runs)) and not _agree(out["measured"], again["measured"]):
-                    await self._note("alert", f"Two {CHECK} runs disagree and no body explains either: something "
+                    await self._note("alert", f"Two {first} runs disagree and no body explains either: something "
                                               f"is moving the car. Keeping Body #{self.n}; the drive will show a "
                                               "change.")
                     return self._checked("same")
             elif len(fits) > 1 and fits[0][0] - fits[1][0] < CHANGE_LL:
-                # Two bodies explain it about as well: a pivot the other way tells them apart.
+                # Two bodies explain it about as well: another pivot, the other way if there is room, tells them apart.
                 self._stale = False
-                again = await self.run_probe(CHECK_AGAIN, f"{CHECK_AGAIN} tells #{_n(fits[0][1], self.n)} and "
-                                                          f"#{_n(fits[1][1], self.n)} apart.")
-                runs.append((self.segments[-1], again["measured"]))
-                fits = self._weigh(runs)
-            body = self._choose(fits, runs[-1][1], CHECK_AGAIN if len(runs) > 1 else CHECK)
+                second = self._clear([c for c in CHECKS if c != first]) or first
+                again = await self.run_probe(second, f"{second} tells #{_n(fits[0][1], self.n)} and "
+                                                     f"#{_n(fits[1][1], self.n)} apart.")
+                if "error" not in again:
+                    runs.append((self.segments[-1], again["measured"]))
+                    fits = self._weigh(runs)
+            body = self._choose(fits, runs[-1][1], self._ran[-1])
             if body == "current":
-                await self._note("result", f"Same body: Body #{self.n} ({self.name}) still explains {CHECK}.")
+                await self._note("result", f"Same body: Body #{self.n} ({self.name}) still explains {first}.")
                 return self._checked("same")
             if body is not None:
                 await self._recalled(*body)
@@ -458,6 +465,9 @@ class Scientist:
             return self._checked("learned")
         finally:
             self.recentre, self._signs = recentre, True
+
+    def _clear(self, probes: list[str]) -> str | None:
+        return next((p for p in probes if safe(self.rig, LIBRARY[p], self.best)), None)
 
     def _checked(self, result: str) -> dict:
         return {"result": result, "n": self.n, "name": self.name, "seconds": self.rig.pose.t - self._t0}
