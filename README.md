@@ -105,15 +105,18 @@ follow). Each seed learns once, then delivers with the body changed 0.3 m into t
 | Held-out probes within 2σ | 100% | 100% |
 | False surprise triggers (50 runs) | 0 | 0 |
 | Weight: detected / confirmed / delivered | 10/10 at 1.0 s, 9/10, 10/10 (gains −35%) | 10/10 at 6.1 s, 10/10, 10/10 (0.8 kg) |
-| Tow: detected / confirmed / delivered | 2/10, 2/2, 10/10 (gains −15%, lag ×2) | 10/10 at 1.6 s, 10/10, 10/10 |
+| Tow: detected / confirmed / delivered | 2/10, 2/2, 10/10 (gains −15%, lag ×2) | 10/10 at 1.6 s, 9/10, 10/10 |
 | Slippery floor: detected / confirmed / delivered | 10/10 at 4.9 s, 10/10, 10/10 | 0/10, –, 10/10 (a 0.4 × 0.5 m patch) |
-| Reversed left motor: detected / confirmed / delivered | 10/10 at 1.0 s, 10/10, 10/10 | 10/10 at 1.1 s, 5/10, 10/10 |
+| Reversed left motor: detected / identified / confirmed / delivered | 10/10 at 1.0 s, 10/10, 0/10, 10/10 | 10/10 at 1.1 s, 10/10, 0/10, 10/10 |
 | Parcel distance from the station centre (clean) | 5.8 cm median | 8.1 cm median |
 
-Relearning finds a reversed motor by restarting the fit with each gain's sign flipped, and says so ("the left motor
-runs backwards"). A towed box is a drag force the body model has no term for: its relearn confirms on a forward
-step, the regime of the delivery, while the box's slack string in reverse and its swing in pivots stay unmodelled.
-An unconfirmed relearn continues at 0.6× speed; one no fit can explain stops with a hardware-fault alert.
+A relearn must confirm in every regime the surprise happened in: a pivot or arc if the car was turning, a step if it
+was driving straight, each predicted tightly (±3 cm, ±6°) and within 2σ. With the 0.8 kg weight the twin relearns
+once and names it "heavier: −12% speed, −25% turn". Relearning finds a reversed motor by restarting the fit with each
+gain's sign flipped and says so ("the left motor runs backwards"), but five probes leave that fit too loose to confirm
+straight driving, so it is reported as partial. A towed box is a drag force the body model has no term for; its
+slack string in reverse and its swing in pivots stay unmodelled. An unconfirmed relearn continues at 0.6× speed; one
+no fit can explain stops with a hardware-fault alert.
 
 ## Limitations
 
@@ -121,8 +124,8 @@ An unconfirmed relearn continues at 0.6× speed; one no fit can explain stops wi
 - The body model has seven parameters and no term for drag, slip or battery sag. A towed box's relearn is confirmed
   on a forward step only. Changes under ~8% speed (0.4 kg on the twin) and the twin's small slippery patch go
   unnoticed; the 0.8 kg weight is only caught in the turns near the parcel.
-- One forward confirmation can accept a body that is right for straight driving but still off in turns; the next
-  turn then raises a second surprise and a second relearn.
+- A reversed motor is identified and driven around, but its relearn stays partial: confirming both turning and
+  straight driving within five probes needs a tighter fit than the window gives.
 - Drift is weakly identifiable; the learning gate reports its sign as undetermined when it is within 2σ of zero.
 - The uncertainty inflation is calibrated in simulation; on hardware only its autocorrelation factor adapts.
 - Probes check free floor, not obstacles, so learning needs a clear centre band; pushes are kept straight because a
