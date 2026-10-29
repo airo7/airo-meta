@@ -18,8 +18,37 @@ SCALE = 0.25
 UR5E, GRIPPER, G1 = "universal_robots_ur5e/ur5e.xml", "robotiq_2f85/2f85.xml", "unitree_g1/g1.xml"
 GEOM = mujoco.mjtGeom
 COLLISION = 3
+HIDDEN = 5
 # Parts smaller than this (metres, at scale) go in geom group 2, which the far views leave out.
 FINE = 0.009
+# Level of detail: vertex-cluster cells for a model seen from within NEAR of the camera, and from farther away.
+CELL, FAR_CELL = 0.0012, 0.004
+NEAR = 1.2
+
+
+class Lod:
+    """The geoms of one grafted model at two levels of detail, shown by the camera's distance to its root."""
+
+    def __init__(self, root: str):
+        self.root = root
+        self.near: list[str] = []
+        self.far: list[str] = []
+
+    def bind(self, m: mujoco.MjModel):
+        self._root = m.body(self.root).id
+        self._near = np.array([m.geom(n).id for n in self.near], int)
+        self._far = np.array([m.geom(n).id for n in self.far], int)
+        self._groups = m.geom_group[self._near].copy()
+        m.geom_group[self._near] = HIDDEN
+        m.geom_group[self._far] = 1
+        self._shown = False
+
+    def show(self, m: mujoco.MjModel, d: mujoco.MjData, eye):
+        near = eye is not None and float(np.linalg.norm(d.xpos[self._root] - eye)) < NEAR
+        if near != self._shown:
+            m.geom_group[self._near] = self._groups if near else HIDDEN
+            m.geom_group[self._far] = HIDDEN if near else 1
+            self._shown = near
 
 
 def available(*models: str) -> bool:
@@ -69,9 +98,10 @@ def _under(m, b: int, root: int) -> bool:
 
 
 def graft(spec, rel: str, root: str, parent, prefix: str, pos=None, quat=None, joints: bool = True,
-          geoms: bool = True, scale: float = SCALE, cell: float = 0.0012) -> dict[str, object]:
+          geoms: bool = True, scale: float = SCALE, lod: Lod | None = None) -> dict[str, object]:
     """Copy the body root of a Menagerie model, its subtree and visual geoms under parent, names prefixed; root
-    keeps its own pose unless pos or quat is given. Returns the new spec bodies by their source names."""
+    keeps its own pose unless pos or quat is given. With lod, every mesh comes at both levels of detail. Returns the
+    new spec bodies by their source names."""
     path = str(ROOT / rel)
     m, tag = model(path), rel.split("/")[0]
     s = scale
@@ -96,24 +126,30 @@ def graft(spec, rel: str, root: str, parent, prefix: str, pos=None, quat=None, j
         for g in range(m.body_geomadr[b], m.body_geomadr[b] + m.body_geomnum[b]) if geoms else ():
             if m.geom_group[g] == COLLISION or m.geom_contype[g] or m.geom_conaffinity[g]:
                 continue
-            _geom(spec, body, m, g, path, tag, s, cell)
+            _geom(spec, body, m, g, path, tag, s, lod)
     return bodies
 
 
-def _geom(spec, body, m, g: int, path: str, tag: str, s: float, cell: float):
+def _geom(spec, body, m, g: int, path: str, tag: str, s: float, lod: Lod | None):
     kw = {"pos": (m.geom_pos[g] * s).tolist(), "quat": m.geom_quat[g].tolist(), "contype": 0, "conaffinity": 0,
           "density": 0, "material": _material(spec, m, g, tag)}
     if m.geom_type[g] != GEOM.mjGEOM_MESH:
         body.add_geom(type=m.geom_type[g], size=(m.geom_size[g] * s).tolist(), group=1, **kw)
         return
     i = m.geom_dataid[g]
-    name = f"{tag}/{m.mesh(i).name}"
-    v, f = _mesh(path, i, s, cell)
-    if spec.mesh(name) is None:
-        mesh = spec.add_mesh(name=name, uservert=v.ravel().tolist(), userface=f.ravel().tolist())
-        mesh.inertia = mujoco.mjtMeshInertia.mjMESH_INERTIA_SHELL
-    size = float(np.ptp(v, axis=0).max()) if len(v) else 0.0
-    body.add_geom(type=GEOM.mjGEOM_MESH, meshname=name, group=2 if size < FINE else 1, **kw)
+    for far in (False, True) if lod else (False,):
+        name = f"{tag}/{m.mesh(i).name}" + ("@far" if far else "")
+        v, f = _mesh(path, i, s, FAR_CELL if far else CELL)
+        size = float(np.ptp(v, axis=0).max()) if len(f) else 0.0
+        if far and size < FINE:
+            continue
+        if spec.mesh(name) is None:
+            mesh = spec.add_mesh(name=name, uservert=v.ravel().tolist(), userface=f.ravel().tolist())
+            mesh.inertia = mujoco.mjtMeshInertia.mjMESH_INERTIA_SHELL
+        geom = body.add_geom(type=GEOM.mjGEOM_MESH, meshname=name, group=2 if size < FINE else 1, **kw)
+        if lod:
+            geom.name = f"{body.name}#{g}" + ("@far" if far else "")
+            (lod.far if far else lod.near).append(geom.name)
 
 
 def _material(spec, m, g: int, tag: str) -> str:

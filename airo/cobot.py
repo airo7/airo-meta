@@ -28,15 +28,15 @@ def available() -> bool:
     return menagerie.available(UR5E, GRIPPER)
 
 
-def _assemble(spec, parent, prefix: str, geoms: bool = True):
+def _assemble(spec, parent, prefix: str, geoms: bool = True, lod=None):
     """UR5e on top of parent at PEDESTAL, the 2F-85 on its tool flange, a tcp body at the gripper's pinch point:
     z out of the gripper, y the closing axis."""
-    ur = graft(spec, UR5E, "base", parent, prefix, pos=(0, 0, PEDESTAL), geoms=geoms)
+    ur = graft(spec, UR5E, "base", parent, prefix, pos=(0, 0, PEDESTAL), geoms=geoms, lod=lod)
     m, g = menagerie._src(UR5E), menagerie._src(GRIPPER)
     site = m.site("attachment_site").id
     flange = ur["wrist_3_link"].add_body(name=prefix + "flange", pos=(m.site_pos[site] * SCALE).tolist(),
                                          quat=m.site_quat[site].tolist(), gravcomp=1)
-    hand = graft(spec, GRIPPER, "base_mount", flange, prefix + "hand/", geoms=geoms)
+    hand = graft(spec, GRIPPER, "base_mount", flange, prefix + "hand/", geoms=geoms, lod=lod)
     pinch = g.site("pinch").id
     hand["base"].add_body(name=prefix + "tcp", pos=(g.site_pos[pinch] * SCALE).tolist())
     return ur
@@ -133,7 +133,8 @@ class UR5e:
         box([0.026, 0.026, (PEDESTAL - 0.012) / 2], [0, 0, PEDESTAL / 2], "arm_plate")
         box([0.0265, 0.0005, 0.03], [0, -0.0262, PEDESTAL * 0.62], "arm_dark")
         box([0.034, 0.034, 0.003], [0, 0, PEDESTAL - 0.003], "steel")
-        _assemble(spec, ped, self.name + "/")
+        self.lods = [menagerie.Lod(self.name + "/wrist_2_link")]
+        _assemble(spec, ped, self.name + "/", lod=self.lods[0])
         return ped
 
 
