@@ -2,7 +2,7 @@
 
 --sim rehearses on a simulated floor, --mujoco on the physics twin with the 3D ghost view. Type a command on stdin
 or in the dashboard ("deliver to red", "learn", "stop"), or change the simulated body mid-run: "weight" or "tow",
-and on --mujoco also "slippery" or "flip".
+and on --mujoco also "slippery" or "flip". --dry shows the camera, pose and dashboard without driving.
 """
 
 import argparse
@@ -18,7 +18,7 @@ from airo.body import cloud, load
 from airo.control import recentre
 from airo.mission import Mission
 from airo.mjsim import WEIGHT_KG, MjRig
-from airo.rig import add_args, body_path, open_rig
+from airo.rig import RigAbort, add_args, body_path, open_rig
 from airo.scientist import Scientist
 from airo.server import Dashboard
 from airo.sim import SimRig, world
@@ -65,11 +65,13 @@ async def console(commands: asyncio.Queue):
             commands.put_nowait(text)
 
 
-async def route(rig, commands: asyncio.Queue, inbox: asyncio.Queue):
+async def route(rig, commands: asyncio.Queue, inbox: asyncio.Queue, dry: bool = False):
     """Body changes go to the simulated rig, everything else to the mission."""
     while True:
         text = await commands.get()
-        if not change_body(rig, text.lower()):
+        if dry:
+            print(f"dry run, not driving: {text}")
+        elif not change_body(rig, text.lower()):
             inbox.put_nowait(text)
 
 
@@ -109,7 +111,7 @@ async def main(args):
     mission = Mission(rig, sci, mode="sim" if sim else "real", body_path=path)
     print(f"dashboard on http://{args.host}:{args.port}")
     jobs = [dash.serve(args.host, args.port), mission.run(dash), console(dash.commands),
-            route(rig, dash.commands, mission.inbox)]
+            route(rig, dash.commands, mission.inbox, args.dry and not sim)]
     if args.mujoco:
         jobs.append(film(rig, sci, dash))
     if args.voice:
@@ -130,3 +132,5 @@ if __name__ == "__main__":
         asyncio.run(main(p.parse_args()))
     except KeyboardInterrupt:
         pass
+    except RigAbort as e:
+        sys.exit(f"airo: {e}")
