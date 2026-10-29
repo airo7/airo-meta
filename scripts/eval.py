@@ -67,17 +67,13 @@ CARRY = [[("heavy", "assembly"), ("light", "qa"), ("heavy", "packing"), ("light"
 # The carry world runs in real time, sped up: stepped as fast as possible, idle cars outpace a probing car and its
 # commands are held longer than planned.
 CARRY_SPEED = 4.0
+# World seconds; clean runs take ~600. A robot stuck past this has its remaining jobs reported short.
+CARRY_LIMIT_S = 1200.0
 
 
 def make_rig(kind: str, seed: int, pose0):
-    """kind "factory" is one car of the carry fleet, with its tote tray, at the first robot's start."""
     kw = dict(floor=FLOOR, objects=world(), pose0=pose0, log_dir=None, seed=seed)
-    if kind == "factory":
-        from airo.mjsim import fleet
-        from airo.site import FACTORY
-
-        rig = fleet(FACTORY, 1, seed=seed, log_dir=None)[0]
-    elif kind == "sim":
+    if kind == "sim":
         rig = SimRig(KEY, **kw)
     else:
         from airo.mjsim import MjRig
@@ -292,13 +288,18 @@ async def carry_episode(seed: int, learned, busy: str = "normal") -> tuple[list[
                     del t[:-6]
             await asyncio.sleep(0.05)
 
+    world = rigs[0].world
+
     async def deliveries(r, jobs):
         for kind, station in jobs:
             r.mission.inbox.put_nowait(f"bring a {kind} tote to {station}")
-            while not r.mission.busy:
+            while not r.mission.busy and world.t < CARRY_LIMIT_S:
                 await asyncio.sleep(0.01)
-            while r.mission.busy:
+            while r.mission.busy and world.t < CARRY_LIMIT_S:
                 await asyncio.sleep(0.01)
+            if world.t >= CARRY_LIMIT_S:
+                r.mission.note("alert", f"Eval time limit: {world.t:.0f} s of world time.")
+                return
 
     runs = [asyncio.create_task(r.mission.run()) for r in f.robots] + [asyncio.create_task(track())]
     try:
@@ -404,7 +405,7 @@ async def main(args):
         if "recall" in args.changes:
             recalls += await recall_episode(args.rig, seed, body)
         if "carry" in args.changes and args.rig == "mujoco":
-            rows, summary = await carry_episode(seed, (await learn("factory", seed))[1], args.busy)
+            rows, summary = await carry_episode(seed, body, args.busy)
             carries, carry_runs = carries + rows, carry_runs + [summary]
         loaded = (await learn(args.rig, seed, loaded=True))[1] if set(LOADED) & set(args.changes) else None
         for name in (c for c in args.changes if c not in ("recall", "carry")):

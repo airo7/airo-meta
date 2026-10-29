@@ -21,8 +21,6 @@ DT = 1 / HZ
 INSET = 0.15
 LOST_S = 0.3
 MJ_BODY_PATH = Path("data/body_mj.json")
-# The factory car carries a tote tray: a different body from the home twin's, so it learns and remembers its own.
-FACTORY_BODY_PATH = Path("data/body_factory.json")
 
 
 class RigAbort(RuntimeError):

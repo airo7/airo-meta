@@ -12,7 +12,7 @@ from typing import Callable
 import numpy as np
 
 from airo import meta_api
-from airo.body import PRIOR, THRESHOLD, Body, Segment, ensemble, fit, surprise
+from airo.body import PRIOR, THRESHOLD, Body, Segment, _residual, ensemble, fit, surprise
 from airo.memory import Entry, Memory, since_change
 from airo.probes import (FLOOR, QTY, LIBRARY, SCHEDULE, Recentre, executed, halt, measure, outcome, predict, run, safe,
                          valid, zscore)
@@ -32,6 +32,9 @@ CHECK_AGAIN = "pivot_r_150"
 CHECK_PLAN = ["step_60", "step_back_60", "pivot_r_150", "pivot_l_60"]
 # A surprise relearn this soon after check_body left a body unverified completes that entry rather than minting one.
 MERGE_S = 60.0
+# A probe whose fit residual is BUMPED times the others' median (and over 2 cm) ran into something: one such probe
+# inflates the noise estimate and with it the whole posterior.
+BUMPED = 4.0
 # A remembered body must be this much more likely (log-likelihood, ~2.7x) than the current one to replace it.
 CHANGE_LL = 1.0
 UNITS = ("cm forward", "cm lateral", "deg turn")
@@ -504,6 +507,13 @@ class Scientist:
     async def refit(self) -> dict:
         if self._stale and self.segments:
             self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor, signs=self._signs)
+            if not self._verify and (i := self._bumped()) is not None:
+                name = self._ran[i] if len(self._ran) == len(self.segments) else "a probe"
+                del self.segments[i]
+                await self._note("alert", f"{name} does not fit the others: it ran into something, so it is left "
+                                          "out of the fit.")
+                self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor,
+                                                    signs=self._signs)
             self.members = await asyncio.to_thread(ensemble, self.segments, self.best, self.k, anchor=self._anchor)
             self._stale = False
             await self._emit()
@@ -511,6 +521,15 @@ class Scientist:
         return {"body": self._body(), "spread": self._spread(),
                 "change_pct": {k: _r(100 * (v / before[k] - 1)) for k, v in asdict(self.best).items()
                                if k != "kappa" and before[k]}}
+
+    def _bumped(self) -> int | None:
+        """Index of a probe segment the fit cannot explain while it explains the rest, if there is one."""
+        if len(self.segments) < 4:
+            return None
+        rms = np.array([np.sqrt(np.mean(_residual(self.best, s) ** 2)) for s in self.segments])
+        i = int(rms.argmax())
+        rest = float(np.median(np.delete(rms, i)))
+        return i if rms[i] > max(BUMPED * rest, 0.02) else None
 
     async def conclude(self, text: str, body_name: str) -> dict:
         if not self._ran and not self._fallback:

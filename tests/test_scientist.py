@@ -227,3 +227,27 @@ def test_wonder_time_runs_out_to_the_scripted_policy(surprised, monkeypatch):
     asyncio.run(sci.relearn(window))
     fb = next(e for e in sci.notebook if e["kind"] == "fallback" and "Wonder time" in e["text"])
     assert sci.notebook[-1]["fallback"] and sci.verified and fb
+
+
+def test_a_probe_that_ran_into_something_is_left_out_of_the_learn(monkeypatch):
+    from airo.probes import commands, run
+    from airo.rig import DT
+
+    async def bumped(rig, p):
+        if p.name != "step_110":
+            return await run(rig, p)
+        t0 = rig.pose.t
+        for i, (l, r) in enumerate(commands(p)):
+            if i == 10:
+                x, y, th = rig.true_pose
+                rig._truth.append((rig.t, x - 0.1 * np.cos(th), y - 0.1 * np.sin(th), th + 0.3))
+            await rig.step(int(l), int(r))
+        return rig.segment(t0 + DT / 2)
+
+    monkeypatch.setattr("airo.scientist.run", bumped)
+    fake_wonder(monkeypatch, [], fail_after=0)
+    sci = Scientist(SimRig(TRUTH, log_dir=None), teleport, k=4)
+    asyncio.run(sci.learn())
+    assert any(e["text"].startswith("step_110 does not fit") for e in sci.notebook)
+    assert len(sci.segments) == len(SCHEDULE) - 1
+    assert_close(sci, TRUTH)
