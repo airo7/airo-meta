@@ -9,6 +9,7 @@ function renderSim(sim) {
   $("viewctl").hidden = !cam.live;
   document.body.classList.toggle("interactive", cam.live);
   if (!cam.live) return;
+  for (const b of $("cambar").querySelectorAll("[data-cam]")) b.classList.toggle("on", b.dataset.cam === sim.preset);
   if (!cam.hinted) {
     cam.hinted = true;
     $("hint").classList.add("show");
@@ -49,7 +50,6 @@ async function flush() {
   cam.busy = true;
   try {
     const r = await (await post("/camera", job[0])).json();
-    if (r.camera) for (const b of $("cambar").querySelectorAll("[data-cam]")) b.classList.toggle("on", b.dataset.cam === r.camera.preset);
     job[1]?.(r);
   } catch {}
   cam.busy = false;

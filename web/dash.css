@@ -93,7 +93,7 @@ body.surprised #alarm { opacity: 1; animation: breathe 1.6s ease-in-out infinite
 #body footer .tick { position: static; display: inline-block; height: 11px; }
 #body footer span { display: flex; align-items: center; gap: 6px; margin-left: 10px; }
 
-#relearn { grid-area: relearn; z-index: 2; align-self: start; justify-self: center; width: 560px; padding: 18px 24px 20px;
+#relearn { z-index: 2; width: 560px; padding: 18px 24px 20px;
   border-radius: 18px; background: #0b1222b8; border: 1px solid #8fb4ff40; backdrop-filter: blur(22px) saturate(1.5);
   box-shadow: 0 0 80px #8fb4ff22, 0 24px 60px #0000005c; text-align: center; }
 #relearn.changed { border-color: #ff5a5f66; box-shadow: 0 0 80px #ff5a5f2a, 0 24px 60px #0000005c; }
@@ -180,7 +180,8 @@ kbd { font: 500 12px var(--sans); color: var(--dim); border: 1px solid var(--lin
 .band.relearn { background: var(--belief); border-color: #fff; color: #08101f; font-weight: 650; }
 #now { position: absolute; top: 4px; bottom: 4px; right: 12%; width: 2px; background: var(--text); box-shadow: 0 0 10px #fff8; border-radius: 1px; }
 
-#viewctl { grid-area: 2 / 2 / 4 / 3; align-self: end; justify-self: center; margin-bottom: calc(var(--dock) + 12px); position: relative; display: flex; flex-wrap: wrap;
+#centre { grid-area: relearn; display: flex; flex-direction: column; align-items: center; gap: 12px; min-height: 0; pointer-events: none; }
+#viewctl { position: relative; display: flex; flex-wrap: wrap;
   justify-content: center; gap: 8px; pointer-events: none; transition: opacity .45s var(--ease), visibility .45s; }
 body.clean #viewctl, body.mapview #viewctl { opacity: 0; visibility: hidden; }
 .ctl { display: flex; align-items: center; gap: 2px; padding: 4px; border-radius: 99px; }
@@ -197,7 +198,7 @@ body.clean #viewctl, body.mapview #viewctl { opacity: 0; visibility: hidden; }
 #play.paused { color: var(--reality); }
 .ctl .stop { color: #ffb3b5; background: #ff5a5f1f; border-color: #ff5a5f55; margin-left: 4px; }
 .ctl .stop:hover { color: #fff; background: #ff5a5f55; }
-#hint { position: absolute; bottom: 100%; left: 50%; margin-bottom: 12px; white-space: nowrap; color: var(--text);
+#hint { position: absolute; top: 100%; left: 50%; margin-top: 12px; white-space: nowrap; color: var(--text);
   background: #0b1222b8; opacity: 0; transform: translate(-50%, 6px); transition: opacity .6s var(--ease), transform .6s var(--ease); }
 #hint.show { opacity: 1; transform: translate(-50%, 0); }
 #tag { position: fixed; z-index: 5; pointer-events: none; padding: 8px 12px; border-radius: 10px; max-width: 260px;

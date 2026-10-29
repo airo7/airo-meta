@@ -20,7 +20,7 @@ function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
   ws.onopen = () => {
     for (const id of ["hero", "video"]) $(id).src = `/${id === "hero" ? "view" : "video"}?${Date.now()}`;
-    setTimeout(() => $("hero").naturalWidth || document.body.classList.add("mapview"), 2500);
+    setTimeout(() => $("hero").naturalWidth || document.body.classList.contains("interactive") || document.body.classList.add("mapview"), 2500);
   };
   ws.onmessage = (e) => update(JSON.parse(e.data));
   ws.onclose = () => {

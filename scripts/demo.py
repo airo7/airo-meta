@@ -97,8 +97,8 @@ async def film(rig: MjRig, sci: Scientist, dash: Dashboard):
             req, fut = dash.camera.get_nowait()
             if not fut.done():
                 fut.set_result(orbit.handle(req))
-        dash.sim = {"camera": True, "paused": rig.paused, "speed": rig.speed, "presets": list(VIEWS),
-                    "parts": list(PARTS), "changes": rig.changes}
+        dash.sim = {"camera": True, "preset": orbit.preset, "paused": rig.paused, "speed": rig.speed,
+                    "presets": list(VIEWS), "parts": list(PARTS), "changes": rig.changes}
         p = rig.pose
         if fresh := p and p.t != last:
             last = p.t

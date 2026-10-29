@@ -27,28 +27,29 @@
     <footer><i class="tick key"></i>Hand-measured key <span id="prevkey" hidden><i class="tick prev"></i>Previous body</span></footer>
   </section>
 
-  <section id="relearn" class="hidden">
-    <ol id="steps"><li>Body changed</li><li>Testing</li><li>Relearned</li></ol>
-    <div id="rdetail"></div>
-  </section>
-
-  <section id="viewctl" hidden>
-    <div id="hint" class="chip">Drag to orbit · scroll to zoom · double-click a part</div>
-    <nav id="cambar" class="ctl glass">
-      <span class="seg"><button data-cam="chase" title="1">Chase</button><button data-cam="iso" title="2">Iso</button><button data-cam="top" title="3">Top</button><button data-cam="floor" title="4">Floor</button></span>
-      <i class="sep"></i>
-      <button data-cam="wheel">Wheel</button><button data-cam="motor">Motor</button><button data-cam="battery">Battery</button><button data-cam="board">Board</button><button data-cam="sensor">Sensor</button><button data-cam="marker">Marker</button>
-    </nav>
-    <nav id="simbar" class="ctl glass">
-      <button id="play" data-cmd="pause" title="Space"></button>
-      <span id="speeds" class="seg"><button data-cmd="speed 0.25">¼</button><button data-cmd="speed 0.5">½</button><button data-cmd="speed 1">1</button><button data-cmd="speed 2">2×</button></span>
-      <i class="sep"></i>
-      <span id="changes"><button data-cmd="weight">Weight</button><button data-cmd="tow">Tow</button><button data-cmd="slippery">Slippery</button><button data-cmd="flip">Flip motor</button></span>
-    </nav>
-    <nav id="missions" class="ctl glass">
-      <button data-cmd="learn">Learn</button><button data-cmd="deliver to red">Deliver → red</button><button data-cmd="deliver to blue">Deliver → blue</button><button data-cmd="stop" class="stop">Stop</button>
-    </nav>
-  </section>
+  <div id="centre">
+    <section id="viewctl" hidden>
+      <div id="hint" class="chip">Drag to orbit · scroll to zoom · double-click a part</div>
+      <nav id="cambar" class="ctl glass">
+        <span class="seg"><button data-cam="chase" title="1">Chase</button><button data-cam="iso" title="2">Iso</button><button data-cam="top" title="3">Top</button><button data-cam="floor" title="4">Floor</button></span>
+        <i class="sep"></i>
+        <button data-cam="wheel">Wheel</button><button data-cam="motor">Motor</button><button data-cam="battery">Battery</button><button data-cam="board">Board</button><button data-cam="sensor">Sensor</button><button data-cam="marker">Marker</button>
+      </nav>
+      <nav id="simbar" class="ctl glass">
+        <button id="play" data-cmd="pause" title="Space"></button>
+        <span id="speeds" class="seg"><button data-cmd="speed 0.25">¼</button><button data-cmd="speed 0.5">½</button><button data-cmd="speed 1">1</button><button data-cmd="speed 2">2×</button></span>
+        <i class="sep"></i>
+        <span id="changes"><button data-cmd="weight">Weight</button><button data-cmd="tow">Tow</button><button data-cmd="slippery">Slippery</button><button data-cmd="flip">Flip motor</button></span>
+      </nav>
+      <nav id="missions" class="ctl glass">
+        <button data-cmd="learn">Learn</button><button data-cmd="deliver to red">Deliver → red</button><button data-cmd="deliver to blue">Deliver → blue</button><button data-cmd="stop" class="stop">Stop</button>
+      </nav>
+    </section>
+    <section id="relearn" class="hidden">
+      <ol id="steps"><li>Body changed</li><li>Testing</li><li>Relearned</li></ol>
+      <div id="rdetail"></div>
+    </section>
+  </div>
 
   <section id="log" class="panel glass">
     <header><h2>Lab notebook</h2><span id="expcount"></span></header>

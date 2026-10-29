@@ -22,6 +22,10 @@ uv run scripts/demo.py --floor W H --marker-h 0.1           # the real car (see 
 uv run scripts/demo.py --floor W H --marker-h 0.1 --dry     # camera, pose and dashboard, nothing drives
 ```
 
+On `--mujoco` the 3D view is interactive: drag to orbit, right- or shift-drag to pan, scroll to zoom, click a part
+to name it and double-click to fly to it; the bar above offers chase, iso, top and floor views, close-ups of the
+wheel, motor, battery, board, sensor and marker, pause and ¼–2× speed, and one-click body changes and missions.
+
 Type into the dashboard's command bar or the terminal: `learn`, `deliver to blue` (or `red`), `status`, `stop`; with
 `--voice`, say them. In simulation, `weight`, `tow`, and on `--mujoco` also `slippery` and `flip`, change the body
 mid-run. For the Meta models put a `MODEL_API_KEY` in `.env` and run `uv run --env-file .env scripts/demo.py …`;
