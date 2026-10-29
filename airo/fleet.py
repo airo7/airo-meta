@@ -5,7 +5,6 @@ dashboard state. Robots plan around each other's footprints and hold still rathe
 import asyncio
 import math
 import re
-import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
@@ -124,8 +123,7 @@ def _scanner(robots: list[Robot], k: int):
     async def scan() -> planner.Scene:
         me = robots[k]
         rig, frame = me.rig, me.rig.frame()
-        site_stations = me.mission.stations
-        scene = await planner.scan(frame, rig.H, rig.floor, stations=site_stations, parcel=me.tote)
+        scene = await planner.scan(frame, rig.H, rig.floor, stations=me.mission.stations, parcel=me.tote)
         for other in robots:
             if other is me:
                 continue
@@ -146,7 +144,6 @@ class Fleet:
         self.site, self.robots, self.mode, self.dry = site, robots, mode, dry
         self.world = getattr(robots[0].rig, "world", None)
         self.selected = 0
-        self.t0 = time.time()
 
     @property
     def robot(self) -> Robot:
@@ -159,8 +156,6 @@ class Fleet:
             return f"no robot {k + 1}"
         if select:
             if k is None:
-                k, _, _ = parse_robot(rest.lower().removeprefix("select").strip())
-            if k is None or not 0 <= k < len(self.robots):
                 return "select which robot?"
             self.selected = k
             return f"selected {self.robots[k].name}"
