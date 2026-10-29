@@ -7,80 +7,94 @@
 <link rel="stylesheet" href="/static/dash.css">
 </head>
 <body>
-<img id="hero" src="/view" alt="Robot view" draggable="false">
-<div id="shade"></div>
-<div id="alarm"></div>
+<img id="hero" src="/view" alt="Live 3D view of the selected robot" draggable="false">
+<div id="scrim"></div>
 
-<main id="hud">
-  <header id="top" class="panel">
-    <div id="brand">AIRO <span id="mode" class="chip">Simulation</span></div>
-    <div id="mission"><svg viewBox="0 0 24 24"><path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3zM5 11a7 7 0 0 0 14 0M12 18v3"/></svg><q id="command"></q></div>
-    <div id="clockbox"><span id="status" class="chip">Connecting</span><time id="clock">0:00</time></div>
-  </header>
-
-  <section id="body" class="panel glass">
-    <header>
-      <div class="who"><img id="portrait" alt="" hidden><div><div id="bodyn"><span>Body</span></div><div id="bodyname"></div></div></div>
-      <div id="relearned"></div>
-    </header>
-    <div id="params"></div>
-    <footer><i class="tick key"></i>Hand-measured key <span id="prevkey" hidden><i class="tick prev"></i>Previous body</span></footer>
-  </section>
-
-  <div id="centre">
-    <section id="viewctl" hidden>
-      <div id="hint" class="chip">Drag to orbit · scroll to zoom · double-click a part</div>
-      <nav id="cambar" class="ctl glass">
-        <span class="seg"><button data-cam="chase" title="1">Chase</button><button data-cam="iso" title="2">Iso</button><button data-cam="top" title="3">Top</button><button data-cam="floor" title="4">Floor</button></span>
-        <i class="sep"></i>
-        <button data-cam="wheel">Wheel</button><button data-cam="motor">Motor</button><button data-cam="battery">Battery</button><button data-cam="board">Board</button><button data-cam="sensor">Sensor</button><button data-cam="marker">Marker</button>
-      </nav>
-      <nav id="simbar" class="ctl glass">
-        <button id="play" data-cmd="pause" title="Space"></button>
-        <span id="speeds" class="seg"><button data-cmd="speed 0.25">¼</button><button data-cmd="speed 0.5">½</button><button data-cmd="speed 1">1</button><button data-cmd="speed 2">2×</button></span>
-        <i class="sep"></i>
-        <span id="changes"><button data-cmd="weight">Weight</button><button data-cmd="tow">Tow</button><button data-cmd="slippery">Slippery</button><button data-cmd="flip">Flip motor</button></span>
-      </nav>
-      <nav id="missions" class="ctl glass">
-        <button data-cmd="learn">Learn</button><button data-cmd="deliver to red">Deliver → red</button><button data-cmd="deliver to blue">Deliver → blue</button><button data-cmd="stop" class="stop">Stop</button>
-      </nav>
-    </section>
-    <section id="relearn" class="hidden">
-      <ol id="steps"><li>Body changed</li><li>Testing</li><li>Relearned</li></ol>
-      <div id="rdetail"></div>
-    </section>
-  </div>
-
-  <section id="log" class="panel glass">
-    <header><h2>Lab notebook</h2><span id="expcount"></span></header>
-    <div id="cards"></div>
-  </section>
-
-  <section id="map" class="panel glass">
-    <header><h2>Floor map</h2><span id="floorsize"></span></header>
-    <div id="mapbox"><div id="stage"><img id="video" src="/video" alt="Top-down floor"><canvas id="overlay"></canvas></div></div>
-  </section>
-
-  <section id="dock" class="panel">
-    <div id="meter" class="glass">
-      <div id="mread"><div id="sval">0.0</div><h2>Surprise</h2></div>
-      <div id="sparkwrap"><canvas id="spark"></canvas></div>
+<header id="top">
+  <div id="brand"><b>AIRO</b><span id="site"></span><span id="mode"></span></div>
+  <nav id="toolbar" class="mat" hidden>
+    <div class="seg" id="views">
+      <button data-cam="chase" title="1">Chase</button><button data-cam="iso" title="2">Iso</button><button data-cam="top" title="3">Top</button><button data-cam="floor" title="4">Floor</button>
     </div>
-    <form id="cmdform" class="glass"><input id="cmdtext" placeholder="Tell AIRO what to do" autocomplete="off"><kbd>/</kbd></form>
+    <button class="pop" data-menu="parts">Parts<svg class="chev" viewBox="0 0 12 12"><path d="m3 4.5 3 3 3-3"/></svg></button>
+    <i class="sep"></i>
+    <button id="play" class="icon" data-cmd="pause" title="Space"></button>
+    <button class="pop" data-menu="speed"><span id="speed">1×</span><svg class="chev" viewBox="0 0 12 12"><path d="m3 4.5 3 3 3-3"/></svg></button>
+    <i class="sep"></i>
+    <button class="pop" data-menu="changes">Change<svg class="chev" viewBox="0 0 12 12"><path d="m3 4.5 3 3 3-3"/></svg></button>
+    <div class="menu mat" id="menu-parts"></div>
+    <div class="menu mat" id="menu-speed">
+      <button data-cmd="speed 0.25">Quarter speed</button><button data-cmd="speed 0.5">Half speed</button><button data-cmd="speed 1">Real time</button><button data-cmd="speed 2">Double speed</button>
+    </div>
+    <div class="menu mat" id="menu-changes">
+      <h3>Body</h3>
+      <button data-cmd="weight" data-on="weight">Add weight</button><button data-cmd="unload">Unload</button><button data-cmd="tow" data-on="tow">Tow a box</button><button data-cmd="flip" data-on="flip">Flip a motor</button>
+      <h3>Place</h3>
+      <button data-cmd="slippery" data-on="slippery">Slippery floor</button><button data-cmd="spill" data-on="spill">Oil spill</button>
+    </div>
+  </nav>
+  <div id="meta"><i id="conn"></i><time id="clock">0:00</time></div>
+</header>
+<div id="hint" class="mat">Drag to orbit, scroll to zoom, double-click a part</div>
+<div id="toasts"></div>
+
+<aside id="rail">
+  <section id="fleet"></section>
+  <section id="memory" class="mat">
+    <header><h2>Memory</h2><span id="memwho"></span></header>
+    <div id="tiles"></div>
   </section>
-
-  <section id="timeline" class="panel glass"><div id="bands"></div><div id="now"></div></section>
-</main>
-
-<aside id="help" class="glass hidden">
-  <h2>Shortcuts</h2>
-  <dl><dt>H</dt><dd>Clean hero view</dd><dt>V</dt><dd>Swap 3D and floor map</dd><dt>B N M</dt><dd>Body, notebook, map</dd>
-  <dt>S T</dt><dd>Surprise dock, timeline</dd><dt>1–4</dt><dd>Chase, iso, top, floor view</dd><dt>Space</dt><dd>Pause simulation</dd><dt>F</dt><dd>Fullscreen</dd><dt>/</dt><dd>Type a command</dd></dl>
 </aside>
-<div id="tag" class="glass"><b></b><span></span></div>
+
+<figure id="map" class="mat">
+  <div id="stage"><img id="video" src="/video" alt="Overhead camera, rectified to the floor"><canvas id="plan"></canvas></div>
+  <figcaption><span id="mapname">Floor</span><kbd>V</kbd></figcaption>
+</figure>
+
+<div id="bottom">
+  <section id="now" class="mat">
+    <div id="nowhead"><i class="dot"></i><b id="nowname"></b><span id="nowstatus"></span><span id="nowside"></span></div>
+    <p id="nowtext"></p>
+    <div id="progress">
+      <ol id="steps"><li>Noticed</li><li>Testing</li><li>Confirmed</li></ol>
+      <div id="nowgauge"></div>
+    </div>
+    <form id="ask">
+      <svg id="mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      <input id="cmdtext" autocomplete="off" spellcheck="false">
+      <span id="heard"></span>
+      <div id="acts">
+        <button type="button" class="pop" data-menu="send">Send to<svg class="chev" viewBox="0 0 12 12"><path d="m3 7.5 3-3 3 3"/></svg></button>
+        <button type="button" data-cmd="learn">Learn</button>
+        <button type="button" class="stop" data-cmd="stop">Stop</button>
+      </div>
+      <div class="menu mat up" id="menu-send"></div>
+    </form>
+  </section>
+</div>
+
+<aside id="side" class="mat">
+  <header>
+    <div class="seg" id="tabs"><button data-tab="models" class="on">Meta models</button><button data-tab="notebook">Lab notebook</button></div>
+    <div class="seg small" id="filter">
+      <button data-kind="" class="on">All</button><button data-kind="segment">SAM</button><button data-kind="describe">Spark</button><button data-kind="wonder">Wonder</button><button data-kind="transcribe">Voice</button><button data-kind="image">Image</button>
+    </div>
+  </header>
+  <div id="feed" class="scroll"></div>
+  <div id="notebook" class="scroll" hidden></div>
+</aside>
+
+<div id="tag" class="mat"><b></b><span></span></div>
+<aside id="help" class="mat" hidden>
+  <h2>Keyboard</h2>
+  <dl><dt>R</dt><dd>Next robot</dd><dt>V</dt><dd>Swap 3D view and floor plan</dd><dt>N</dt><dd>Models or notebook</dd>
+  <dt>H</dt><dd>Hide the interface</dd><dt>1–4</dt><dd>Chase, iso, top, floor</dd><dt>Space</dt><dd>Pause</dd>
+  <dt>F</dt><dd>Full screen</dd><dt>/</dt><dd>Type a command</dd></dl>
+</aside>
 
 <script src="/static/map.js"></script>
 <script src="/static/dash.js"></script>
+<script src="/static/feed.js"></script>
 <script src="/static/view.js"></script>
 </body>
 </html>
