@@ -15,8 +15,9 @@ from dataclasses import replace
 import numpy as np
 
 from airo import meta_api
-from airo.body import cloud, load
+from airo.body import cloud
 from airo.control import recentre
+from airo.memory import Memory
 from airo.mission import Mission
 from airo.mjsim import WEIGHT_KG, MjRig
 from airo.orbit import PARTS, VIEWS, Orbit
@@ -31,12 +32,12 @@ HORIZON = 1.2
 
 
 def scientist(rig, path) -> Scientist:
-    """Starts from the saved body when there is one, so learning carries over between runs."""
-    sci = Scientist(rig, recentre=lambda r: recentre(r, sci.best))
-    if saved := load(path):
-        sci.best, sci.members, sci.name = saved
-        sci.n = 1
-        print(f"loaded {path}: {sci.name}")
+    """Starts from the body library's active body, so learning carries over between runs."""
+    mem = Memory.open(path)
+    sci = Scientist(rig, recentre=lambda r: recentre(r, sci.best), memory=mem)
+    if mem.current:
+        sci.adopt(mem.current)
+        print(f"memory {mem.path}: {len(mem.entries)} bodies, active #{sci.n} {sci.name}")
     return sci
 
 
