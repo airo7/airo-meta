@@ -12,7 +12,7 @@ from typing import Callable
 import numpy as np
 
 from airo import meta_api
-from airo.body import PRIOR, Body, Segment, ensemble, fit, surprise
+from airo.body import PRIOR, THRESHOLD, Body, Segment, ensemble, fit, surprise
 from airo.memory import Entry, Memory, since_change
 from airo.probes import FLOOR, QTY, LIBRARY, SCHEDULE, Recentre, halt, measure, outcome, predict, run, safe, valid, zscore
 from airo.rig import BaseRig, RigAbort
@@ -151,7 +151,10 @@ class Scientist:
     async def relearn(self, window_seg: Segment, budget: int = len(RELEARN)) -> float:
         """window_seg ends with the surprise; its part since the change seeds the refit, older segments are dropped."""
         t0 = time.monotonic()
-        window_seg = since_change(self.members, window_seg)
+        matches = self.memory.match(window_seg, self.members, exclude=self.n)
+        # Only windows the old body explains well are surely from before the change: a slowly growing surprise,
+        # like a tow's, is already the new body below threshold.
+        window_seg = since_change(self.members, window_seg, THRESHOLD / 2)
         s = surprise(self.members, window_seg)
         s = s[np.isfinite(s)]
         t, pose = valid(window_seg)
@@ -165,7 +168,6 @@ class Scientist:
         self._cause = seen if seen not in ("no camera frame", "camera description unavailable") else what
         self.segments, self._stale, self._anchor, self._verify = [window_seg], True, self.best, True
         self._needed = regimes(window_seg)
-        matches = self.memory.match(window_seg, exclude=self.n)
         self._candidates = [e for e, _ in matches]
         if not matches:
             await self.refit()

@@ -11,6 +11,7 @@ from airo.sim import SimRig
 from test_scientist import HEAVY, TRUTH, drive, fake_wonder, results, teleport
 
 MISSION = [(140, 140, 15), (80, 140, 20), (140, 80, 20)]
+CHANGE_AT = 0.75
 
 
 @pytest.fixture(scope="module")
@@ -28,12 +29,18 @@ def library():
     return sci.memory.entries
 
 
-async def changed(rig, truth):
-    """The bare body drives the mission much further, so it starts on the left of the floor."""
-    rig.truth = truth
+async def changed(rig, truth, before=None):
+    """The mission's window; with before, the body changes from before to truth after the straight leg and the
+    window is that leg plus a 0.75 s turn, as when the surprise fires soon after. The bare body drives much further, so it starts on the left."""
+    rig.truth = before or truth
     rig._truth.append((rig.t, 0.5, 0.7, 0.0))
     await rig.step(0, 0)
-    return await drive(rig, MISSION)
+    t0 = rig.t
+    await drive(rig, MISSION[:1])
+    t = rig.t
+    rig.truth = truth
+    await drive(rig, [(80, 140, 15)] if before else MISSION[1:])
+    return rig.segment(t - CHANGE_AT if before else t0)
 
 
 def scientist(library, monkeypatch, tmp_path, current: int, truth, wonder=()):
@@ -84,19 +91,16 @@ def test_match_ignores_the_motion_before_the_change(library):
     for e in library:
         mem.add(e.name, e.cause, e.body, e.members, e.verified)
     rig = SimRig(HEAVY, log_dir=None)
-    asyncio.run(changed(rig, HEAVY))
-    t = rig.t
-    rig.truth = TRUTH
-    asyncio.run(drive(rig, [(80, 140, 10), (140, 140, 8)]))
-    window = rig.segment(rig.t - 1.5)
-    assert window.t[0] < t <= since_change(library[1].members, window).t[0]
+    window = asyncio.run(changed(rig, TRUTH, HEAVY))
+    t = window.t[0] + CHANGE_AT
+    assert window.t[0] < t <= since_change(library[1].members, window, strict=True).t[0]
     assert [e.n for e, _ in mem.match(window, library[1].members, exclude=2)] == [1]
 
 
 @pytest.mark.parametrize("current, truth, expect", [(2, TRUTH, 1), (1, HEAVY, 2)])
 def test_recall_confirms_with_one_probe(library, monkeypatch, tmp_path, current, truth, expect):
     sci, _ = scientist(library, monkeypatch, tmp_path, current, truth)
-    window = asyncio.run(changed(sci.rig, truth))
+    window = asyncio.run(changed(sci.rig, truth, library[current - 1].body))
     asyncio.run(sci.relearn(window))
 
     assert (sci.n, sci.name) == (expect, library[expect - 1].name) and sci.verified
