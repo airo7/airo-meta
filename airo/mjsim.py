@@ -71,6 +71,8 @@ class MjRig(BaseRig):
         self.tracker = PoseTracker(floor_layout(*self.floor), MARKER_H, world.site.cam_h) if source == "aruco" else None
         scene.add_car(world.spec, prefix, pose0 or (self.floor[0] / 2, self.floor[1] / 2, 0.0), marker, accent)
         world.cars.append(self)
+        if world.site.mode == "carry":
+            self.add_tray()
         if bumper:
             self.add_bumper()
         if weight:
@@ -172,6 +174,22 @@ class MjRig(BaseRig):
             b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.045, 0.0015, 0.025], pos=[0, side * 0.04, 0],
                        euler=[0, 0, side * 63.4], material="cardboard", mass=0.015, group=1)
         self._rebuild()
+
+    def add_tray(self):
+        """A shallow tray on the top deck, its lip in the robot's colour: totes ride in it."""
+        from airo.warehouse import DECK, TRAY
+
+        hx, hy = TRAY
+        b = self.spec.body(self.prefix + "car").add_body(name=self.prefix + "tray", pos=list(DECK))
+        kw = {"contype": 1, "conaffinity": 1, "group": 1, "friction": [0.9, 0.005, 0.0001]}
+        b.add_geom(type=GEOM.mjGEOM_BOX, size=[hx + 0.004, hy + 0.004, 0.0015], pos=[0, 0, -0.0015], material="tray",
+                   mass=0.02, **kw)
+        accent = self.prefix + "accent" if self.prefix else "accent"
+        for sx, sy, size in ((1, 0, (0.002, hy + 0.004)), (-1, 0, (0.002, hy + 0.004)), (0, 1, (hx + 0.004, 0.002)),
+                             (0, -1, (hx + 0.004, 0.002))):
+            b.add_geom(type=GEOM.mjGEOM_BOX, size=[*size, 0.0045], pos=[sx * (hx + 0.002), sy * (hy + 0.002), 0.0045],
+                       material=accent, mass=0.003, **kw)
+        self.world.cell.add_latches(self.spec, self.prefix)
 
     def attach_tow(self, box=(0.12, 0.1, 0.08), mass: float = 0.15, length: float = 0.25):
         """A cardboard box on a string from the rear hitch, dragging on the floor."""

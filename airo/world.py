@@ -39,6 +39,12 @@ class World:
         self.zone_t: float | None = None
         self.paused, self.speed = False, 1.0
         self.spec = scene.build(site, self.objects)
+        self.cell = None
+        if site.mode == "carry":
+            from airo.warehouse import Warehouse
+
+            self.cell = Warehouse(self)
+            self.cell.build(self.spec)
         self.m = self.d = None
         self._renderers: dict = {}
         self._near, self._far = mujoco.MjvOption(), mujoco.MjvOption()
@@ -61,7 +67,11 @@ class World:
             for r in self._renderers.values():
                 r.close()
             self._renderers.clear()
+        if self.cell is not None:
+            self.cell.bind(self.m)
         mujoco.mj_forward(self.m, self.d)
+        if self.cell is not None:
+            self.cell.stock()
         self._frame = self._seg = None
         for car in self.cars:
             car._bind()
@@ -126,6 +136,8 @@ class World:
             rolling = np.abs(d.qvel[self._dofs]) > BREAKAWAY
             m.dof_frictionloss[self._dofs] = self._stiction * np.where(rolling, KINETIC, 1)
             m.dof_damping[self._dofs] = LOAD_DAMPING * d.sensordata[self._touch]
+            if self.cell is not None:
+                self.cell.act(d.time)
             mujoco.mj_step(m, d)
         for o, b in self._free:
             o.xy = tuple(d.xpos[b, :2])
