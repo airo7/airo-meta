@@ -66,6 +66,7 @@ function update(raw) {
   renderFeed(s);
   renderNotebook(app.sel);
   renderSim(s.sim || {});
+  for (const b of document.querySelectorAll("[data-busy]")) b.classList.toggle("on", b.dataset.busy === s.site?.busy);
   app.loaded = true;
 }
 

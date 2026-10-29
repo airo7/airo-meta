@@ -98,7 +98,7 @@ function drawPlan(cv, state, selected, rect) {
     if (big) {
       font(11, 500);
       g.fillStyle = "rgba(235,235,245,0.6)";
-      g.fillText(m.kind === "human" ? "Worker" : "Forklift", cx + s * 1.8, cy + 4);
+      g.fillText(m.name || (m.kind === "human" ? "Worker" : "Forklift"), cx + s * 1.8, cy + 4);
     }
   }
 
