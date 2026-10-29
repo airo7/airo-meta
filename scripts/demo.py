@@ -1,74 +1,54 @@
-"""Demo entry point: dashboard, mission and optional voice on one event loop.
+"""Demo entry point: dashboard, fleet, missions and optional voice on one event loop.
 
---sim rehearses on a simulated floor, --mujoco on the physics twin with the 3D ghost view. Type a command on stdin
-or in the dashboard ("deliver to red", "learn", "stop"), or change the simulated body mid-run: "weight" or "tow",
-and on --mujoco also "slippery" or "flip", or "pause", "resume", "speed 0.5". --dry shows the camera, pose and
-dashboard without driving. On --mujoco the 3D view takes the mouse: drag to orbit, scroll to zoom, click a part.
+--site factory (MuJoCo, three robots by default, --robots N) runs a fleet on the factory floor; --site home is the
+real car's marker floor: --sim rehearses on a simulated floor, --mujoco on the physics twin, neither drives the car.
+Type a command on stdin or in the dashboard: "airo 2 deliver to packing", "select airo 3", "deliver to dock" (the
+selected robot), "learn", "stop", or change a body mid-run: "weight", "remove weight", "tow", "untow", "flip"; the
+place changes with "spill" and "clean"; "pause", "resume", "speed 0.5". --dry shows the camera, pose and dashboard
+without driving. In the 3D view drag to orbit, scroll to zoom, click a part.
 """
 
 import argparse
 import asyncio
 import sys
 import time
-from dataclasses import replace
 
 import numpy as np
 
 from airo import meta_api
 from airo.body import cloud
 from airo.control import recentre
+from airo.fleet import Fleet, crew
 from airo.memory import Memory
-from airo.mission import Mission
-from airo.mjsim import WEIGHT_KG, MjRig
+from airo.mjsim import fleet as fleet_rigs
 from airo.orbit import PARTS, VIEWS, Orbit
-from airo.rig import RigAbort, add_args, body_path, open_rig
+from airo.rig import MJ_BODY_PATH, RigAbort, add_args, body_path, open_rig
 from airo.scientist import Scientist
 from airo.server import Dashboard
-from airo.sim import SimRig, world
+from airo.sim import world
+from airo.site import SITES
 
 FPS = 24
 VIEW = (1600, 900)
 HORIZON = 1.2
 
 
-def scientist(rig, path) -> Scientist:
-    """Starts from the body library's active body, so learning carries over between runs."""
-    mem = Memory.open(path)
+def scientist(rig, pool: Memory, robot: str) -> Scientist:
+    """Starts from the robot's active body in the shared library, else the fleet's first confirmed body."""
+    mem = pool.view(robot)
     sci = Scientist(rig, recentre=lambda r: recentre(r, sci.best), memory=mem)
-    if mem.current:
-        sci.adopt(mem.current)
-        print(f"memory {mem.path}: {len(mem.entries)} bodies, active #{sci.n} {sci.name}")
+    if e := mem.inherit():
+        sci.adopt(e)
+        print(f"{robot}: {len(mem.entries)} bodies in {mem.path}, active #{sci.n} {sci.name}")
     return sci
 
 
-def change_body(rig, what: str) -> bool:
-    if isinstance(rig, MjRig):
-        if what in ("pause", "resume"):
-            rig.paused = what == "pause"
-            return True
-        if what.startswith("speed "):
-            try:
-                rig.set_speed(float(np.clip(float(what[6:]), 0.1, 4)))
-            except ValueError:
-                return False
-            return True
-        change = {"weight": lambda: rig.add_weight(WEIGHT_KG), "tow": rig.attach_tow, "slippery": rig.slippery_patch,
-                  "flip": lambda: rig.flip_motor("l")}.get(what)
-        if change:
-            change()
-            print(f"physics: {what}")
-        return change is not None
-    if not isinstance(rig, SimRig):
-        return False
-    b = rig.truth
-    if what == "weight":
-        rig.truth = replace(b, g_l=b.g_l * 0.65, g_r=b.g_r * 0.65, eta=b.eta * 0.7)
-    elif what == "tow":
-        rig.truth = replace(b, g_l=b.g_l * 0.85, g_r=b.g_r * 0.85, lag=b.lag * 2)
-    else:
-        return False
-    print(f"truth body is now {rig.truth}")
-    return True
+async def open_rigs(args, site) -> list:
+    if site.scene == "factory":
+        return fleet_rigs(site, min(args.robots, len(site.starts)), realtime=True, bumper=True, log_dir="data/runs")
+    # From the floor centre the drive to the parcel starts far enough out to be watched: the parcel approach is not.
+    pose0 = (1.0, 0.7, 0.0) if args.mujoco else (0.4, 0.7, 0.0)
+    return [await open_rig(args, objects=world(), pose0=pose0, log_dir="data/runs")]
 
 
 async def console(commands: asyncio.Queue):
@@ -78,41 +58,32 @@ async def console(commands: asyncio.Queue):
             commands.put_nowait(text)
 
 
-async def route(rig, commands: asyncio.Queue, inbox: asyncio.Queue, dry: bool = False):
-    """Body changes go to the simulated rig, everything else to the mission."""
-    while True:
-        text = await commands.get()
-        if dry:
-            print(f"dry run, not driving: {text}")
-        else:
-            try:
-                handled = change_body(rig, text.lower())
-            except Exception as e:  # a bad body change must not take the dashboard down with it
-                print(f"{text}: {e}")
-                handled = True
-            if not handled:
-                inbox.put_nowait(text)
-
-
-async def film(rig: MjRig, sci: Scientist, dash: Dashboard):
-    """The interactive 3D view plus the ghost cloud over the next HORIZON seconds. Runs on the event loop: the
-    rig's GL context belongs to the thread that steps it."""
-    orbit, last = Orbit(rig, VIEW), None
+async def film(fleet: Fleet, dash: Dashboard):
+    """The interactive 3D view, following the selected robot, with its ghost cloud over the next HORIZON seconds. Runs on the event loop: the world's GL contexts belong to the thread that steps it."""
+    world = fleet.world
+    orbit, last = Orbit(fleet.robot.rig, VIEW), {}
     while True:
         tick = time.monotonic()
+        if orbit.rig is not fleet.robot.rig:
+            orbit.follow(fleet.robot.rig)
         while not dash.camera.empty():
             req, fut = dash.camera.get_nowait()
             if not fut.done():
                 fut.set_result(orbit.handle(req))
-        dash.sim = {"camera": True, "preset": orbit.preset, "paused": rig.paused, "speed": rig.speed,
-                    "presets": list(VIEWS), "parts": list(PARTS), "changes": rig.changes}
-        p = rig.pose
-        if fresh := p and p.t != last:
-            last = p.t
-            t = np.linspace(p.t, p.t + HORIZON, 13)
-            rig.render_ghosts(cloud(sci.members, t, *rig.history, (p.x, p.y, p.theta)), 0.1)
+        dash.sim = {"camera": True, "preset": orbit.preset, "paused": world.paused, "speed": world.speed,
+                    "presets": list(VIEWS), "parts": list(PARTS), "changes": fleet.robot.rig.changes,
+                    "robot": fleet.robot.id}
+        fresh = False
+        for r in fleet.robots:
+            p = r.rig.pose
+            if p and p.t != last.get(r.id):
+                last[r.id], fresh = p.t, True
+                # the full cloud for the robot in focus only: each cloud is a few hundred transparent geoms
+                t = np.linspace(p.t, p.t + HORIZON, 13)
+                r.rig.render_ghosts(cloud(r.sci.members, t, *r.rig.history, (p.x, p.y, p.theta))
+                                    if r is fleet.robot else [], 0.1)
         if fresh or orbit.moving:
-            dash.set_view(rig.view(*VIEW, orbit.update()))
+            dash.set_view(world.view(*VIEW, orbit.update()))
         await asyncio.sleep(max(0.0, tick + 1 / FPS - time.monotonic()))
 
 
@@ -125,33 +96,47 @@ async def listen(inbox: asyncio.Queue):
         print(f"voice off: {e}; the text bar still works")
 
 
+async def run_as(robot):
+    """Model calls made by this robot's mission are tagged with its id in the dashboard's feed."""
+    meta_api.ROBOT.set(robot.id)
+    await robot.mission.run()
+
+
 async def main(args):
-    # From the floor centre the drive to the parcel starts far enough out to be watched: the parcel approach is not.
-    pose0 = (1.0, 0.7, 0.0) if args.mujoco else (0.4, 0.7, 0.0)
-    rig = await open_rig(args, objects=world(), pose0=pose0, log_dir="data/runs")
-    sim = args.sim or args.mujoco
+    site = SITES[args.site]
+    if site.scene == "factory" and args.sim:
+        sys.exit("airo: the factory runs on the MuJoCo twin; drop --sim")
+    rigs = await open_rigs(args, site)
+    sim = args.sim or args.mujoco or site.scene == "factory"
     if sim:
-        meta_api.segment = rig.sam
-    path = body_path(args)
+        meta_api.segment = rigs[0].sam
+    path = MJ_BODY_PATH if site.scene == "factory" else body_path(args)
+    pool = Memory.open(path)
+    robots = crew(site, rigs, lambda rig, rid: scientist(rig, pool, rid), mode="sim" if sim else "real",
+                  body_path=path if len(rigs) == 1 else None, real=not sim)
+    fleet = Fleet(site, robots, mode="sim" if sim else "real", dry=args.dry and not sim)
     dash = Dashboard()
-    sci = scientist(rig, path)
-    mission = Mission(rig, sci, mode="sim" if sim else "real", body_path=path)
-    print(f"dashboard on http://{args.host}:{args.port}")
-    jobs = [dash.serve(args.host, args.port), mission.run(dash), console(dash.commands),
-            route(rig, dash.commands, mission.inbox, args.dry and not sim)]
-    if args.mujoco:
-        jobs.append(film(rig, sci, dash))
+    print(f"{site.name}, {len(robots)} robot{'s' * (len(robots) > 1)}: dashboard on http://{args.host}:{args.port}")
+    jobs = [dash.serve(args.host, args.port), fleet.run(dash), console(dash.commands),
+            *(run_as(r) for r in robots)]
+    if fleet.world is not None:
+        jobs.append(film(fleet, dash))
     if args.voice:
         jobs.append(listen(dash.commands))
     try:
         await asyncio.gather(*jobs)
     finally:
-        await rig.close()
+        for rig in rigs:
+            await rig.close()
+        if fleet.world is not None:
+            fleet.world.close()
 
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     add_args(p)
+    p.add_argument("--site", choices=sorted(SITES), default="home")
+    p.add_argument("--robots", type=int, default=3, help="robots on the factory floor")
     p.add_argument("--voice", action="store_true")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)

@@ -133,3 +133,15 @@ def test_wonder_gets_the_candidates_and_a_recall_tool(library, monkeypatch, tmp_
     assert '#1 "bare chassis"' in seen[0][1]["content"] and "#2" not in seen[0][1]["content"]
     assert "not a candidate" in results(seen)[0]["error"]
     assert sci.n == 1 and sci.notebook[-1]["kind"] == "recall" and not any(e.get("fallback") for e in sci.notebook)
+
+
+def test_fleet_shares_one_pool_with_per_robot_active_bodies(tmp_path):
+    pool = Memory(tmp_path / "pool.json")
+    first = pool.view("airo-1").add("bare", "learned from scratch", TRUTH, [TRUTH], True)
+    two = pool.view("airo-2")
+    assert two.inherit() is first and "airo-2" not in first.tested
+    heavy = two.add("heavier", "weight", HEAVY, [HEAVY], True)
+    one = pool.view("airo-1")
+    assert one.current is first and one.get(heavy.n) is heavy
+    one.recall(heavy)
+    assert heavy.tested == ["airo-2", "airo-1"] and Memory(tmp_path / "pool.json").active == {"airo-1": 2, "airo-2": 2}

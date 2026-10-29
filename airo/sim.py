@@ -25,6 +25,7 @@ class Thing:
     xy: tuple[float, float]
     size: tuple[float, float]
     colour: tuple[int, int, int]
+    kind: str = ""
 
     def corners(self) -> np.ndarray:
         return np.array(self.xy) + np.array([[-1, -1], [1, -1], [1, 1], [-1, 1]]) * np.array(self.size) / 2

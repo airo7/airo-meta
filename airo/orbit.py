@@ -2,13 +2,14 @@
 clock so it stays live while the simulation is paused."""
 
 import math
+import re
 import time
 from dataclasses import dataclass, replace
 
 import mujoco
 import numpy as np
 
-from airo.planner import PARCEL, STATIONS
+from airo.site import robot
 
 
 @dataclass(frozen=True)
@@ -49,6 +50,14 @@ LABELS = {
     "bumper": ("V bumper", "cardboard; cups the parcel toward the centre line"),
     "tow": ("Towed box", "on a 25 cm string from the rear hitch"),
 }
+DECOR = {
+    "rack": ("Pallet racking", "steel shelving with cartons and crates"),
+    "conveyor": ("Roller conveyor", "totes come in from the line here"),
+    "pillar": ("Column", "hazard-wrapped at the base"),
+    "goods": ("Pallet of goods", "stretch-wrapped cartons waiting for the dock"),
+    "spill_sign": ("Wet floor sign", "the spill has been flagged"),
+    "wall": ("Wall", "corrugated cladding"),
+}
 WHEELS = {"fl": "Front-left", "rl": "Rear-left", "fr": "Front-right", "rr": "Rear-right"}
 EASE = 0.15
 
@@ -65,8 +74,13 @@ class Orbit:
     def set(self, name: str):
         shot = VIEWS.get(name) or PARTS[name]
         if name == "floor":
-            shot = replace(shot, target=(self.rig.floor[0] / 2, self.rig.floor[1] / 2, 0))
+            w, h = self.rig.floor
+            shot = replace(shot, target=(w / 2, h / 2, 0), distance=shot.distance * max(1.0, w / 2.0, h / 1.4))
         self.shot, self.preset = shot, name
+
+    def follow(self, rig):
+        """Follow another car in the same world; the camera eases across to it."""
+        self.rig = rig
 
     @property
     def moving(self) -> bool:
@@ -127,12 +141,12 @@ class Orbit:
         if hit is None:
             return None, self.shot
         body, geom, point = hit
-        part = self._label(body, geom)
+        part = self._label(body, geom, point)
         if not focus:
             return part, self.shot
         x, y, th = self.rig.true_pose
         m = self.rig.m
-        if m.body_rootid[body] == m.body("car").id:
+        if m.body_rootid[body] == m.body(self.rig.prefix + "car").id:
             local = tuple(map(float, (*(_rot(-th) @ (point[:2] - (x, y))), point[2])))
             shot = Shot(local, self.cam.azimuth - math.degrees(th), self.cam.elevation, min(self.shot.distance, 0.22))
         else:
@@ -140,29 +154,49 @@ class Orbit:
                         follow=False, spin=False)
         return part, shot
 
-    def _label(self, body: int, geom: int) -> dict:
-        m = self.rig.m
-        name = m.body(body).name
+    def _label(self, body: int, geom: int, point) -> dict:
+        """Names the part under the pointer, and on a fleet which robot it belongs to ("AIRO 2 · Front-left wheel")."""
+        m, world = self.rig.m, self.rig.world
+        car = world.car_of(body)
+        name = m.body(body).name.removeprefix(car.prefix if car else "")
+        geom_name = m.geom(geom).name
         if name in WHEELS:
             label = (f"{WHEELS[name]} wheel", "65 mm rubber tyre on a TT gear motor")
         elif name.startswith("weight"):
             label = ("Steel weight", f"{m.body_mass[body]:.1f} kg, strapped on with velcro")
-        elif name.startswith("thing") or m.geom(geom).name.startswith("thing"):
-            i = int((name if name.startswith("thing") else m.geom(geom).name)[5:])
-            concept = self.rig.objects[i].concept
-            colour = next((k for k, v in STATIONS.items() if v == concept), None)
-            label = ((f"{colour.capitalize()} station", "A4 sheet; deliveries end here") if colour else
-                     ("Parcel", "yellow box, pushed with the bumper") if concept == PARCEL else
-                     ("Obstacle", "a box the planner keeps clear of"))
+        elif name.startswith("thing") or geom_name.startswith("thing"):
+            label = self._thing(int((name if name.startswith("thing") else geom_name)[5:]))
         elif name in LABELS:
             label = LABELS[name]
+        elif (kind := re.sub(r"(_back|_left|\d+)$", "", name if name != "world" else geom_name)) in DECOR:
+            label = DECOR[kind]
         else:
             mat = m.geom_matid[geom]
             material = m.material(mat).name if mat >= 0 else ""
+            x0, y0, x1, y1 = world.zone or (0, 0, -1, -1)
             label = (("Slippery patch", "low-friction glossy floor") if material == "glossy" else
                      ("Corner marker", "ArUco; fixes the floor frame") if material.startswith(("aruco", "paper")) else
-                     ("Floor", ""))
+                     (world.site.spill_label, "low friction: the tyres slip here")
+                     if x0 <= point[0] <= x1 and y0 <= point[1] <= y1 else ("Floor", ""))
+        if car and car.prefix:
+            label = (f"{car.name} · {label[0]}", label[1])
         return {"name": label[0], "detail": label[1]}
+
+    def _thing(self, i: int) -> tuple[str, str]:
+        site = self.rig.world.site
+        o = self.rig.world.objects[i]
+        station = next((k for k, v in site.stations.items() if v == o.concept), None)
+        if station:
+            title = station.upper() if len(station) <= 2 else station.capitalize()
+            return f"{title} station", "painted pad; deliveries end here" if o.kind == "pad" else \
+                "A4 sheet; deliveries end here"
+        if o.concept in site.totes and o.kind == "tote":
+            return "Tote", f"{robot(site.totes.index(o.concept))['name']}'s; pushed with the bumper"
+        if o.concept in site.totes:
+            return "Parcel", "yellow box, pushed with the bumper"
+        if o.kind == "pallet":
+            return "Pallet", "stretch-wrapped cartons; the planner keeps clear of it"
+        return "Obstacle", "a box the planner keeps clear of"
 
 
 def _rot(th: float) -> np.ndarray:

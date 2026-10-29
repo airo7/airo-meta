@@ -21,6 +21,7 @@
     <material name="led_green" rgba=".2 1 .3 1" emission="2"/>
     <material name="led_rgb" rgba=".3 .6 1 1" emission="1.5"/>
     <material name="card" rgba="1 1 1 1" texture="aruco0" specular=".1" shininess=".1"/>
+    <material name="accent" rgba=".93 .92 .88 1" specular=".2" shininess=".3"/>
   </asset>
 
   <default>
@@ -37,10 +38,10 @@
                 friction=".8 .004 .0002" rgba="0 0 0 0"/>
         </default>
         <default class="lug">
-          <geom size=".0026 .0058 .001" pos="0 .0062 .0315"/>
+          <geom size=".0026 .0058 .001" pos="0 .0062 .0315" group="2"/>
         </default>
         <default class="lug2">
-          <geom size=".0026 .0058 .001" pos="0 -.0062 .0315" euler="0 7.5 0"/>
+          <geom size=".0026 .0058 .001" pos="0 -.0062 .0315" euler="0 7.5 0" group="2"/>
         </default>
         <default class="spoke">
           <geom size=".0024 .0137 .0088" pos="0 0 .0088" material="hub"/>
@@ -161,7 +162,7 @@
       <body name="marker_card">
         <geom type="cylinder" size=".002 .0018" pos=".045 .045 .0972" material="plastic_white"/>
         <geom type="cylinder" size=".002 .0018" pos="-.045 -.045 .0972" material="plastic_white"/>
-        <geom type="box" size=".064 .064 .0005" pos="0 0 .0994" material="plastic_white"/>
+        <geom type="box" size=".064 .064 .0005" pos="0 0 .0994" material="accent"/>
         <geom name="marker" type="box" size=".0633 .0633 .00002" pos="0 0 .09998" euler="0 0 -90" material="card"/>
       </body>
 
@@ -207,10 +208,10 @@
   </worldbody>
 
   <sensor>
-    <touch site="fl"/>
-    <touch site="rl"/>
-    <touch site="fr"/>
-    <touch site="rr"/>
+    <touch name="fl" site="fl"/>
+    <touch name="rl" site="rl"/>
+    <touch name="fr" site="fr"/>
+    <touch name="rr" site="rr"/>
   </sensor>
 
   <actuator>

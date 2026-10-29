@@ -1,6 +1,7 @@
 """Body library: every body AIRO has been, so a body it meets again is recalled with one probe instead of relearned.
 One JSON file per robot model; entries name the robot that learned them, so a fleet can share the pool."""
 
+import copy
 import json
 import time
 from dataclasses import asdict, dataclass, field
@@ -27,6 +28,7 @@ class Entry:
     recalls: int = 0
     robot: str | None = None
     portrait: str | None = None
+    tested: list[str] = field(default_factory=list)
 
     @classmethod
     def from_json(cls, d: dict) -> "Entry":
@@ -52,6 +54,20 @@ class Memory:
             mem.add(name, "learned from scratch", body, members, True)
         return mem
 
+    def view(self, robot: str) -> "Memory":
+        """Another robot's handle on the same pool: shared entries and file, its own active body."""
+        v = copy.copy(self)
+        v.robot = robot
+        return v
+
+    def inherit(self) -> Entry | None:
+        """A robot new to the pool starts from the fleet's first confirmed body, untested on itself."""
+        if self.current is None and (e := min((e for e in self.entries if e.verified), key=lambda e: e.n,
+                                              default=None)):
+            self.active[self.robot] = e.n
+            self.save()
+        return self.current
+
     @property
     def current(self) -> Entry | None:
         return self.get(self.active.get(self.robot))
@@ -64,7 +80,8 @@ class Memory:
 
     def add(self, name: str, cause: str, body: Body, members: list[Body], verified: bool,
             n: int | None = None) -> Entry:
-        e = Entry(n or self.next_n(), name, cause, body, list(members), verified, robot=self.robot)
+        e = Entry(n or self.next_n(), name, cause, body, list(members), verified, robot=self.robot,
+                  tested=[self.robot] if verified else [])
         self.entries.append(e)
         self.active[self.robot] = e.n
         self.save()
@@ -73,6 +90,8 @@ class Memory:
     def recall(self, e: Entry):
         e.recalls += 1
         self.active[self.robot] = e.n
+        if self.robot not in e.tested:
+            e.tested.append(self.robot)
         self.save()
 
     def match(self, seg: Segment, current: list[Body] | None = None, exclude: int | None = None,
