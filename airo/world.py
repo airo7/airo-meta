@@ -39,12 +39,15 @@ class World:
         self.zone_t: float | None = None
         self.paused, self.speed = False, 1.0
         self.spec = scene.build(site, self.objects)
-        self.cell = None
+        self.cell = self.life = None
         if site.mode == "carry":
+            from airo.life import Life
             from airo.warehouse import Warehouse
 
             self.cell = Warehouse(self)
             self.cell.build(self.spec)
+            self.life = Life(self)
+            self.life.build(self.spec)
         self.m = self.d = None
         self._renderers: dict = {}
         self._near, self._far = mujoco.MjvOption(), mujoco.MjvOption()
@@ -69,6 +72,11 @@ class World:
             self._renderers.clear()
         if self.cell is not None:
             self.cell.bind(self.m)
+            self.life.bind(self.m)
+        self._lods = [lod for ld in (self.cell.loaders.values() if self.cell else ()) for lod in
+                      getattr(ld.arm, "lods", ())] + [w.lod for w in (self.life.workers if self.life else ())]
+        for lod in self._lods:
+            lod.bind(self.m)
         mujoco.mj_forward(self.m, self.d)
         if self.cell is not None:
             self.cell.stock()
@@ -137,6 +145,7 @@ class World:
             m.dof_frictionloss[self._dofs] = self._stiction * np.where(rolling, KINETIC, 1)
             m.dof_damping[self._dofs] = LOAD_DAMPING * d.sensordata[self._touch]
             if self.cell is not None:
+                self.life.act(d.time)
                 self.cell.act(d.time)
             mujoco.mj_step(m, d)
         for o, b in self._free:
@@ -204,9 +213,15 @@ class World:
             self._renderers[w, h] = mujoco.Renderer(self.m, h, w, max_geom=8000)
         return self._renderers[w, h]
 
+    def _detail(self, eye):
+        """Menagerie models near the eye at full detail, the rest coarse; eye None: all coarse."""
+        for lod in self._lods:
+            lod.show(self.m, self.d, eye)
+
     def frame(self) -> np.ndarray:
         """The overhead camera: what the phone sees, without ghosts."""
         if self._frame is None or self._frame[0] != self.t:
+            self._detail(None)
             r = self._renderer(*self.size)
             r.update_scene(self.d, "overhead", self._far)
             self._frame = (self.t, cv2.cvtColor(r.render(), cv2.COLOR_RGB2BGR))
@@ -216,6 +231,7 @@ class World:
         """Tyre lugs (geom group 2) are left out beyond LOD_M: hundreds of draw calls for sub-pixel detail."""
         r = self._renderer(width, height)
         far = isinstance(camera, str) or camera.distance > LOD_M
+        self._detail(_eye(self.m, self.d, camera))
         r.update_scene(self.d, camera, self._far if far else self._near)
         for car in self.cars:
             for poses, alpha in car.ghosts:
@@ -240,6 +256,7 @@ class World:
         h, w = image.shape[:2]
         if self._seg is None or self._seg[0] != (self.t, w, h):
             r = self._renderer(w, h)
+            self._detail(None)
             r.enable_segmentation_rendering()
             r.update_scene(self.d, "overhead")
             seg = r.render()
@@ -262,6 +279,14 @@ class World:
         if (g := _find(self.m.geom, name)) is not None:
             return [g.id]
         return list(np.flatnonzero(self.m.geom_bodyid == self.m.body(name).id))
+
+
+def _eye(m, d, camera) -> np.ndarray:
+    if isinstance(camera, str):
+        return d.cam_xpos[m.camera(camera).id].copy()
+    a, e = math.radians(camera.azimuth), math.radians(camera.elevation)
+    return np.array(camera.lookat) - camera.distance * np.array([math.cos(e) * math.cos(a),
+                                                                  math.cos(e) * math.sin(a), math.sin(e)])
 
 
 def _find(get, name: str):

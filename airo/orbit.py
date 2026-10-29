@@ -60,6 +60,7 @@ DECOR = {
     "spill_sign": ("Wet floor sign", "the spill has been flagged"),
     "wall": ("Wall", "insulated cladding"),
     "fence": ("Safety guarding", "polycarbonate panels around a loader cell"),
+    "cage": ("Roll cage", "cartons on their way to and from the racks"),
     "cell": ("Loader cell", "light curtain at the open side, stack light, the station's table"),
     "charger": ("Charging dock", "contacts behind the parking bay"),
     "lamp": ("High-bay lamp", "LED, under the roof"),
@@ -176,7 +177,7 @@ class Orbit:
             label = self._thing(int((name if name.startswith("thing") else geom_name)[5:]))
         elif name in LABELS:
             label = LABELS[name]
-        elif world.cell is not None and (part := world.cell.label(name)):
+        elif world.cell is not None and (part := world.cell.label(name) or world.life.label(name)):
             label = part
         elif (kind := re.sub(r"(_back|_left|\d+)$", "", name if name != "world" else geom_name)) in DECOR:
             label = DECOR[kind]
@@ -208,6 +209,8 @@ class Orbit:
             return "Parcel", "yellow box, pushed with the bumper"
         if o.kind == "pallet":
             return "Pallet", "stretch-wrapped cartons; the planner keeps clear of it"
+        if o.kind == "carton":
+            return "Dropped carton", "fell in the aisle; the planner keeps clear of it until a worker takes it away"
         return "Obstacle", "a box the planner keeps clear of"
 
 

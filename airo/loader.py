@@ -2,8 +2,9 @@
 from inverse kinematics, eased between, written into the physics state every substep. A gripped tote rides the tool
 rigidly; released, it settles under physics.
 
-The arm model is swappable: a Loader needs `joints`, `fingers`, `tcp`, `home`, `ik(xyz, yaw, near)` and
-`grip(open)` from it. `Arm` is a procedural six-axis industrial arm with a parallel gripper."""
+The arm model is swappable: a Loader needs `joints`, `fingers`, `tcp`, `home`, `ik(xyz, yaw, near)`, `grip(open)`,
+`finger_q(grip)`, `hold(tote half size)` and the HOP and LIFT clearances from it. `Arm` is our procedural six-axis
+industrial arm with a parallel gripper; cobot.UR5e is the Menagerie one."""
 
 import asyncio
 import math
@@ -14,9 +15,6 @@ import numpy as np
 
 GEOM = mujoco.mjtGeom
 STATIC = {"contype": 0, "conaffinity": 0}
-HOP = 0.09
-LIFT = 0.12
-DROP = 0.004
 
 
 def smooth(s: float) -> float:
@@ -37,6 +35,8 @@ class Arm:
     """A six-axis arm on a pedestal: base yaw, shoulder and elbow pitch, forearm roll, wrist pitch, flange roll, and
     a two-finger gripper. At zero the upper arm stands up and the forearm points along +x of the base frame."""
 
+    MODEL = None
+    HOP, LIFT = 0.09, 0.12
     SHOULDER = (0.02, 0.135)
     L1, L2 = 0.22, 0.22
     WRIST = 0.03
@@ -86,6 +86,13 @@ class Arm:
 
     def grip(self, open_: bool) -> float:
         return self.OPEN if open_ else self.CLOSED
+
+    def finger_q(self, g: float) -> float:
+        return g
+
+    def hold(self, half) -> np.ndarray:
+        """The tool point on a tote in its grasp frame: centred, the fingers across its middle."""
+        return np.array([0.0, 0.0, half[2] - 0.015])
 
     def build(self, spec, label: str):
         """The arm into spec's world, every part in the arm's name space so a pick names the loader."""
@@ -170,14 +177,18 @@ class _Segment:
 
 @dataclass
 class Loader:
-    """One arm at a cell. Moves are queued as keyframe segments in world time; act(t) poses the arm each physics
-    substep and fires grip and release as their segments end. load and unload hold the car still until done."""
+    """One arm at a cell. Moves are queued as keyframe segments on the loader's clock, which is world time less
+    the time spent paused (a person in the light curtain); act(t) poses the arm each physics substep and fires grip
+    and release as their segments end. load and unload hold the car still until done."""
     title: str
     arm: Arm
     cell: object
     doing: str = "idle"
+    paused: bool = False
     _plan: list[_Segment] = field(default_factory=list)
     _q: np.ndarray | None = None
+    _lag: float = 0.0
+    _last: float = 0.0
 
     def bind(self, m: mujoco.MjModel):
         adr = lambda j: m.jnt_qposadr[m.joint(j).id]
@@ -196,11 +207,15 @@ class Loader:
 
     def _pose(self, d, q):
         d.qpos[self._adr] = q[:6]
-        d.qpos[self._fadr] = q[6]
+        d.qpos[self._fadr] = self.arm.finger_q(q[6])
         d.qvel[self._dofs] = 0
 
     def act(self, t: float):
         d = self.cell.world.d
+        if self.paused:
+            self._lag += t - self._last
+        self._last = t
+        t -= self._lag
         while self._plan and t >= self._plan[0].t1:
             seg = self._plan.pop(0)
             self._q = seg.q1
@@ -213,7 +228,8 @@ class Loader:
 
     def _queue(self, keys: list[tuple]):
         """keys: (arm joints or None to hold, fingers open, seconds, event at the end)."""
-        t = self.cell.world.t
+        self._last = self.cell.world.t
+        t = self._last - self._lag
         self.cell.wake()
         q = self._q if not self._plan else self._plan[-1].q1
         for joints, open_, secs, event in keys:
@@ -221,11 +237,22 @@ class Loader:
             self._plan.append(_Segment(t, t + secs, q, q1, event))
             t, q = t + secs, q1
 
+    def _grasp(self, centre, yaw: float) -> tuple[np.ndarray, float]:
+        """The tool point for a tote centred at centre and turned yaw, and the grasp yaw: of the tote's two ways
+        round, the one that puts the arm's hold nearer the arm."""
+        off = self.arm.hold(self.cell.tote)
+        ways = []
+        for g in (yaw, yaw + math.pi):
+            c, s = math.cos(g), math.sin(g)
+            ways.append((np.asarray(centre, float) + (c * off[0] - s * off[1], s * off[0] + c * off[1], off[2]), g))
+        far = [np.linalg.norm(p[:2] - self.arm.base) for p, _ in ways]
+        return ways[1] if far[1] < far[0] - 1e-9 else ways[0]
+
     def _keys(self, at, yaw, start, gripping: bool, tote, near) -> tuple[list, np.ndarray]:
         """Hover, descend, close or open, rise: the keyframes around one grasp or placement."""
-        above = self.arm.ik(at + (0, 0, HOP), yaw, near)
+        above = self.arm.ik(at + (0, 0, self.arm.HOP), yaw, near)
         down = self.arm.ik(at, yaw, above)
-        up = self.arm.ik(at + (0, 0, LIFT), yaw, down)
+        up = self.arm.ik(at + (0, 0, self.arm.LIFT), yaw, down)
         keys = [(above, not gripping, start, None), (down, not gripping, 0.6, None),
                 (None, gripping, 0.35, ("grip" if gripping else "release", tote)), (up, gripping, 0.55, None)]
         return keys, up
@@ -234,11 +261,9 @@ class Loader:
         """Take tote from where it waits, put it on the car's deck, return home."""
         self.doing = f"loading {car.name}"
         try:
-            src, src_yaw = self.cell.tote_pose(tote)
+            pick, up = self._keys(*self._grasp(*self.cell.tote_pose(tote)), 1.1, True, tote, self._q)
             dst, dst_yaw = self.cell.deck_pose(car)
-            grasp = np.array([0, 0, self.cell.grasp])
-            pick, up = self._keys(src + grasp, src_yaw, 1.1, True, tote, self._q)
-            place, _ = self._keys(dst + grasp + (0, 0, DROP), dst_yaw, 1.4, False, tote, up)
+            place, _ = self._keys(*self._grasp(dst, dst_yaw), 1.4, False, tote, up)
             self._queue(pick + place + [(self.arm.home, True, 1.0, None)])
             await self._wait(car)
         finally:
@@ -250,11 +275,9 @@ class Loader:
         try:
             tote = self.cell.on(car)
             self.cell.reserve(slot, tote)
-            src, src_yaw = self.cell.tote_pose(tote)
+            pick, up = self._keys(*self._grasp(*self.cell.tote_pose(tote)), 1.1, True, tote, self._q)
             dst, dst_yaw = self.cell.slot_pose(slot)
-            grasp = np.array([0, 0, self.cell.grasp])
-            pick, up = self._keys(src + grasp, src_yaw, 1.1, True, tote, self._q)
-            place, _ = self._keys(dst + grasp + (0, 0, DROP), dst_yaw, 1.4, False, tote, up)
+            place, _ = self._keys(*self._grasp(dst, dst_yaw), 1.4, False, tote, up)
             self._queue(pick + place + [(self.arm.home, True, 1.0, None)])
             await self._wait(car)
         finally:

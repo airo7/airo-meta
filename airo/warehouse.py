@@ -1,15 +1,17 @@
 """The carry site's logistics: a pool of totes, the inbound conveyor at the pick cell, a loader beside every bay,
 the slots totes are set down in at each station, and the queues robots wait in for a bay.
 
-Totes are free bodies. The conveyor and the arms move them kinematically; everywhere else (on a car's deck, a
-station's table, the conveyor's end stop) physics holds them, so a tote's mass genuinely loads the car it rides."""
+Totes are free bodies without contacts, so nothing a cell moves can shove a car. The conveyor and the arms move them
+kinematically, at rest they are pinned in place, and on a car's deck a weld holds them, so a tote's mass genuinely
+loads the car it rides."""
 
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import mujoco
 import numpy as np
 
+from airo import cobot
 from airo.loader import Arm, Loader, yaw_quat
 from airo.meshes import Batch, shell
 from airo.scene import rounded
@@ -18,21 +20,39 @@ from airo.site import KINDS, Bay, Site
 GEOM = mujoco.mjtGeom
 STATIC = {"contype": 0, "conaffinity": 0}
 TOTE = (0.07, 0.05, 0.0325)
-GRASP = TOTE[2] - 0.015
 DECK = (-0.02, 0.0, 0.1035)
 TRAY = (0.073, 0.053)
-ARM_D = 0.30
 BACK = 0.27
 BELT_Z = 0.11
 BELT_GAP = 0.18
 BELT_V = 0.3
 BELT_MAX = 4
 TABLE_Z = 0.12
+TABLE_BACK = 0.13
+PALLET_BACK = 0.155
+PALLET_Z = 0.026
 POOL = 10
 STOCK_X = -1.7
 CLEAR = 0.32
 TITLES = {"pick": "Pick cell arm", "assembly": "Assembly arm", "qa": "QA arm", "packing": "Packing arm",
           "dock": "Dock arm"}
+
+
+@dataclass(frozen=True)
+class Layout:
+    """A cell's footprint, in metres from the bay's centre toward the loader side: the arm's base, the guarding's
+    open front and its rear; side is the guarding's half width along the bay."""
+    arm: float
+    front: float
+    rear: float
+    side: float = 0.33
+
+
+# The pick cell is sized for our big arm and the conveyor end; station cells for a cobot that swings between the car
+# and a table right behind it, which leaves a back aisle between their guarding and the racks.
+HERO = Layout(arm=0.30, front=0.15, rear=0.77)
+STATION = Layout(arm=0.21, front=0.12, rear=0.44)
+DOCK = Layout(arm=0.21, front=0.12, rear=0.48)
 
 
 @dataclass(frozen=True)
@@ -45,8 +65,8 @@ class Slot:
 
 @dataclass(frozen=True)
 class Cell:
-    """A loader cell beside a bay: the arm stands ARM_D to the bay's loader side and faces the car; its work (the
-    conveyor end or a station's table) is BACK behind it. out points from the bay toward the arm, along the bay's
+    """A loader cell beside a bay: the arm stands layout.arm to the bay's loader side and faces the car; its work
+    (the conveyor end or a station's table) is behind it. out points from the bay toward the arm, along the bay's
     heading."""
     name: str
     bay: Bay
@@ -54,16 +74,32 @@ class Cell:
     yaw: float
     out: tuple[float, float]
     along: tuple[float, float]
+    layout: Layout = HERO
 
     def at(self, back: float, side: float = 0.0) -> np.ndarray:
         """The floor point back metres beyond the arm (negative: toward the bay), side metres along the bay."""
         return np.array(self.base) + back * np.array(self.out) + side * np.array(self.along)
 
+    @property
+    def front(self) -> float:
+        """The guarding's open front, from the arm's base (negative: toward the bay)."""
+        return self.layout.front - self.layout.arm
+
+    @property
+    def rear(self) -> float:
+        return self.layout.rear - self.layout.arm
+
+    @property
+    def side(self) -> float:
+        return self.layout.side
+
 
 def cell(name: str, bay: Bay) -> Cell:
-    base = bay.beside(ARM_D)
-    out = ((base[0] - bay.x) / ARM_D, (base[1] - bay.y) / ARM_D)
-    return Cell(name, bay, base, math.atan2(-out[1], -out[0]), out, (math.cos(bay.theta), math.sin(bay.theta)))
+    layout = HERO if name == "pick" else DOCK if name == "dock" else STATION
+    base = bay.beside(layout.arm)
+    out = ((base[0] - bay.x) / layout.arm, (base[1] - bay.y) / layout.arm)
+    return Cell(name, bay, base, math.atan2(-out[1], -out[0]), out, (math.cos(bay.theta), math.sin(bay.theta)),
+                layout)
 
 
 def cells(site: Site) -> dict[str, Cell]:
@@ -71,13 +107,14 @@ def cells(site: Site) -> dict[str, Cell]:
 
 
 def slots(c: Cell) -> list[Slot]:
-    """Four places for totes behind a station's arm, each tote turned to point at the arm. The dock stacks them two
-    by two on an outbound pallet; the others line them up on a table."""
-    yaw = math.atan2(c.out[1], c.out[0])
+    """Four places for totes on a table right behind a station's arm, each tote pointing at the arm. The dock sets
+    them two by two on an outbound pallet, lengthwise, so the arm can reach the far row's near wall."""
     if c.name == "dock":
-        spots = [(BACK + d, s, 0.026) for d in (-0.075, 0.075) for s in (-0.056, 0.056)]
+        yaw = math.atan2(c.along[1], c.along[0])
+        spots = [(PALLET_BACK + d, s, PALLET_Z) for d in (-0.052, 0.052) for s in (-0.0725, 0.0725)]
     else:
-        spots = [(BACK, s, TABLE_Z) for s in (-0.2, -0.067, 0.067, 0.2)]
+        yaw = math.atan2(c.out[1], c.out[0])
+        spots = [(TABLE_BACK, s, TABLE_Z) for s in (-0.1575, -0.0525, 0.0525, 0.1575)]
     return [Slot(c.name, k, (*c.at(b, s), z), yaw) for k, (b, s, z) in enumerate(spots)]
 
 
@@ -142,6 +179,19 @@ class Line:
         return k, self.bay.wait[k - 1] if k - 1 < len(self.bay.wait) else None
 
 
+def _stock(t: Tote) -> tuple[float, float, float]:
+    return STOCK_X - 0.2 * (t.k // 5), 0.25 + 0.3 * (t.k % 5), TOTE[2]
+
+
+def _arm(name: str, c: Cell) -> tuple[str, object]:
+    """(title, arm): our own arm at the pick cell, and at the stations the Menagerie UR5e when it's installed."""
+    title = TITLES.get(name, name.capitalize() + " arm")
+    if name != "pick" and cobot.available():
+        station = name.upper() if len(name) <= 2 else name.capitalize()
+        return f"Station arm · UR5e · {station}", cobot.UR5e(f"arm_{name}", c.base, c.yaw)
+    return title, Arm(f"arm_{name}", c.base, c.yaw)
+
+
 class Warehouse:
     """Runtime of a carry site in a World: built into the spec with the scene, bound after every compile, acted on
     every physics substep (cheaply when nothing moves)."""
@@ -150,15 +200,14 @@ class Warehouse:
         self.world, site = world, world.site
         self.site = site
         self.cells = cells(site)
-        self.loaders = {n: Loader(TITLES.get(n, n.capitalize() + " arm"), Arm(f"arm_{n}", c.base, c.yaw), self)
-                        for n, c in self.cells.items()}
+        self.loaders = {n: Loader(*_arm(n, c), self) for n, c in self.cells.items()}
         self.lines = {n: Line(n, c.bay) for n, c in self.cells.items()}
         self.slots = {n: slots(c) for n, c in self.cells.items() if n != "pick"}
         self.end, self.entry = belt(self.cells["pick"], site.floor[0], 1.0)
         self.dir = (self.end - self.entry) / np.linalg.norm(self.end - self.entry)
         self.totes = [Tote(k, ("light", "heavy")[k % 2]) for k in range(POOL)]
         self.belt: list[Tote] = []
-        self.grasp = GRASP
+        self.tote = TOTE
         self._moving = False
         self._active: set[Tote] = set()
         self._pins: dict[Tote, np.ndarray] = {}
@@ -176,25 +225,13 @@ class Warehouse:
             ld.arm.build(spec, ld.title)
         for t in self.totes:
             self._tote(spec, t)
-        c = self.cells["pick"]
-        mid, half = (self.end + self.entry) / 2, np.linalg.norm(self.end - self.entry) / 2 + 0.02
-        spec.worldbody.add_geom(name="belt_bed", type=GEOM.mjGEOM_BOX, size=[half, 0.06, 0.005],
-                                pos=[*mid, BELT_Z - 0.005], quat=yaw_quat(math.atan2(*self.dir[::-1])).tolist(),
-                                group=3, rgba=[0, 0, 0, 0], friction=[0.6, 0.005, 0.0001])
-        for n, ss in self.slots.items():
-            c = self.cells[n]
-            centre = np.mean([s.xyz for s in ss], axis=0)
-            spec.worldbody.add_geom(name=f"table_{n}", type=GEOM.mjGEOM_BOX, size=[0.16, 0.3, 0.005],
-                                    pos=[*centre[:2], ss[0].xyz[2] - 0.005], quat=yaw_quat(ss[0].yaw).tolist(),
-                                    group=3, rgba=[0, 0, 0, 0])
 
     def _tote(self, spec, t: Tote):
-        b = spec.worldbody.add_body(name=t.name, pos=[STOCK_X - 0.2 * (t.k // 5), 0.25 + 0.3 * (t.k % 5),
-                                                      TOTE[2] + 0.001])
+        b = spec.worldbody.add_body(name=t.name, pos=list(_stock(t)))
         b.add_freejoint()
         self._mass(b, t.kind)
         b.add_geom(name=f"{t.name}/hull", type=GEOM.mjGEOM_BOX, size=list(TOTE), group=3, rgba=[0, 0, 0, 0],
-                   friction=[0.6, 0.005, 0.0001], density=0)
+                   density=0, **STATIC)
         body = Batch(t.name)
         body.add("tote", shell((TOTE[0] - 0.003, TOTE[1] - 0.003, TOTE[2]), 0.0035, 0.003))
         hx, hy, hz = TOTE
@@ -250,6 +287,8 @@ class Warehouse:
             t.qadr, t.vadr = m.jnt_qposadr[j], m.jnt_dofadr[j]
             if t.latch is not None:
                 self._latch(t, *t.latch)
+            elif t.state == "stock" and t not in self._pins:
+                self._pins[t] = np.array([*_stock(t), 1, 0, 0, 0])
         self._index()
         self._moving = True
 
@@ -257,6 +296,9 @@ class Warehouse:
         """A name for a picked part of the cell: "Pick cell arm · loading AIRO 2", "Tote · heavy"."""
         for ld in self.loaders.values():
             if body == ld.arm.name or body.startswith(ld.arm.name + "/"):
+                if ld.arm.MODEL:
+                    return ld.title, (f"{ld.doing.capitalize()}; Robotiq 2F-85 gripper, MuJoCo Menagerie model at 1:4, "
+                                      "numerical IK")
                 return f"{ld.title} · {ld.doing}", "six-axis arm, parallel gripper; scripted keyframes"
         t = next((t for t in self.totes if body == t.name), None)
         if t is None:
@@ -278,8 +320,12 @@ class Warehouse:
         b = spec.body(t.name)
         self._mass(b, kind)
         m.body_mass[t.body], m.body_inertia[t.body] = b.mass, b.inertia
-        # the solver scales constraint stiffness by each body's inverse weight, computed once at compile
+        # The solver scales constraint stiffness by each body's inverse weight, computed once at compile. mj_setConst
+        # also resets every weld's relative pose to the one at qpos0, which would yank a latched tote, and its car,
+        # back to where they stood at the start: keep the latches.
+        latches = m.eq_data.copy()
         mujoco.mj_setConst(m, mujoco.MjData(m))
+        m.eq_data[:] = latches
         for gs in b.geoms:
             if gs.name.startswith((f"{t.name}/heavy", f"{t.name}/light")):
                 gs.group = 1 if gs.name.startswith(f"{t.name}/{kind}") else 4
@@ -307,19 +353,25 @@ class Warehouse:
         """The tote riding on car, if any."""
         return next((t for t in self.totes if t.latch is not None and t.latch[0] == car.prefix), None)
 
-    def _latch(self, t: Tote, prefix: str | None, flip: bool = False):
-        """Seat t on the car's tray (turned half round if flip) and lock it there; prefix None unlocks it. A latched
-        tote rides on the weld alone: its contacts with the tray would fight the lock."""
+    def _latch(self, t: Tote, prefix: str | None, rel=None):
+        """Lock t to the car's tray as it sits there (rel: its pose in the tray's frame, kept across recompiles);
+        prefix None unlocks it. Locking it where the arm put it, rather than snapping it to the tray's centre, leaves
+        the car unjolted."""
         m, d = self.world.m, self.world.d
-        if t.latch is not None and prefix is None:
+        if t.latch is not None:
             d.eq_active[m.equality(f"{t.latch[0]}latch{t.k}").id] = 0
-        t.latch = None if prefix is None else (prefix, flip)
-        hull = m.geom(f"{t.name}/hull").id
-        m.geom_contype[hull] = m.geom_conaffinity[hull] = prefix is None
         if prefix is None:
+            t.latch = None
             return
+        if rel is None:
+            tray = m.body(prefix + "tray").id
+            q, inv = np.zeros(4), np.zeros(4)
+            mujoco.mju_negQuat(inv, d.xquat[tray])
+            mujoco.mju_mulQuat(q, inv, d.xquat[t.body])
+            rel = (*(d.xmat[tray].reshape(3, 3).T @ (d.xpos[t.body] - d.xpos[tray])), *q)
+        t.latch = (prefix, tuple(float(v) for v in rel))
         e = m.equality(f"{prefix}latch{t.k}").id
-        m.eq_data[e, :10] = (0, 0, 0, 0, 0, TOTE[2], *yaw_quat(math.pi if flip else 0.0))
+        m.eq_data[e, :10] = (0, 0, 0, *t.latch[1])
         d.eq_active[e] = 1
 
     # the inbound conveyor
@@ -403,9 +455,8 @@ class Warehouse:
         return s
 
     def _stow(self, t: Tote):
-        self._pin(t, None)
         t.slot, t.state = None, "stock"
-        self._place(t, (STOCK_X - 0.2 * (t.k // 5), 0.25 + 0.3 * (t.k % 5), TOTE[2] + 0.001), 0.0)
+        self._pin(t, (*_stock(t), 1, 0, 0, 0))
 
     def reserve(self, s: Slot, t: Tote):
         t.slot = s
@@ -434,8 +485,7 @@ class Warehouse:
                 xyz, yaw = self.slot_pose(t.slot)
                 self._pin(t, (*xyz, *yaw_quat(yaw)))
             elif car := min(self.world.cars, key=lambda c: np.linalg.norm(self.deck_pose(c)[0] - d.xpos[t.body])):
-                _, yaw = self.tote_pose(t)
-                self._latch(t, car.prefix, abs(math.remainder(yaw - car.true_pose[2], math.tau)) > math.pi / 2)
+                self._latch(t, car.prefix)
             self._feed()
 
     def _pin(self, t: Tote, pose):
@@ -495,8 +545,8 @@ class Warehouse:
         for c in self.cells.values():
             a = np.array(c.out)
             along = np.array(c.along)
-            near = np.array(c.base) - 0.17 * a
-            far = np.array(c.base) + 0.6 * a
+            bay = np.array((c.bay.x, c.bay.y))
+            near, far = bay + 0.13 * a, bay + (c.layout.rear + 0.13) * a
             w = 0.27 if c.name == "pick" else 0.3
             out.append(np.array([near - w * along, near + w * along, far + w * along, far - w * along]))
         return out

@@ -5,8 +5,10 @@ real car's marker floor: --sim rehearses on a simulated floor, --mujoco on the p
 Type a command on stdin or in the dashboard: "airo 2 deliver to packing" (on the factory: fetch a tote from the
 pick cell and bring it to packing), "airo 2 bring a heavy tote to qa", "select airo 3", "deliver to dock" (the
 selected robot), "learn", "stop", or change a body mid-run: "weight", "remove weight", "tow", "untow", "flip"; the
-place changes with "spill" and "clean"; "pause", "resume", "speed 0.5". --dry shows the camera, pose and dashboard
-without driving. In the 3D view drag to orbit, scroll to zoom, click a part.
+place changes with "spill" and "clean"; "pause", "resume", "speed 0.5". On the factory the floor lives: "drop a pallet",
+"drop a carton", "clear the aisle", "send a worker across", "jam at packing", and "calm", "normal" or "busy" set how
+often such things happen by themselves (--busy). --dry shows the camera, pose and dashboard without driving. In the
+3D view drag to orbit, scroll to zoom, click a part.
 """
 
 import argparse
@@ -130,6 +132,8 @@ async def main(args):
     robots = crew(site, rigs, lambda rig, rid: scientist(rig, pool, rid), mode="sim" if sim else "real",
                   body_path=path if len(rigs) == 1 else None, real=not sim)
     fleet = Fleet(site, robots, mode="sim" if sim else "real", dry=args.dry and not sim)
+    if fleet.life is not None:
+        fleet.life.set_level(args.busy)
     dash = Dashboard()
     print(f"{site.name}, {len(robots)} robot{'s' * (len(robots) > 1)}: dashboard on http://{args.host}:{args.port}")
     jobs = [dash.serve(args.host, args.port), fleet.run(dash), console(dash.commands),
@@ -152,6 +156,8 @@ if __name__ == "__main__":
     add_args(p)
     p.add_argument("--site", choices=sorted(SITES), default="home")
     p.add_argument("--robots", type=int, default=3, help="robots on the factory floor")
+    p.add_argument("--busy", choices=("calm", "normal", "busy"), default="normal",
+                   help="how often the factory's workers, forklift and aisles throw something at the robots")
     p.add_argument("--voice", action="store_true")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
