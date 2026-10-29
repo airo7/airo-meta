@@ -50,6 +50,9 @@ GIVE_WAY_M = 0.1
 # the car rolls on for a while after the last reverse command: keep this much floor behind it
 GIVE_WAY_ROOM = 0.25
 WAIT_S = 1.0
+# a via with something parked on it (a dropped carton) moves toward the goal; robots and people move on, station
+# pads are paint
+MOVING = ("robot", "person")
 CLEAR = 0.3
 BAY_RUN = 0.3
 DOCK_RUN = 0.38
@@ -371,6 +374,9 @@ class Mission:
             for poly in self.cell.keepout():
                 planner.occupy(self.scene, poly, "loader cell")
             p = self.rig.pose
+            if via is not None and planner.taken(self.scene, via, (*MOVING, *self.stations)):
+                via = next((tuple(v) for v in np.linspace(via, pose[:2], 5)[1:-1]
+                            if not planner.taken(self.scene, v, (*MOVING, *self.stations))), None)
             try:
                 if via is None or math.dist(via, (p.x, p.y)) < 0.1 or math.dist(via, pose[:2]) > \
                         math.dist((p.x, p.y), pose[:2]):

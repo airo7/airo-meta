@@ -90,6 +90,13 @@ def occupy(scene: Scene, poly: np.ndarray, label: str):
     scene.polygons.append((label, np.asarray(poly)))
 
 
+def taken(scene: Scene, xy, ignore=()) -> bool:
+    """Whether an outline not labelled in ignore covers floor point xy."""
+    pt = (float(xy[0]), float(xy[1]))
+    return any(cv2.pointPolygonTest(np.float32(p), pt, False) >= 0 for label, p in scene.polygons
+               if label not in ignore)
+
+
 def plan(scene: Scene, start, goal, clearance: float = 0.16, ignore=(),
          smooth: bool = True) -> list[tuple[float, float]] | None:
     """Waypoints in metres from start to goal, or None. `ignore` holds polygon labels or floor polygons."""

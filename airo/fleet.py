@@ -8,6 +8,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
+import cv2
 import numpy as np
 
 from airo import geometry, planner
@@ -73,10 +74,12 @@ class Guard:
     def should_yield(self) -> bool:
         """Whether to back off after standing too long for another car. Replanning from where it stands only finds
         paths that hug the other car and stop again. A car standing still (loading, feeling its body) never moves
-        out of the way, so give way to it; two cars stopped for each other: the higher-numbered one gives way."""
+        out of the way, so give way to it; two cars stopped for each other: the higher-numbered one gives way; and
+        always to a person."""
         other = next((g for rig, g in self._guards.items() if rig is self.blocked_by), None)
         if other is None:
-            return False
+            # a person heading for where this car stands waits for it as it waits for them
+            return getattr(self.blocked_by, "person", False)
         return other.blocked_by is not self.rig or self.rank > other.rank
 
     def __getattr__(self, name):
@@ -187,6 +190,9 @@ def _scanner(robots: list[Robot], k: int, carry: bool = False, life=None):
                 x, y = h.points[0]
                 planner.occupy(scene, np.array([[x - PERSON, y - PERSON], [x + PERSON, y - PERSON],
                                                 [x + PERSON, y + PERSON], [x - PERSON, y + PERSON]]), "person")
+            else:
+                # the guard stops for the forklift and dropped goods: a plan through them only stops again
+                planner.occupy(scene, cv2.convexHull(h.points.astype(np.float32))[:, 0], h.name)
         return scene
     return scan
 
