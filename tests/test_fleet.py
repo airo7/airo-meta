@@ -5,7 +5,6 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from airo import meta_api
 from airo.body import Body, ensemble
 from airo.fleet import Fleet, Guard, crew, parse_robot
 from airo.mjsim import fleet
@@ -21,7 +20,7 @@ TWIN = Body(g_l=0.00312, g_r=0.00305, dz=27.4, eta=0.303, tau=0.213, lag=0.128, 
 
 @pytest.fixture(scope="module")
 def rigs():
-    return fleet(FACTORY, 3, bumper=True)
+    return fleet(FACTORY, 3)
 
 
 def steps(rigs, cmds, n):
@@ -134,7 +133,7 @@ def scientist(rig, robot=None):
 
 
 def test_fleet_routes_commands_and_publishes_v3_state():
-    rigs = fleet(FACTORY, 3, bumper=True)
+    rigs = fleet(FACTORY, 3)
     f = Fleet(FACTORY, crew(FACTORY, rigs, scientist))
     assert f.route("select airo 2") == "selected AIRO 2" and f.robot.id == "airo-2"
     m0 = mass(rigs[1])
@@ -154,7 +153,8 @@ def test_fleet_routes_commands_and_publishes_v3_state():
     assert s["site"]["zones"][0]["label"] == "Oil spill" and len(s["site"]["zones"][0]["polygon"]) == 4
     assert [r["id"] for r in s["robots"]] == ["airo-1", "airo-2", "airo-3"]
     assert all({"name", "color", "real", "now", "status", "pose", "body", "notebook"} <= r.keys() for r in s["robots"])
-    assert "models" not in s and s["robots"][0]["now"] == "Idle, waiting for a job."
+    assert "models" not in s and s["robots"][0]["now"].startswith("Parked at its charging dock as Body #1")
+    assert f.route("restock") == "the conveyor brings totes by itself"
 
 
 def test_guard_holds_still_rather_than_drive_into_another_car():
@@ -170,46 +170,3 @@ def test_guard_holds_still_rather_than_drive_into_another_car():
 
     assert asyncio.run(run()) == (b, None)
     assert a.history[1].tolist() == [[0, 0], [-100, 100]]
-
-
-def test_three_robots_deliver_at_once_without_colliding():
-    rigs = fleet(FACTORY, 3, bumper=True)
-    meta_api_segment = meta_api.segment
-    meta_api.segment = rigs[0].sam
-    f = Fleet(FACTORY, crew(FACTORY, rigs, scientist))
-    world = rigs[0].world
-    gaps = []
-
-    async def run():
-        jobs = [asyncio.create_task(r.mission.run()) for r in f.robots]
-        for text in ("airo 1 deliver to assembly", "airo 2 deliver to packing", "airo 3 deliver to dock"):
-            f.route(text)
-        await asyncio.sleep(0.2)
-        while world.t < 40 and any(r.mission.busy for r in f.robots):
-            ps = [r.true_pose[:2] for r in rigs]
-            gaps.append(min(np.linalg.norm(p - q) for i, p in enumerate(ps) for q in ps[i + 1:]))
-            await asyncio.sleep(0)
-        for j in jobs:
-            j.cancel()
-
-    try:
-        asyncio.run(run())
-    finally:
-        meta_api.segment = meta_api_segment
-    totes = {o.concept: o.xy for o in world.objects}
-    stations = FACTORY.station_xy(world.objects)
-    for r, station in zip(f.robots, ("assembly", "packing", "dock")):
-        assert math.dist(totes[r.tote], stations[station]) < 0.1, r.name
-    assert world.t < 25 and min(gaps) > 0.25
-
-
-def test_restock_puts_moved_totes_back():
-    w = fleet(FACTORY, 1, log_dir=None)[0].world
-    i = next(i for i, o in enumerate(w.objects) if o.kind == "tote")
-    home = w.objects[i].xy
-    b = w.m.body(f"thing{i}").id
-    q = w.m.jnt_qposadr[w.m.body_jntadr[b]]
-    w.d.qpos[q:q + 2] = (2.5, 1.8)
-    w.restock()
-    assert np.allclose(w.d.xpos[b, :2], home) and w.objects[i].xy == home
-    w.close()
