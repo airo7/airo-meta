@@ -40,7 +40,10 @@ BLOCKED_S = 2.0
 PERSON_S = 8.0
 PEOPLE_CLEAR = 0.6
 GIVE_WAY_S = 1.2
-GIVE_WAY_PWM = 90
+GIVE_WAY_PWM = 80
+GIVE_WAY_M = 0.1
+# the car rolls on for a while after the last reverse command: keep this much floor behind it
+GIVE_WAY_ROOM = 0.25
 WAIT_S = 1.0
 CLEAR = 0.3
 BAY_RUN = 0.3
@@ -375,10 +378,17 @@ class Mission:
 
     async def _give_way(self):
         """Back off a little, straight, so the robot this one is deadlocked with has room to pass; the guard still
-        stops it for anything behind."""
+        stops it for anything behind, and it stops short of the floor's edge (a bay near the edge leaves no room
+        behind)."""
+        start = self.rig.pose
         for _ in range(round(GIVE_WAY_S / DT)):
+            p = self.rig.pose
+            back = (p.x - GIVE_WAY_ROOM * math.cos(p.theta), p.y - GIVE_WAY_ROOM * math.sin(p.theta))
+            if math.dist((p.x, p.y), (start.x, start.y)) > GIVE_WAY_M or not self.rig.inside(*back):
+                break
             await self.rig.step(-GIVE_WAY_PWM, -GIVE_WAY_PWM)
-        await self.rig.stop()
+        for _ in range(round(WAIT_S / DT)):
+            await self.rig.step(0, 0)
 
     def moved(self):
         """After every watched step on a carry site: give up the bay just left once clear of it, and notice a robot
@@ -408,9 +418,9 @@ class Mission:
         if check is None:
             return
         self.status = "feeling"
-        near = getattr(self.rig, "people_near", None)
-        while near is not None and near(PEOPLE_CLEAR):
-            # the probe pivots and drives a little: not with someone standing next to the car
+        near, t0 = getattr(self.rig, "people_near", None), self.rig.pose.t
+        while near is not None and near(PEOPLE_CLEAR) and self.rig.pose.t - t0 < PERSON_S:
+            # the probe pivots and drives a little: not with someone standing next to the car, if they move on
             await self.rig.step(0, 0)
         r = await check(cause)
         self.felt = {**r, "cause": cause, "at": time.time()}

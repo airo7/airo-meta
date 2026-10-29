@@ -5,11 +5,13 @@ quaternions, so the workers cost the physics nothing. The gait is joint keyframe
 with the legs half a cycle apart, arm swing against the legs, a little waist counter-turn); the pelvis height comes
 from forward kinematics so the lower sole touches the floor, and the phase advances with the ground speed so the
 stance foot stays planted. A worker follows a plan of steps: walk a polyline (turning on the way, slowing into
-corners), face a heading, hold a posture for a while, pick up or set down a carton."""
+corners), face a heading, hold a posture for a while, pick up or set down a carton. Walking, it waits a little for a
+moving car and walks round a standing one along a planned path; it never stands for long with somewhere to go."""
 
 import math
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import NamedTuple
 from functools import cache
 
 import mujoco
@@ -22,6 +24,10 @@ GEOM = mujoco.mjtGeom
 STATIC = {"contype": 0, "conaffinity": 0}
 SPEED = 0.16
 TURN = 2.4
+WAIT_MOVING = 5.0
+STALL = 4.0
+GIVE_UP = 9.0
+NEAR_ENOUGH = 0.12
 EASE = 0.18
 SIDES = ("left", "right")
 LEG = ("hip_pitch", "hip_roll", "hip_yaw", "knee", "ankle_pitch", "ankle_roll")
@@ -134,16 +140,26 @@ def pose(s: dict) -> np.ndarray:
     return q
 
 
+class Car(NamedTuple):
+    x: float
+    y: float
+    theta: float
+    moving: bool
+
+
 @dataclass
 class Step:
     """One thing a worker does: walk (to the points in order), face (a heading), hold (a posture for secs),
-    take or put (the carton, while holding a posture for secs), wait (secs, standing); then runs when it is done."""
+    take or put (the carton, while holding a posture for secs), wait (secs, standing); then runs when it is done. A
+    walk with route is planned through the walking map from wherever the worker is, not walked straight."""
     kind: str
     points: list = field(default_factory=list)
     heading: float = 0.0
     posture: str = "stand"
     secs: float = 0.0
     then: Callable[[], None] | None = None
+    route: bool = False
+    planned: bool = False
 
 
 class Worker:
@@ -159,8 +175,10 @@ class Worker:
         self.carrying = False
         self.phase, self.walk = 0.0, 0.0
         self.speed = 0.0
-        self.blocked: object | None = None
+        self.blocked: Car | None = None
         self.blocked_s = 0.0
+        self.planner: Callable | None = None
+        self._anchor, self._still, self._replan_t = (self.x, self.y), 0.0, -math.inf
         self._posture = dict(STAND)
         self._t: float | None = None
         self._fidget = 0.0
@@ -250,21 +268,33 @@ class Worker:
         return (step.posture if step.kind != "wait" else "stand"), 0.0, 0.0
 
     def _walk(self, step: Step, dt: float, cars) -> tuple[str, float, float]:
+        if step.route and not step.planned:
+            step.planned = True
+            self._replan(step, cars, every=False)
+        if not step.points:
+            self._next_step()
+            return "stand", 0.0, 0.0
         tx, ty = step.points[0]
         dx, dy = tx - self.x, ty - self.y
         dist = math.hypot(dx, dy)
         if dist < 0.02:
             step.points.pop(0)
             if not step.points:
-                self.plan.pop(0)
+                self._next_step()
             return "stand", self.walk, 0.0
+        if self._stalled(dt):
+            return "stand", 0.0, 0.0
         err = _wrap(math.atan2(dy, dx) - self.heading)
         self.heading = _wrap(self.heading + math.copysign(min(abs(err), TURN * dt), err))
         ahead = self._car_ahead(cars)
+        if ahead is not None and len(step.points) == 1 and dist < NEAR_ENOUGH:
+            # the last few centimetres to a spot beside a standing car: close enough
+            self._next_step()
+            return "stand", 0.0, 0.0
         if ahead is not None:
             self.blocked_s += dt
-            if self.blocked_s > 4.0:
-                self._detour(ahead, step)
+            if not ahead.moving or self.blocked_s > WAIT_MOVING:
+                self._replan(step, cars)
             self.speed = 0.0
             return "stand", 0.0, 0.0
         self.blocked, self.blocked_s = None, 0.0
@@ -276,27 +306,67 @@ class Worker:
         self.y += v * dt * math.sin(self.heading)
         return "stand", v / SPEED, 0.5 * (abs(err) > 0.5)
 
+    def _next_step(self):
+        if self.plan:
+            self.plan.pop(0)
+        self.blocked, self.blocked_s, self._still = None, 0.0, 0.0
+        self._anchor = (self.x, self.y)
+
+    def _stalled(self, dt: float) -> bool:
+        """No ground covered for a while with somewhere still to walk: plan again, and in the end give the walk
+        up rather than stand there."""
+        if math.dist(self._anchor, (self.x, self.y)) > 0.05:
+            self._anchor, self._still = (self.x, self.y), 0.0
+            return False
+        self._still += dt
+        if self._still > GIVE_UP:
+            # the rest of the job most likely leads through the same spot: drop it, and be given a new one
+            self.plan.clear()
+            self._next_step()
+            return True
+        if self._still > STALL and self.plan:
+            self._replan(self.plan[0], None)
+        return False
+
+    def _replan(self, step: Step, cars, every: bool = True):
+        """Walk round everything that stands in the way: a path from the walking map to the step's last point.
+        At most once a second; without a planner or a path, keep the points and wait."""
+        if self.planner is None or (every and self._t - self._replan_t < 1.0):
+            return
+        self._replan_t = self._t
+        if path := self.planner((self.x, self.y), step.points[-1]):
+            step.points[:] = path[1:]
+            self.blocked_s = 0.0
+
     def _car_ahead(self, cars):
-        """A car standing in the next step or two: people do not walk into robots either."""
-        c, s = math.cos(self.heading), math.sin(self.heading)
+        """A car in the next step or two: people do not walk into robots either."""
+        box = _box(self.x, self.y, self.heading, 0.08, 0.06, ahead=0.08)
         for car in cars:
-            x, y = car[0] - self.x, car[1] - self.y
-            if 0 < x * c + y * s < 0.3 and abs(-x * s + y * c) < 0.2:
+            if _overlap(box, _box(car.x, car.y, car.theta, 0.13, 0.08)):
                 self.blocked = car
                 return car
         self.blocked = None
         return None
 
-    def _detour(self, car, step: Step):
-        """Step round a robot that stays put: a waypoint beside it, on the side away from the walking line."""
-        c, s = math.cos(self.heading), math.sin(self.heading)
-        side = 1 if (car[0] - self.x) * -s + (car[1] - self.y) * c < 0 else -1
-        step.points.insert(0, (car[0] + side * 0.3 * -s, car[1] + side * 0.3 * c))
-        self.blocked_s = 0.0
-
     def state(self) -> dict:
         return {"posture": self._posture, "phase": self.phase, "walk": self.walk, "carry": self.carrying,
                 "fidget": self._fidget}
+
+
+def _box(x: float, y: float, theta: float, hx: float, hy: float, ahead: float = 0.0) -> np.ndarray:
+    c, s = math.cos(theta), math.sin(theta)
+    cx, cy = x + ahead * c, y + ahead * s
+    return np.array([[cx + a * hx * c - b * hy * s, cy + a * hx * s + b * hy * c]
+                     for a, b in ((1, 1), (-1, 1), (-1, -1), (1, -1))])
+
+
+def _overlap(a: np.ndarray, b: np.ndarray) -> bool:
+    for poly in (a, b):
+        for e in np.diff(np.vstack([poly, poly[:1]]), axis=0):
+            n = (-e[1], e[0])
+            if (a @ n).max() < (b @ n).min() or (b @ n).max() < (a @ n).min():
+                return False
+    return True
 
 
 def _qmul(a: np.ndarray, b: np.ndarray) -> np.ndarray:
