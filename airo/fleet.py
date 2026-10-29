@@ -8,7 +8,6 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 
-import cv2
 import numpy as np
 
 from airo import planner
@@ -89,13 +88,6 @@ def footprint(pose, pad: float = 0.02) -> np.ndarray:
     return corners @ np.array([[c, s], [-s, c]]) + (pose.x, pose.y)
 
 
-def _occupy(scene: planner.Scene, poly: np.ndarray, label: str):
-    grid = scene.grid.astype(np.uint8)
-    cv2.fillPoly(grid, [np.round(poly / scene.res - 0.5).astype(np.int32)], 1)
-    scene.grid = grid > 0
-    scene.polygons.append((label, poly))
-
-
 def parse_robot(text: str) -> tuple[int | None, bool, str]:
     """(robot index, select?, the rest): "airo 2 deliver to qa" -> (1, False, "deliver to qa")."""
     if not (m := _ROBOT.match(text)):
@@ -109,29 +101,31 @@ def crew(site: Site, rigs: list, scientist: Callable, mode: str = "sim", body_pa
     """A robot per rig: on a shared floor each mission drives through a Guard and plans around the other cars and
     totes. scientist(rig, robot_id) builds a robot's scientist on the rig its mission drives."""
     robots: list[Robot] = []
+    carry = site.mode == "carry"
     for k, rig in enumerate(rigs):
         guard = Guard(rig, lambda rig=rig: [r for r in rigs if r is not rig]) if len(rigs) > 1 else None
         driven = guard or rig
         sci = scientist(driven, robot(k)["id"])
-        scan = _scanner(robots, k) if len(rigs) > 1 else None
-        mission = Mission(driven, sci, scan=scan, mode=mode, body_path=body_path, stations=site.stations)
-        tote = site.totes[k % len(site.totes)]
+        scan = _scanner(robots, k, carry) if len(rigs) > 1 else None
+        mission = Mission(driven, sci, scan=scan, mode=mode, body_path=body_path, stations=site.stations,
+                          cell=rig.world.cell if carry else None, dock=site.starts[k] if carry else None)
+        tote = site.totes[k % len(site.totes)] if site.totes else ""
         robots.append(Robot(**robot(k), rig=rig, mission=mission, sci=sci, tote=tote,
                             tote_xy=next((o.xy for o in site.objects() if o.concept == tote), None), real=real,
                             guard=guard))
     return robots
 
 
-def _scanner(robots: list[Robot], k: int):
+def _scanner(robots: list[Robot], k: int, carry: bool = False):
     async def scan() -> planner.Scene:
         me = robots[k]
         rig, frame = me.rig, me.rig.frame()
-        scene = await planner.scan(frame, rig.H, rig.floor, stations=me.mission.stations, parcel=planner.PARCEL,
-                                   near=me.tote_xy)
+        scene = await planner.scan(frame, rig.H, rig.floor, stations=me.mission.stations,
+                                   parcel=None if carry else planner.PARCEL, near=me.tote_xy)
         me.tote_xy = scene.parcel or me.tote_xy
         for other in robots:
             if other is not me and other.rig.pose is not None:
-                _occupy(scene, footprint(other.rig.pose), "robot")
+                planner.occupy(scene, footprint(other.rig.pose), "robot")
         return scene
     return scan
 
@@ -181,6 +175,8 @@ class Fleet:
             w.clean()
             return "floor cleaned"
         if what in ("restock", "new totes", "reset totes"):
+            if w.cell is not None:
+                return "the conveyor brings totes by itself"
             w.restock()
             for r in self.robots:
                 r.tote_xy = next(o.xy for o in w.objects if o.concept == r.tote)
@@ -241,6 +237,8 @@ class Fleet:
         if r.guard is not None and r.guard.blocked_by is not None and m.busy:
             other = next((o.name for o in self.robots if o.rig is r.guard.blocked_by), "another robot")
             return f"Waiting: {other} is in its way."
+        if m.cell is not None:
+            return m.now()
         intent = parse_intent(m.command, m.stations) if m.command else None
         station = intent.target if intent and intent.target else "its"
         return NOW.get(m.status, m.status.capitalize()).format(station=station)

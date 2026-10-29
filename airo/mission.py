@@ -3,6 +3,7 @@ cloud, then replans from where the car stands."""
 
 import asyncio
 import math
+import re
 import time
 from collections import deque
 from pathlib import Path
@@ -12,7 +13,7 @@ import numpy as np
 
 from airo import planner, portrait
 from airo.body import KEY, THRESHOLD, Body, cloud, save, surprise, wrap
-from airo.control import V_MAX, follow
+from airo.control import V_MAX, face, follow
 from airo.rig import DT, BaseRig, RigAbort
 from airo.server import topdown
 from airo.voice import parse_intent
@@ -31,7 +32,14 @@ PROBE_REACH = 0.6
 RELEARN_PROBES = 5
 FAULT_Z = 5.0
 CAUTION = 0.6
+BLOCKED_S = 2.0
+CLEAR = 0.3
+BAY_RUN = 0.3
+DOCK_RUN = 0.38
+KINDS = ("heavy", "light")
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
+          "fetching": ("drive", "drive to the pick cell"), "loading": ("drive", "loaded by the arm"),
+          "unloading": ("drive", "unloaded by the arm"), "returning": ("drive", "back to the dock"),
           "surprised": ("surprise", "reality left the cloud"), "relearning": ("relearn", "relearn"),
           "learning": ("probe", "learn the body")}
 PARAMS = [("g_l", "Gain left", "mm/s/PWM", 1000, 0, 5), ("g_r", "Gain right", "mm/s/PWM", 1000, 0, 5),
@@ -64,6 +72,10 @@ class Blocked(Exception):
     pass
 
 
+class Stuck(Exception):
+    """Another robot has stood in the way for a while: rescan and plan around it."""
+
+
 class _Watched:
     """The rig as control sees it during a delivery: every step also feeds the surprise monitor."""
 
@@ -76,16 +88,27 @@ class _Watched:
     async def step(self, pwm_l: int, pwm_r: int):
         pose = await self._m.rig.step(pwm_l, pwm_r)
         self._m.watch()
+        if self._m.cell is not None:
+            self._m.moved()
         return pose
 
 
 class Mission:
-    """sci follows the scientist contract: best, members, n, name, notebook, learn(), relearn(seg) -> seconds."""
+    """sci follows the scientist contract: best, members, n, name, notebook, learn(), relearn(seg) -> seconds, and
+    optionally check_body(cause) -> {result, n, name, seconds}. With a cell (a carry site's Warehouse) deliveries
+    fetch a tote from the pick cell instead of pushing a parcel, and end at dock."""
 
     def __init__(self, rig: BaseRig, sci, inbox: asyncio.Queue | None = None, scan=None, threshold=THRESHOLD,
                  watch_push: bool = False, mode: str = "real", body_path=None, portraits: Path | None = PORTRAITS,
-                 stations: dict[str, str] = planner.STATIONS):
+                 stations: dict[str, str] = planner.STATIONS, cell=None, dock=None):
         self.rig, self.sci = rig, sci
+        self.cell, self.dock = cell, dock
+        self.kind: str | None = None
+        self.loaded = False
+        self.felt: dict | None = None
+        self._line = None
+        self._leaving = None
+        self._blocked_t: float | None = None
         self.stations = stations
         self.watch_push = watch_push
         self.mode = mode
@@ -98,7 +121,8 @@ class Mission:
         self._relearn_t: float | None = None
         self._relearn_end: float | None = None
         self.inbox = inbox or asyncio.Queue()
-        self.scan = scan or (lambda: planner.scan(rig.frame(), rig.H, rig.floor, stations=stations))
+        parcel = None if cell is not None else planner.PARCEL
+        self.scan = scan or (lambda: planner.scan(rig.frame(), rig.H, rig.floor, stations=stations, parcel=parcel))
         self.threshold = threshold
         self._status, self.command, self.station = "idle", "", ""
         self.scene: planner.Scene | None = None
@@ -170,6 +194,8 @@ class Mission:
 
     async def deliver(self, station: str, attempts: int = 5) -> bool:
         self.station = station
+        if self.cell is not None:
+            return await self._fetch(station)
         for _ in range(attempts):
             self.status = "scanning"
             self.scene = await self.scan()
@@ -235,6 +261,161 @@ class Mission:
         self.scene = await self.scan()
         return self.scene.parcel is not None and math.dist(self.scene.parcel, target) < 0.1
 
+    # carrying: fetch a tote from the pick cell, have it loaded, take it to a station, have it unloaded
+
+    async def _fetch(self, station: str) -> bool:
+        """Queue for the pick bay, get loaded, feel the new body, drive to the station's drop bay, get unloaded, feel
+        the body again, go back to the dock. A tote already on the deck is delivered without fetching another."""
+        cell = self.cell
+        self.kind = self.kind or cell.site.kinds.get(station, "light")
+        pick, drop = cell.lines["pick"], cell.lines[station]
+        tote = None
+        try:
+            if (on := cell.on(self.rig)) is not None:
+                self.kind = on.kind
+            else:
+                tote = cell.order(self.kind)
+                await self._bay(pick, "fetching")
+                while not cell.ready(tote):
+                    await self.rig.step(0, 0)
+                self.status = "loading"
+                await cell.pick.load(self.rig, tote)
+                self.loaded = True
+                await self._feel(f"loaded a {self.kind} tote")
+                self._leaving = pick
+            self.loaded = True
+            await self._bay(drop, "delivering")
+            self.status = "unloading"
+            await cell.loaders[station].unload(self.rig, cell.slot(station))
+            self.loaded = False
+            await self._feel("unloaded")
+            self.note("result", f"Delivered a {self.kind} tote to {_title(station)}.")
+            if self.dock is not None:
+                self._leaving = drop
+                self.status = "returning"
+                x, y, th = self.dock
+                await self._go(self.dock, via=(x + DOCK_RUN * math.cos(th), y + DOCK_RUN * math.sin(th)))
+            return True
+        except (Blocked, ValueError, StopIteration) as e:
+            self.note("alert", str(e) or "No tote on the conveyor.")
+            return False
+        finally:
+            if tote is not None and tote.state == "belt":
+                tote.claimed = False
+            for line in (pick, drop):
+                line.leave(self)
+            self._line = self._leaving = None
+
+    async def _bay(self, line, status: str):
+        """Join the line for a bay; drive up the queue spots as the robots ahead leave, and into the bay."""
+        line.join(self)
+        self._line = line
+        while True:
+            k, spot = line.spot(self)
+            self.status = status if k == 0 else "queued"
+            while not line.clear(self):
+                await self.rig.step(0, 0)
+                self._release()
+            k, spot = line.spot(self)
+            if spot is not None:
+                x, y, th = spot
+                behind = (x - BAY_RUN * math.cos(th), y - BAY_RUN * math.sin(th))
+                await self._go(spot, via=behind if k == 0 else None)
+            line.arrive(self, k)
+            if k == 0:
+                return
+            while line.spot(self)[0] == k:
+                await self.rig.step(0, 0)
+                self._release()
+
+    async def _go(self, pose, via=None, attempts: int = 8):
+        """Drive to pose (x, y, heading) around the loader cells and the other robots, through via if given and
+        not already passed; relearn on surprise, replan when another robot stays in the way."""
+        p = self.rig.pose
+        if math.dist(pose[:2], (p.x, p.y)) < 0.05:
+            await face(_Watched(self), self.body, pose[2])
+            return
+        for _ in range(attempts):
+            self.scene = await self.scan()
+            for poly in self.cell.keepout():
+                planner.occupy(self.scene, poly, "loader cell")
+            p = self.rig.pose
+            try:
+                if via is None or math.dist(via, (p.x, p.y)) < 0.1 or math.dist(via, pose[:2]) > \
+                        math.dist((p.x, p.y), pose[:2]):
+                    self._plan(pose[:2])
+                else:
+                    self.path = self._plan(via) + [tuple(pose[:2])]
+                await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
+                await face(_Watched(self), self.body, pose[2])
+                return
+            except Surprised as e:
+                await self.relearn(str(e))
+            except Stuck:
+                pass
+        raise Blocked(f"Could not get to ({pose[0]:.2f}, {pose[1]:.2f}).")
+
+    def moved(self):
+        """After every watched step on a carry site: give up the bay just left once clear of it, and notice a robot
+        that has been in the way too long."""
+        self._release()
+        if getattr(self.rig, "blocked_by", None) is None:
+            self._blocked_t = None
+        elif self._blocked_t is None:
+            self._blocked_t = self.rig.pose.t
+        elif self.rig.pose.t - self._blocked_t > BLOCKED_S:
+            self._blocked_t = None
+            raise Stuck()
+
+    def _release(self):
+        if self._leaving is not None:
+            b, p = self._leaving.bay, self.rig.pose
+            if math.dist((b.x, b.y), (p.x, p.y)) > CLEAR:
+                self._leaving.leave(self)
+                self._leaving = None
+
+    async def _feel(self, cause: str):
+        """Ask the scientist whether the body changed with the load, while parked at the cell. Skipped by
+        scientists without check_body: the surprise monitor then finds a changed body on the way."""
+        check = getattr(self.sci, "check_body", None)
+        if check is None:
+            return
+        self.status = "feeling"
+        r = await check(cause)
+        self.felt = {**r, "cause": cause, "at": time.time()}
+        self._recent.clear()
+        self._quiet_until = self.rig.pose.t + QUIET_S
+        self.note("conclusion", f"{cause[0].upper()}{cause[1:]}: {_felt(r)}.")
+
+    def _carry_now(self) -> str | None:
+        s, kind = self.status, self.kind or "light"
+        to = _title(self.station)
+        if s == "fetching":
+            return f"Driving to the pick cell for a {kind} tote for {to}."
+        if s == "queued" and self._line is not None:
+            k = self._line.spot(self)[0] if self in self._line.robots else 0
+            if self._line.name == "pick":
+                return f"Waiting in line for the pick cell arm ({_nth(k)} in line)."
+            return f"Waiting for the {_title(self._line.name)} drop bay to clear."
+        if s == "loading":
+            return f"Waiting for the arm to load a {kind} tote."
+        if s == "feeling":
+            return (f"Feeling its new body with a {kind} tote on: a pivot or two." if self.loaded else
+                    "Feeling its body again now the tote is off: a pivot or two.")
+        if s == "delivering":
+            f = self.felt
+            if f and time.time() - f["at"] < 6 and f["result"] != "same":
+                return f"{_felt(f)[0].upper()}{_felt(f)[1:]}. Driving to {to} with a {kind} tote."
+            why = "" if getattr(self.sci, "verified", True) else f", slowly: Body #{self.sci.n} is not confirmed"
+            return f"Driving to {to} with a {kind} tote{why}."
+        if s == "unloading":
+            return f"Unloading at {to}."
+        if s == "returning":
+            return "Heading back to its charging dock."
+        if s == "idle":
+            return f"Parked at its charging dock as Body #{self.sci.n} ({self.sci.name}), waiting for a job."
+        return None
+
     async def relearn(self, why: str = ""):
         """Probes drive blind, so first leave the parcel's reach for the probe area if recentring is available."""
         await self.rig.stop()
@@ -296,6 +477,7 @@ class Mission:
                                 f"mm/s/PWM, dead zone {b.dz:.0f}, delay {b.tau * 1000:.0f} ms.")
         elif intent.kind == "learn" or intent.target in self.stations:
             await self._cancel()
+            self.kind = next((k for k in KINDS if re.search(rf"\b{k}\b", text.lower())), None)
             work = self.learn() if intent.kind == "learn" else self.deliver(intent.target)
             self._task = asyncio.create_task(self._run(work))
         else:
@@ -353,6 +535,8 @@ class Mission:
     def now(self) -> str:
         """One plain sentence on what the car is doing and why, for the dashboard."""
         sci, s = self.sci, self.status
+        if self.cell is not None and (line := self._carry_now()):
+            return line
         to = f"the {self.station} station" if self.station else "the station"
         me = f"Body #{sci.n} ({sci.name})"
         if s == "relearning" and (e := getattr(sci, "recalling", None)):
@@ -427,3 +611,18 @@ class Mission:
                     dash.set_frame(topdown(frame, self.rig.H, self.rig.floor))
                     if not hasattr(self.rig, "view"):
                         dash.set_view(frame)
+
+
+def _title(station: str) -> str:
+    return station.upper() if len(station) <= 2 else station.capitalize()
+
+
+def _nth(k: int) -> str:
+    return {1: "1st", 2: "2nd", 3: "3rd"}.get(k, f"{k}th")
+
+
+def _felt(r: dict) -> str:
+    """check_body's answer in a few words: "recalled Body #2 · heavy tote · 1.1 s"."""
+    what = f"Body #{r['n']} · {r['name']}"
+    return {"same": f"same body, {what}", "recalled": f"recalled {what} · {r['seconds']:.1f} s",
+            "learned": f"learned {what} in {r['seconds']:.1f} s"}.get(r["result"], what)

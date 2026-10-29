@@ -56,12 +56,14 @@ def _best(segs: list[meta_api.Segment]) -> meta_api.Segment | None:
 
 
 async def scan(frame: np.ndarray, H: np.ndarray, floor_wh: tuple[float, float], obstacles: str = OBSTACLE,
-               stations: dict[str, str] = STATIONS, parcel: str = PARCEL, near: tuple[float, float] | None = None,
-               res: float = 0.02) -> Scene:
+               stations: dict[str, str] = STATIONS, parcel: str | None = PARCEL,
+               near: tuple[float, float] | None = None, res: float = 0.02) -> Scene:
     """Labels: "obstacle" for each box, "parcel", and the station names. Obstacles and the parcel are occupied.
-    near picks the parcel closest to that floor point, for a fleet whose totes look alike; the others are obstacles."""
-    concepts = (obstacles, parcel, *stations.values())
-    obs, par, *sta = await asyncio.gather(*(meta_api.segment(frame, c) for c in concepts))
+    near picks the parcel closest to that floor point, for a fleet whose totes look alike; the others are obstacles.
+    parcel None looks for no parcel, for robots that carry rather than push."""
+    concepts = (obstacles, *([parcel] if parcel else []), *stations.values())
+    found = await asyncio.gather(*(meta_api.segment(frame, c) for c in concepts))
+    obs, par, sta = found[0], found[1] if parcel else [], found[2 if parcel else 1:]
     p = _best(par) if near is None else min(par, key=lambda s: math.dist(_box_floor(s, H), near), default=None)
     obs += [s for s in par if s is not p] if near is not None else []
     # SAM's "box" also returns the parcel.
@@ -78,6 +80,14 @@ async def scan(frame: np.ndarray, H: np.ndarray, floor_wh: tuple[float, float], 
             polygons.append((label, poly))
     centres = {label: _centroid(p) for label, p in polygons if label != "obstacle"}
     return Scene(grid, res, {k: centres[k] for k in stations if k in centres}, centres.get("parcel"), polygons)
+
+
+def occupy(scene: Scene, poly: np.ndarray, label: str):
+    """Mark a floor polygon occupied, and outline it for the dashboard."""
+    grid = scene.grid.astype(np.uint8)
+    cv2.fillPoly(grid, [np.round(np.asarray(poly) / scene.res - 0.5).astype(np.int32)], 1)
+    scene.grid = grid > 0
+    scene.polygons.append((label, np.asarray(poly)))
 
 
 def plan(scene: Scene, start, goal, clearance: float = 0.16, ignore=(),
