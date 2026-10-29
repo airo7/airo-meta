@@ -9,7 +9,7 @@ import cv2
 import mujoco
 import numpy as np
 
-from airo import meta_api, scene
+from airo import geometry, meta_api, scene
 from airo.rig import DT
 from airo.site import HOME, Site
 
@@ -73,6 +73,7 @@ class World:
         if self.cell is not None:
             self.cell.bind(self.m)
             self.life.bind(self.m)
+            self._structures = self.cell.structures()
         self._lods = [lod for ld in (self.cell.loaders.values() if self.cell else ()) for lod in
                       getattr(ld.arm, "lods", ())] + [w.lod for w in (self.life.workers if self.life else ())]
         for lod in self._lods:
@@ -91,6 +92,24 @@ class World:
         for car in self.cars:
             if car.pose is None:
                 car.pose = car._measure()
+
+    def clear(self, path, me=None, pad: float = 0.01) -> bool:
+        """Whether a car (me) can drive the poses in path without touching the cells' structures, a pallet or
+        carton on the floor, another car, a worker or the forklift. Something it already touches at the first pose
+        does not count: a car parked snug against a fence may still turn away from it."""
+        if self.cell is None:
+            return True
+        life = self.life
+        things = list(self._structures) + [o.corners() for o in self.objects if o.kind == "pallet"
+                                           and not any(o is d.thing for d in life.drops)]
+        things += [d.outline() for d in life.drops if d.placed] + [life.forklift.footprint()]
+        things += [geometry.rect(w.x, w.y, 0.0, 0.04, 0.04) for w in life.floor]
+        things += [geometry.car(c.true_pose) for c in self.cars if c is not me]
+        path = np.asarray(path, float)
+        start = geometry.car(path[0], pad)
+        near = [p for p in things if not geometry.overlap(start, p)
+                and np.min(np.linalg.norm(p - path[0][:2], axis=1)) < 1.0]
+        return not any(geometry.overlap(geometry.car(q, pad), p) for q in path[1:] for p in near)
 
     def rebuild(self):
         if self.m is not None:

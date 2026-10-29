@@ -36,6 +36,8 @@ class Arm:
     a two-finger gripper. At zero the upper arm stands up and the forearm points along +x of the base frame."""
 
     MODEL = None
+    # what a car could hit: the turret, not the flat base plate it would roll over
+    FOOTING = 0.052
     HOP, LIFT = 0.09, 0.12
     SHOULDER = (0.02, 0.135)
     L1, L2 = 0.22, 0.22

@@ -313,6 +313,10 @@ class MjRig(BaseRig):
     def frame(self) -> np.ndarray:
         return self.world.frame()
 
+    def clear(self, path) -> bool:
+        """Whether this car can drive the poses in path without hitting anything in its world."""
+        return self.world.clear(path, self)
+
     def render_ghosts(self, poses, alpha: float = 0.25):
         """Ghost cars drawn in view(): poses (k, 3) are ghosts, (k, n, 3) are k predicted paths ending in ghosts."""
         self.ghosts = [(np.asarray(poses, float), alpha)] if len(poses) else []

@@ -270,3 +270,23 @@ def test_the_deck_view_sees_every_cell_and_dock_from_the_mezzanine():
         d = np.array([x, y, 0.0]) - eye
         u, v = d @ right / (d @ fwd), d @ up / (d @ fwd)
         assert abs(v) < math.tan(fovy / 2) * 0.95 and abs(u) < math.tan(fovy / 2) * 16 / 9 * 0.95, (x, y)
+
+
+def test_a_probe_is_unsafe_where_it_would_hit_a_cell_a_car_or_a_person(models):
+    """Regression: probes only checked the floor inset, and a step back at a bay drove into something."""
+    from airo.body import Body
+    from airo.probes import LIBRARY, safe
+
+    twin = Body(g_l=0.00312, g_r=0.00305, dz=27.4, eta=0.303, tau=0.213, lag=0.128, kappa=-0.008)
+    bay = FACTORY.drops["packing"]
+    behind = (bay.x - 0.45 * math.cos(bay.theta), bay.y - 0.45 * math.sin(bay.theta), bay.theta)
+    a, b = fleet(replace(FACTORY, starts=(bay.pose, behind)), 2, log_dir=None)
+    asyncio.run(a.step(0, 0))
+    ok = lambda name: safe(a, LIBRARY[name], twin)
+    # pivots clear the arm's footing; an arc toward the cell does not; nor does backing into the car behind
+    assert ok("pivot_l_100") and ok("pivot_r_150") and not ok("arc_r") and not ok("step_back_110")
+    assert ok("step_110")
+    if models == "menagerie":
+        w = a.world.life.walker
+        w.x, w.y = bay.x + 0.4 * math.cos(bay.theta), bay.y + 0.4 * math.sin(bay.theta)
+        assert not ok("step_110")

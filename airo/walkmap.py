@@ -8,6 +8,7 @@ import cv2
 import numpy as np
 
 from airo import hall, planner
+from airo.geometry import CAR, rect
 
 RES = 0.03
 ORIGIN = (-1.0, -1.0)
@@ -16,12 +17,6 @@ CLEARANCE = 0.05
 CAR_PAD = 0.05
 PARKING = (0.16, 0.11)
 DOCK_HALF_WIDTH = 0.2
-
-
-def rect(x: float, y: float, theta: float, hx: float, hy: float) -> np.ndarray:
-    c, s = math.cos(theta), math.sin(theta)
-    return np.array([[x + a * hx * c - b * hy * s, y + a * hx * s + b * hy * c]
-                     for a, b in ((1, 1), (-1, 1), (-1, -1), (1, -1))])
 
 
 class WalkMap:
@@ -56,7 +51,7 @@ class WalkMap:
         self.scene.grid = self.static.copy()
         self.scene.polygons = []
         for x, y, th in cars:
-            planner.occupy(self.scene, rect(x, y, th, 0.13 + CAR_PAD, 0.08 + CAR_PAD) - ORIGIN, "car")
+            planner.occupy(self.scene, rect(x, y, th, CAR[0] + CAR_PAD, CAR[1] + CAR_PAD) - ORIGIN, "car")
         for poly in things:
             planner.occupy(self.scene, np.asarray(poly) - ORIGIN, "thing")
         # from or to a spot inside something (a goal by a dropped carton, a worker caught in a parking box): plan

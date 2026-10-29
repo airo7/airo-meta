@@ -17,7 +17,7 @@ from functools import cache
 import mujoco
 import numpy as np
 
-from airo import menagerie
+from airo import geometry, menagerie
 from airo.menagerie import G1, SCALE, graft
 
 GEOM = mujoco.mjtGeom
@@ -349,9 +349,10 @@ class Worker:
 
     def _car_ahead(self, cars):
         """A car in the next step or two: people do not walk into robots either."""
-        box = _box(self.x, self.y, self.heading, 0.08, 0.06, ahead=0.08)
+        c, s = math.cos(self.heading), math.sin(self.heading)
+        box = geometry.rect(self.x + 0.08 * c, self.y + 0.08 * s, self.heading, 0.08, 0.06)
         for car in cars:
-            if _overlap(box, _box(car.x, car.y, car.theta, 0.13, 0.08)):
+            if geometry.overlap(box, geometry.car((car.x, car.y, car.theta))):
                 self.blocked = car
                 return car
         self.blocked = None
@@ -360,22 +361,6 @@ class Worker:
     def state(self) -> dict:
         return {"posture": self._posture, "phase": self.phase, "walk": self.walk, "carry": self.carrying,
                 "fidget": self._fidget}
-
-
-def _box(x: float, y: float, theta: float, hx: float, hy: float, ahead: float = 0.0) -> np.ndarray:
-    c, s = math.cos(theta), math.sin(theta)
-    cx, cy = x + ahead * c, y + ahead * s
-    return np.array([[cx + a * hx * c - b * hy * s, cy + a * hx * s + b * hy * c]
-                     for a, b in ((1, 1), (-1, 1), (-1, -1), (1, -1))])
-
-
-def _overlap(a: np.ndarray, b: np.ndarray) -> bool:
-    for poly in (a, b):
-        for e in np.diff(np.vstack([poly, poly[:1]]), axis=0):
-            n = (-e[1], e[0])
-            if (a @ n).max() < (b @ n).min() or (b @ n).max() < (a @ n).min():
-                return False
-    return True
 
 
 def _qmul(a: np.ndarray, b: np.ndarray) -> np.ndarray:

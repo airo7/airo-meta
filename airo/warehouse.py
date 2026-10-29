@@ -11,7 +11,7 @@ from dataclasses import dataclass
 import mujoco
 import numpy as np
 
-from airo import cobot
+from airo import cobot, geometry
 from airo.loader import Arm, Loader, yaw_quat
 from airo.meshes import Batch, shell
 from airo.scene import rounded
@@ -51,8 +51,8 @@ class Layout:
 # The pick cell is sized for our big arm and the conveyor end; station cells for a cobot that swings between the car
 # and a table right behind it, which leaves a back aisle between their guarding and the racks.
 HERO = Layout(arm=0.30, front=0.15, rear=0.77)
-STATION = Layout(arm=0.21, front=0.12, rear=0.44)
-DOCK = Layout(arm=0.21, front=0.12, rear=0.48)
+STATION = Layout(arm=0.225, front=0.12, rear=0.44)
+DOCK = Layout(arm=0.225, front=0.12, rear=0.48)
 
 
 @dataclass(frozen=True)
@@ -177,6 +177,11 @@ class Line:
         if k == 0:
             return 0, self.bay.pose
         return k, self.bay.wait[k - 1] if k - 1 < len(self.bay.wait) else None
+
+
+def _bar(a, b, half: float) -> np.ndarray:
+    d = np.asarray(b) - a
+    return geometry.rect(*(np.asarray(a) + d / 2), math.atan2(d[1], d[0]), np.linalg.norm(d) / 2 + half, half)
 
 
 def _stock(t: Tote) -> tuple[float, float, float]:
@@ -538,6 +543,18 @@ class Warehouse:
                     self._active.discard(tote)
                     self._pin(tote, (*xyz, *yaw_quat(self._belt_yaw)))
         self._moving = busy or bool(self._active)
+
+    def structures(self) -> list[np.ndarray]:
+        """Outlines of what a car can hit around the cells: the guarding's sides and rear, its front posts, and each
+        arm's footing. Not the open front, which is a light curtain."""
+        out = []
+        t = 0.012
+        for name, c in self.cells.items():
+            out += [_bar(c.at(c.front, s), c.at(c.rear, s), t) for s in (-c.side, c.side)]
+            out.append(_bar(c.at(c.rear, -c.side), c.at(c.rear, c.side), t))
+            arm = self.loaders[name].arm
+            out.append(geometry.rect(*c.base, c.yaw, arm.FOOTING, arm.FOOTING))
+        return out
 
     def keepout(self) -> list[np.ndarray]:
         """Floor polygons around each loader cell, for the planner: the arm, its fence and its work behind it."""
