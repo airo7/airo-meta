@@ -12,7 +12,6 @@ COLOURS = ("#ffb340", "#45c4ff", "#ff6fa8", "#8fe36b")
 TAGS = ("orange", "blue", "pink", "green")
 # Named by what SAM sees from above: painted squares, not words.
 FACTORY_STATIONS = {"assembly": "blue square", "qa": "green square", "packing": "orange square", "dock": "red square"}
-TOTE = "yellow tote"
 KINDS = {"light": 0.2, "heavy": 0.8}
 UP, RIGHT = math.pi / 2, 0.0
 

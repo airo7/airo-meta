@@ -75,6 +75,8 @@ def _racks(spec, site, rng, bay=0.72, depth=0.28, levels=(0.0, 0.42, 0.84), top=
         for z in levels[1:]:
             for y in (y0 + 0.004, y0 + depth - 0.004):
                 b.box("beam", (bay / 2 - 0.01, 0.005, 0.016), (x + bay / 2, y, z))
+            for k in range(3):
+                b.box("label_card", (0.02, 0.001, 0.008), (x + bay / 2 + (k - 1) * 0.225, y0 - 0.0015, z))
         for z in levels:
             for k in range(3):
                 if rng.random() < 0.12:
@@ -85,7 +87,7 @@ def _racks(spec, site, rng, bay=0.72, depth=0.28, levels=(0.0, 0.42, 0.84), top=
 
 
 def _pallet(b: Batch, rng, pos, lo: bool = False, load: bool = True):
-    """A 1200 x 800 pallet at 1:4 with a stretch-wrapped load."""
+    """A 1200 x 800 pallet at 1:4 with a stretch-wrapped load: layers of cartons in a 2 x 3 pattern, or crates."""
     x, y, z = pos
     for dx in (-0.085, 0, 0.085):
         b.box("wood", (0.012, 0.15, 0.009), (x + dx, y, z + 0.009))
@@ -93,17 +95,23 @@ def _pallet(b: Batch, rng, pos, lo: bool = False, load: bool = True):
         b.box("wood_light", (0.1, 0.014, 0.0025), (x, y + dy, z + 0.0205))
     if not load:
         return
-    kind = rng.choice(["carton", "carton", "carton_dark", "crate"], p=[0.4, 0.2, 0.2, 0.2])
-    hz = rng.uniform(0.09, 0.16) if not lo else rng.uniform(0.07, 0.13)
-    if kind == "crate":
-        for k in range(int(hz // 0.045) + 1):
+    top = z + 0.023
+    if rng.random() < 0.22:
+        for k in range(int(rng.integers(2, 5 if not lo else 4))):
             b.box("crate_blue" if rng.random() < 0.6 else "crate_grey", (0.097, 0.145, 0.021),
-                  (x, y, z + 0.024 + 0.045 * k + 0.021))
+                  (x, y, top + 0.045 * k + 0.021))
         return
-    b.box(kind, (0.097, 0.146, hz), (x, y, z + 0.023 + hz), yaw=rng.uniform(-0.01, 0.01))
-    for k in range(1, int(2 * hz / 0.06)):
-        b.box("seam", (0.0975, 0.1465, 0.0006), (x, y, z + 0.023 + 0.06 * k))
-    b.box("wrap", (0.1, 0.149, hz * 0.9), (x, y, z + 0.023 + hz * 0.9))
+    layers = int(rng.integers(2, 6 if not lo else 4))
+    for k in range(layers):
+        for i in (-0.5, 0.5):
+            for j in (-1, 0, 1):
+                if k == layers - 1 and rng.random() < 0.15:
+                    continue
+                c = (x + i * 0.098, y + j * 0.0975, top + 0.03 * (2 * k + 1))
+                b.box(rng.choice(["carton", "carton", "carton_dark"]), (0.0475, 0.0465, 0.0292), c)
+                if k == layers - 1:
+                    b.box("tape", (0.048, 0.008, 0.0294), c)
+    b.box("wrap", (0.1, 0.148, 0.03 * layers * 0.85), (x, y, top + 0.03 * layers * 0.85))
 
 
 def _conveyor(spec, site, c: Cell):
@@ -141,7 +149,7 @@ def _conveyor(spec, site, c: Cell):
 
 
 def _cells(spec, site, cs: dict[str, Cell]):
-    """Around every loader: mesh fencing on three sides, light-curtain posts at the open front, a stack light, the
+    """Around every loader: polycarbonate guarding on three sides, light-curtain posts at the open front, a stack light, the
     station's table or outbound pallet, and a sign."""
     f, kit = Batch("fence"), Batch("cell")
     for name, c in cs.items():
@@ -149,9 +157,9 @@ def _cells(spec, site, cs: dict[str, Cell]):
         _fence(f, c, gap)
         for s in (-SIDE, SIDE):
             p = c.at(FRONT, s)
-            kit.box("curtain_post", (0.012, 0.012, 0.21), (*p, 0.21))
-            kit.box("hazard_y", (0.0125, 0.0125, 0.012), (*p, 0.43))
-            kit.box("curtain_lens", (0.0125, 0.0125, 0.18), (*(p - 0.0005 * np.sign(s) * np.array(c.along)), 0.22))
+            kit.box("curtain_post", (0.007, 0.007, 0.2), (*p, 0.2))
+            kit.box("fence_post", (0.0075, 0.0075, 0.01), (*p, 0.41))
+            kit.box("curtain_lens", (0.0072, 0.0072, 0.17), (*p, 0.21))
         beacon = np.array(c.base) + REAR * np.array(c.out) + SIDE * np.array(c.along)
         for k, mat in enumerate(("led_green", "led_amber", "led_red")):
             kit.cylinder(mat, 0.011, 0.012, (*beacon, FENCE_H + 0.03 + 0.025 * k), sides=12)
@@ -183,7 +191,9 @@ def _fence(b: Batch, c: Cell, gap: float):
             half = length / k / 2 - 0.012
             for z_ in (0.04, FENCE_H - 0.015):
                 b.box("fence_frame", (half, 0.004, 0.006), (*m, z_), yaw=yaw)
-            b.box("fence_mesh", (half, 0.0012, (FENCE_H - 0.055) / 2), (*m, 0.04 + (FENCE_H - 0.055) / 2), yaw=yaw)
+            for s_ in (-1, 1):
+                b.box("fence_frame", (0.004, 0.004, (FENCE_H - 0.055) / 2), (*(m + s_ * half * u), FENCE_H / 2 + 0.006))
+            b.box("fence_panel", (half, 0.0008, (FENCE_H - 0.055) / 2), (*m, 0.04 + (FENCE_H - 0.055) / 2), yaw=yaw)
 
 
 def _table(b: Batch, c: Cell, name: str):
@@ -242,9 +252,10 @@ def _docks(spec, site):
     b = Batch("charger")
     for x, y, th in site.starts:
         back = np.array([x - 0.2 * math.cos(th), y - 0.2 * math.sin(th)])
-        b.box("charger", (0.055, 0.028, 0.045), (*back, 0.045), yaw=th + math.pi / 2)
-        b.box("arm_dark", (0.056, 0.029, 0.004), (*back, 0.092), yaw=th + math.pi / 2)
-        b.box("led_green", (0.03, 0.002, 0.003), (*(back + 0.029 * np.array([math.cos(th), math.sin(th)])), 0.075),
+        b.box("charger", (0.05, 0.02, 0.032), (*back, 0.032), yaw=th + math.pi / 2)
+        b.box("arm_dark", (0.051, 0.021, 0.003), (*back, 0.066), yaw=th + math.pi / 2)
+        b.box("arm_dark", (0.052, 0.024, 0.004), (*back, 0.004), yaw=th + math.pi / 2)
+        b.box("led_green", (0.025, 0.0015, 0.002), (*(back + 0.0205 * np.array([math.cos(th), math.sin(th)])), 0.055),
               yaw=th + math.pi / 2)
         for s in (-0.02, 0.02):
             p = back + 0.035 * np.array([math.cos(th), math.sin(th)]) + s * np.array([-math.sin(th), math.cos(th)])
@@ -256,7 +267,7 @@ def _building(spec, site, rng):
     """Columns with hazard wraps, high-bay lamps under the roof, a few pallets of goods along the edges."""
     w, h = site.floor
     b = Batch("pillar")
-    for x, y in [(-0.35, -0.4), (w + 0.45, -0.4), (w + 0.45, h + 0.4), (-0.35, h + 0.4), (1.5, -0.4)]:
+    for x, y in [(w + 0.45, h + 0.4), (-0.35, h + 0.4), (1.5, h + 0.4)]:
         b.box("concrete_col", (0.07, 0.07, 1.1), (x, y, 1.1))
         for k in range(6):
             b.box("hazard_k" if k % 2 else "hazard_y", (0.074, 0.074, 0.0125), (x, y, 0.0125 + 0.025 * k))

@@ -1,4 +1,4 @@
-"""Procedural meshes: an open-topped tote shell, and Batch, which merges static decor into one mesh per material so a
+"""Procedural meshes: an open-topped shell, and Batch, which merges static decor into one mesh per material so a
 hall full of parts costs a handful of draw calls."""
 
 import math
@@ -30,8 +30,8 @@ def _ring(hx, hy, z):
     return [(hx, hy, z), (-hx, hy, z), (-hx, -hy, z), (hx, -hy, z)]
 
 
-def shell(spec, name: str, half, wall: float, taper: float) -> str:
-    """An open-topped box, outer half size half at the rim, its sides drawn in by taper at the bottom."""
+def shell(half, wall: float, taper: float) -> list:
+    """Quads of an open-topped box, outer half size half at the rim, its sides drawn in by taper at the bottom."""
     hx, hy, hz = half
     ot, ob = _ring(hx, hy, hz), _ring(hx - taper, hy - taper, -hz)
     it, ib = _ring(hx - wall, hy - wall, hz), _ring(hx - taper - wall, hy - taper - wall, -hz + wall)
@@ -41,10 +41,7 @@ def shell(spec, name: str, half, wall: float, taper: float) -> str:
     quads += [([ib[i], ib[j], it[j], it[i]], -np.array(n)) for (i, j), n in zip(order, sides)]
     quads += [([ot[i], ot[j], it[j], it[i]], np.array((0, 0, 1))) for i, j in order]
     quads += [(ob, np.array((0, 0, -1))), (ib, np.array((0, 0, 1)))]
-    v, f = _quads(quads)
-    m = spec.add_mesh(name=name, uservert=v.ravel().tolist(), userface=f.ravel().tolist())
-    m.inertia = SHELL
-    return name
+    return quads
 
 
 def _rot(euler) -> np.ndarray:
@@ -87,6 +84,9 @@ class Batch:
         c0, c1 = np.asarray(pos) - half * axis, np.asarray(pos) + half * axis
         quads += [([c0, lo[(i + 1) % sides], lo[i]], -axis) for i in range(sides)]
         quads += [([c1, hi[i], hi[(i + 1) % sides]], axis) for i in range(sides)]
+        self.parts[material].append(quads)
+
+    def add(self, material: str, quads: list):
         self.parts[material].append(quads)
 
     def emit(self, spec, body=None, **geom):

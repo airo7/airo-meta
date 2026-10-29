@@ -280,7 +280,7 @@ def test_picking_names_loaders_and_totes():
     assert cell.label("arm_qa") == ("QA arm · idle", doing[1]) and cell.label("rack_beam") is None
     m = car.world.m
     orbit = Orbit(car)
-    assert orbit._label(0, m.geom("fence_fence_mesh").id, np.zeros(3))["name"] == "Safety fence"
+    assert orbit._label(0, m.geom("fence_fence_panel").id, np.zeros(3))["name"] == "Safety guarding"
 
 
 @pytest.mark.parametrize("change, kind", [("flip", "heavy"), ("tow", "light"), (None, "heavy")])

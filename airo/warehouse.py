@@ -11,7 +11,7 @@ import mujoco
 import numpy as np
 
 from airo.loader import Arm, Loader, yaw_quat
-from airo.meshes import shell
+from airo.meshes import Batch, shell
 from airo.scene import rounded
 from airo.site import KINDS, Bay, Site
 
@@ -195,13 +195,24 @@ class Warehouse:
         self._mass(b, t.kind)
         b.add_geom(name=f"{t.name}/hull", type=GEOM.mjGEOM_BOX, size=list(TOTE), group=3, rgba=[0, 0, 0, 0],
                    friction=[0.6, 0.005, 0.0001], density=0)
-        b.add_geom(type=GEOM.mjGEOM_MESH, meshname=shell(spec, f"{t.name}/shell", TOTE, 0.004, 0.0035),
-                   material="tote", density=0, **STATIC)
+        body = Batch(t.name)
+        body.add("tote", shell((TOTE[0] - 0.003, TOTE[1] - 0.003, TOTE[2]), 0.0035, 0.003))
+        hx, hy, hz = TOTE
+        for sx, sy in ((1, 1), (1, -1), (-1, 1), (-1, -1)):
+            body.box("tote", (0.004, 0.004, hz - 0.004), (sx * (hx - 0.006), sy * (hy - 0.006), -0.002))
+        for k in np.linspace(-0.04, 0.04, 4):
+            for sy in (1, -1):
+                body.box("tote", (0.0025, 0.0015, hz - 0.01), (k, sy * (hy - 0.0035), -0.003))
         for sx in (1, -1):
-            b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.0006, 0.017, 0.006], pos=[sx * (TOTE[0] - 0.0028), 0, 0.017],
-                       material="tote_slot", density=0, **STATIC)
-        b.add_geom(type=GEOM.mjGEOM_BOX, size=[0.025, 0.0005, 0.011], pos=[0.012, -TOTE[1] + 0.0028, 0.006],
-                   material="label_card", density=0, **STATIC)
+            body.box("tote", (0.0015, 0.0025, hz - 0.01), (sx * (hx - 0.0035), 0.0, -0.003))
+        for sx in (1, -1):
+            body.box("tote", (0.002, hy, 0.003), (sx * (hx - 0.002), 0, hz - 0.003))
+        for sy in (1, -1):
+            body.box("tote", (hx, 0.002, 0.003), (0, sy * (hy - 0.002), hz - 0.003))
+        body.box("tote_slot", (0.0006, 0.016, 0.0055), (hx - 0.0024, 0, hz - 0.014))
+        body.box("tote_slot", (0.0006, 0.016, 0.0055), (-hx + 0.0024, 0, hz - 0.014))
+        body.box("label_card", (0.024, 0.0005, 0.01), (0.014, -hy + 0.0009, 0.004))
+        body.emit(spec, b, density=0)
         g = lambda kind, **kw: b.add_geom(name=f"{t.name}/{kind}{len(b.geoms)}", density=0,
                                           group=1 if kind == t.kind else 4, **STATIC, **kw)
         g("heavy", type=GEOM.mjGEOM_MESH, meshname=rounded(spec, f"{t.name}/casting", (0.032, 0.027, 0.016)),

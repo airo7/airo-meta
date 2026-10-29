@@ -59,7 +59,7 @@ DECOR = {
     "goods": ("Pallet of goods", "stretch-wrapped cartons waiting for the dock"),
     "spill_sign": ("Wet floor sign", "the spill has been flagged"),
     "wall": ("Wall", "insulated cladding"),
-    "fence": ("Safety fence", "mesh panels around a loader cell"),
+    "fence": ("Safety guarding", "polycarbonate panels around a loader cell"),
     "cell": ("Loader cell", "light curtain at the open side, stack light, the station's table"),
     "charger": ("Charging dock", "contacts behind the parking bay"),
     "lamp": ("High-bay lamp", "LED, under the roof"),
