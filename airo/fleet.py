@@ -11,6 +11,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 
 from airo import planner
+from airo.life import LEVELS, Hazard
 from airo.mission import Mission
 from airo.server import topdown
 from airo.site import Site, robot
@@ -18,6 +19,7 @@ from airo.voice import parse_intent
 
 REACH = 0.38
 WIDTH = 0.2
+PERSON = 0.07
 FOOTPRINT = (0.13, 0.08)
 WEIGHT_KG = 0.8
 NUMBERS = {"one": 1, "two": 2, "to": 2, "too": 2, "three": 3, "four": 4}
@@ -52,10 +54,11 @@ class Robot:
 
 class Guard:
     """A robot's rig as its mission drives it: it holds still rather than drive into another car within REACH ahead
-    (behind, when reversing). Turning in place is always allowed."""
+    (behind, when reversing), or into a hazard: a person in the same reach, or a thing (the forklift, a dropped
+    pallet) just short of its bumper. Turning in place is always allowed."""
 
-    def __init__(self, rig, others: Callable[[], list]):
-        self.rig, self._others = rig, others
+    def __init__(self, rig, others: Callable[[], list], hazards: Callable[[], list] = list):
+        self.rig, self._others, self._hazards = rig, others, hazards
         self.blocked_by = None
 
     def __getattr__(self, name):
@@ -66,6 +69,10 @@ class Guard:
         if self.blocked_by is not None:
             pwm_l = pwm_r = 0
         return await self.rig.step(pwm_l, pwm_r)
+
+    def people_near(self, r: float) -> bool:
+        p = self.rig.pose
+        return p is not None and any(h.person and np.hypot(*(h.points[0] - (p.x, p.y))) < r for h in self._hazards())
 
     def _ahead(self, direction: float):
         p = self.rig.pose
@@ -78,7 +85,7 @@ class Guard:
             dx, dy = q.x - p.x, q.y - p.y
             if 0 < direction * (dx * c + dy * s) < REACH and abs(-dx * s + dy * c) < WIDTH:
                 return other
-        return None
+        return next((h for h in self._hazards() if h.blocks(p.x, p.y, p.theta, direction)), None)
 
 
 def footprint(pose, pad: float = 0.02) -> np.ndarray:
@@ -102,11 +109,14 @@ def crew(site: Site, rigs: list, scientist: Callable, mode: str = "sim", body_pa
     totes. scientist(rig, robot_id) builds a robot's scientist on the rig its mission drives."""
     robots: list[Robot] = []
     carry = site.mode == "carry"
+    life = getattr(getattr(rigs[0], "world", None), "life", None)
+    hazards = life.hazards if life is not None else list
     for k, rig in enumerate(rigs):
-        guard = Guard(rig, lambda rig=rig: [r for r in rigs if r is not rig]) if len(rigs) > 1 else None
+        guard = Guard(rig, lambda rig=rig: [r for r in rigs if r is not rig], hazards) \
+            if len(rigs) > 1 or life is not None else None
         driven = guard or rig
         sci = scientist(driven, robot(k)["id"])
-        scan = _scanner(robots, k, carry) if len(rigs) > 1 else None
+        scan = _scanner(robots, k, carry, life) if len(rigs) > 1 or life is not None else None
         mission = Mission(driven, sci, scan=scan, mode=mode, body_path=body_path, stations=site.stations,
                           cell=rig.world.cell if carry else None, dock=site.starts[k] if carry else None)
         tote = site.totes[k % len(site.totes)] if site.totes else ""
@@ -116,7 +126,7 @@ def crew(site: Site, rigs: list, scientist: Callable, mode: str = "sim", body_pa
     return robots
 
 
-def _scanner(robots: list[Robot], k: int, carry: bool = False):
+def _scanner(robots: list[Robot], k: int, carry: bool = False, life=None):
     async def scan() -> planner.Scene:
         me = robots[k]
         rig, frame = me.rig, me.rig.frame()
@@ -126,6 +136,11 @@ def _scanner(robots: list[Robot], k: int, carry: bool = False):
         for other in robots:
             if other is not me and other.rig.pose is not None:
                 planner.occupy(scene, footprint(other.rig.pose), "robot")
+        for h in life.hazards() if life is not None else ():
+            if h.person:
+                x, y = h.points[0]
+                planner.occupy(scene, np.array([[x - PERSON, y - PERSON], [x + PERSON, y - PERSON],
+                                                [x + PERSON, y + PERSON], [x - PERSON, y + PERSON]]), "person")
         return scene
     return scan
 
@@ -136,6 +151,9 @@ class Fleet:
     def __init__(self, site: Site, robots: list[Robot], mode: str = "sim", dry: bool = False):
         self.site, self.robots, self.mode, self.dry = site, robots, mode, dry
         self.world = getattr(robots[0].rig, "world", None)
+        self.life = getattr(self.world, "life", None)
+        if self.life is not None:
+            self.life.paths = lambda: [r.mission.path for r in self.robots if r.mission.busy and r.mission.path]
         self.selected = 0
 
     @property
@@ -181,6 +199,8 @@ class Fleet:
             for r in self.robots:
                 r.tote_xy = next(o.xy for o in w.objects if o.concept == r.tote)
             return "new totes in the pick zone"
+        if self.life is not None and (done := self._life(what)):
+            return done
         if what in ("pause", "resume"):
             w.paused = what == "pause"
             return what + "d"
@@ -190,6 +210,26 @@ class Fleet:
             except ValueError:
                 return None
             return what
+        return None
+
+    def _life(self, what: str) -> str | None:
+        """The floor's life: "drop a pallet", "drop a carton", "clear the aisle", "send a worker across", "jam",
+        and the busy level: "calm", "normal", "busy" (also "busy level calm")."""
+        life = self.life
+        level = what.removeprefix("busy level ").removeprefix("set busy ").strip()
+        if level in LEVELS:
+            life.set_level(level)
+            return f"the floor is {level}"
+        if m := re.fullmatch(r"(?:drop|dropped|spill)\s+(?:a\s+)?(pallet|carton|box)", what):
+            return life.drop("carton" if m[1] == "box" else m[1])
+        if what in ("clear the aisle", "clear the aisles", "clear the pallet", "clear the carton", "pick up the pallet",
+                    "clear aisle", "clear"):
+            return life.clear()
+        if re.fullmatch(r"(?:send\s+)?(?:a\s+)?(?:worker|person|human|someone)\s+(?:across|crossing)|cross", what):
+            return life.cross()
+        if m := re.fullmatch(r"jam(?:\s+(?:at|in)\s+(?:the\s+)?(\w+))?", what):
+            station = m[1] or "packing"
+            return life.jam(station) if station in self.site.drops else f"no {station} cell"
         return None
 
     def _body(self, r: Robot, what: str) -> str | None:
@@ -226,7 +266,9 @@ class Fleet:
             "t": w.t if w is not None else max((r.rig.pose.t for r in self.robots if r.rig.pose), default=0.0),
             "mode": self.mode,
             "site": {"name": self.site.name, "floor": {"w": floor[0], "h": floor[1]},
-                     "stations": {k: [round(v, 3) for v in xy] for k, xy in stations.items()}, "zones": zones},
+                     "stations": {k: [round(v, 3) for v in xy] for k, xy in stations.items()}, "zones": zones,
+                     "movers": self.life.movers() if self.life is not None else [],
+                     "busy": self.life.level if self.life is not None else None},
             "selected": self.robot.id,
             "robots": [{**r.mission.state(), "id": r.id, "name": r.name, "color": r.color, "real": r.real,
                         "now": self._now(r)} for r in self.robots],
@@ -234,8 +276,10 @@ class Fleet:
 
     def _now(self, r: Robot) -> str:
         m = r.mission
-        if r.guard is not None and r.guard.blocked_by is not None and m.busy:
-            other = next((o.name for o in self.robots if o.rig is r.guard.blocked_by), "another robot")
+        if r.guard is not None and (b := r.guard.blocked_by) is not None and m.busy:
+            if isinstance(b, Hazard):
+                return f"Waiting: {b.name} {b.why}." if b.person else f"Stopped: {b.name} {b.why}; replanning."
+            other = next((o.name for o in self.robots if o.rig is b), "another robot")
             return f"Waiting: {other} is in its way."
         if m.cell is not None:
             return m.now()

@@ -36,6 +36,8 @@ RELEARN_PROBES = 5
 FAULT_Z = 5.0
 CAUTION = 0.6
 BLOCKED_S = 2.0
+PERSON_S = 8.0
+PEOPLE_CLEAR = 0.6
 WAIT_S = 1.0
 CLEAR = 0.3
 BAY_RUN = 0.3
@@ -370,11 +372,13 @@ class Mission:
         """After every watched step on a carry site: give up the bay just left once clear of it, and notice a robot
         that has been in the way too long."""
         self._release()
-        if getattr(self.rig, "blocked_by", None) is None:
+        blocker = getattr(self.rig, "blocked_by", None)
+        if blocker is None:
             self._blocked_t = None
         elif self._blocked_t is None:
             self._blocked_t = self.rig.pose.t
-        elif self.rig.pose.t - self._blocked_t > BLOCKED_S:
+        elif self.rig.pose.t - self._blocked_t > (PERSON_S if getattr(blocker, "person", False) else BLOCKED_S):
+            # people walk on, so wait longer for them before planning around
             self._blocked_t = None
             raise Stuck()
 
@@ -392,6 +396,10 @@ class Mission:
         if check is None:
             return
         self.status = "feeling"
+        near = getattr(self.rig, "people_near", None)
+        while near is not None and near(PEOPLE_CLEAR):
+            # the probe pivots and drives a little: not with someone standing next to the car
+            await self.rig.step(0, 0)
         r = await check(cause)
         self.felt = {**r, "cause": cause, "at": time.time()}
         self._recent.clear()
