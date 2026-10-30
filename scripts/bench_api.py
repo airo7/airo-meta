@@ -16,7 +16,7 @@ from airo.meta_api import describe, segment
 OUT = Path("data")
 
 
-def grab(camera: int) -> np.ndarray:
+def grab(camera: int | str) -> np.ndarray:
     cap = open_camera(camera)
     for _ in range(10):  # let auto exposure settle
         ok, frame = cap.read()
@@ -42,7 +42,7 @@ def summary(name: str, ms: list[float]) -> str:
 
 async def main(args):
     OUT.mkdir(exist_ok=True)
-    frame = cv2.imread(args.image) if args.image else grab(int(args.camera))
+    frame = cv2.imread(args.image) if args.image else grab(args.camera)
     cv2.imwrite(str(OUT / "bench_frame.jpg"), frame)
 
     sam_ms, segs = await timed(args.n, segment, frame, args.concept)

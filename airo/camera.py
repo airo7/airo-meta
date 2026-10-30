@@ -32,8 +32,13 @@ def floor_layout(w_m: float, h_m: float) -> dict[int, tuple[float, float]]:
     return {1: (0.0, 0.0), 2: (w_m, 0.0), 3: (w_m, h_m), 4: (0.0, h_m)}
 
 
-def open_camera(index: int, width: int = 1920, height: int = 1080) -> cv2.VideoCapture:
-    cap = cv2.VideoCapture(index, cv2.CAP_AVFOUNDATION)
+def open_camera(source: int | str, width: int = 1920, height: int = 1080) -> cv2.VideoCapture:
+    """A camera index, or a stream URL such as a phone running IP Webcam: http://<phone>:8080/video."""
+    if isinstance(source, str) and not source.isdigit():
+        cap = cv2.VideoCapture(source, cv2.CAP_FFMPEG)
+        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        return cap
+    cap = cv2.VideoCapture(int(source), cv2.CAP_AVFOUNDATION)
     cap.set(cv2.CAP_PROP_FRAME_WIDTH, width)
     cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
     cap.set(cv2.CAP_PROP_FPS, 30)

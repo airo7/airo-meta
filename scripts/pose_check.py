@@ -36,7 +36,7 @@ def report(tracker: PoseTracker, poses) -> tuple[float, float, float]:
 
 
 def main(args):
-    src = args.video or int(args.camera)
+    src = args.video or args.camera
     cap = cv2.VideoCapture(src) if args.video else open_camera(src)
     tracker = PoseTracker(floor_layout(*args.floor), marker_h=args.marker_h, cam_h=args.cam_h)
     poses = deque(maxlen=60)

@@ -32,7 +32,8 @@ def add_args(p):
     p.add_argument("--mujoco", action="store_true", help="MuJoCo twin: contact physics and a rendered camera")
     p.add_argument("--floor", nargs=2, type=float, default=(2.0, 1.4), metavar=("W", "H"),
                    help="corner marker centre distances in metres")
-    p.add_argument("--camera", type=int, default=int(os.getenv("AIRO_CAMERA_INDEX", "0")))
+    p.add_argument("--camera", default=os.getenv("AIRO_CAMERA", os.getenv("AIRO_CAMERA_INDEX", "0")),
+                   help="camera index, or a stream URL (a phone on Wi-Fi: http://<phone>:8080/video)")
     p.add_argument("--marker-h", type=float, default=0.0, help="car marker height above floor (m)")
     p.add_argument("--cam-h", type=float, default=1.8, help="camera height above floor (m)")
     p.add_argument("--address", help="BLE address; default scans for the HM-10 by name")
@@ -138,14 +139,14 @@ class Rig(BaseRig):
         self._thread.start()
 
     @classmethod
-    async def open(cls, floor, camera: int = 0, marker_h: float = 0.0, cam_h: float = 1.8,
+    async def open(cls, floor, camera: int | str = 0, marker_h: float = 0.0, cam_h: float = 1.8,
                    address: str | None = None, dry: bool = False, timeout: float = 5.0, **kw) -> "Rig":
         """Checks the camera, then the markers, then BLE, so each failure names its own fix."""
         cap = open_camera(camera)
         if not cap.isOpened() or not cap.read()[0]:
             cap.release()
-            raise RigAbort(f"camera {camera} gives no frames: try --camera 1 (or set AIRO_CAMERA_INDEX), check the "
-                           "phone is attached via Continuity Camera, and allow camera access for this terminal")
+            raise RigAbort(f"camera {camera} gives no frames: try --camera 1 (or set AIRO_CAMERA), for a phone "
+                           "on Wi-Fi check its stream URL opens in a browser, and allow camera access for this terminal")
         rig = cls(None, cap, PoseTracker(floor_layout(*floor), marker_h, cam_h), floor, **kw)
         try:
             await rig._first_pose(timeout)
