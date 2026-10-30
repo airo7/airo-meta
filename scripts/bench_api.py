@@ -65,7 +65,7 @@ async def main(args):
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--image")
-    p.add_argument("--camera", default=os.getenv("AIRO_CAMERA_INDEX", "0"))
+    p.add_argument("--camera", default=os.getenv("AIRO_CAMERA", os.getenv("AIRO_CAMERA_INDEX", "0")))
     p.add_argument("--concept", default="box")
     p.add_argument("--n", type=int, default=5)
     asyncio.run(main(p.parse_args()))

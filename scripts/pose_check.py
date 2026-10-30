@@ -68,7 +68,7 @@ def main(args):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--camera", default=os.getenv("AIRO_CAMERA_INDEX", "0"))
+    p.add_argument("--camera", default=os.getenv("AIRO_CAMERA", os.getenv("AIRO_CAMERA_INDEX", "0")))
     p.add_argument("--video")
     p.add_argument("--floor", nargs=2, type=float, required=True, metavar=("W", "H"),
                    help="corner marker centre distances in metres")
