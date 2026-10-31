@@ -88,19 +88,24 @@ async def transcribe(on_text: Callable[[str, bool], None], device=None, frames: 
 
 @dataclass
 class Intent:
-    kind: Literal["deliver", "learn", "stop", "status"]
+    kind: Literal["deliver", "learn", "stop", "status", "goto", "patrol"]
     target: str | None = None
+    xy: tuple[float, float] | None = None
 
 
 _STOP = re.compile(r"\b(stop|halt|freeze|abort|cancel|emergency)\b")
 _DELIVER = re.compile(r"\b(deliver|take|bring|push|carry|move|drop)\b(?:.*?\b(?:to|towards?|at)\s+"
                       r"(?:the\s+)?(?:station\s+)?([a-z]+))?")
 _LEARN = re.compile(r"\b(re)?learn|\bcalibrat|\bexperiment|\bprobe")
+_NUM = r"(-?\d*\.?\d+)"
+_GOTO = re.compile(rf"\b(?:go|drive|move|head)\s+(?:to\s+)?\(?{_NUM}\s*(?:,\s*|\s+){_NUM}")
+_PATROL = re.compile(r"\bpatrol")
 _STATUS = re.compile(r"\bhow\b.*\b(feel|doing|going)\b|\bstatus\b|\bare you (ok|okay|alright)\b")
 
 
 def parse_intent(text: str, stations=None) -> Intent | None:
-    """With the site's station names, a station named anywhere in a delivery counts ("bring it over to Q.A.")."""
+    """With the site's station names, a station named anywhere in a delivery counts ("bring it over to Q.A.").
+    "go to 0.4 0.6" is a floor point in metres."""
     t = text.lower()
     if _STOP.search(t):
         return Intent("stop")
@@ -108,6 +113,10 @@ def parse_intent(text: str, stations=None) -> Intent | None:
         return Intent("learn")
     if _STATUS.search(t):
         return Intent("status")
+    if m := _GOTO.search(t):
+        return Intent("goto", xy=(float(m[1]), float(m[2])))
+    if _PATROL.search(t):
+        return Intent("patrol")
     if m := _DELIVER.search(t):
         target = m[2]
         if stations and target not in stations:
