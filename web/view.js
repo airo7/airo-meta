@@ -5,11 +5,11 @@ const SPEEDS = { 0.25: "¼×", 0.5: "½×", 1: "1×", 2: "2×" };
 const cam = { live: false, busy: false, orbit: [0, 0], pan: [0, 0], zoom: 1, queue: [], hinted: false, parts: "" };
 const hero = $("hero");
 
-function renderSim(sim) {
+function renderSim(sim, real) {
   cam.live = !!sim.camera;
   $("toolbar").hidden = !cam.live;
   document.body.classList.toggle("interactive", cam.live);
-  if (!cam.live) return;
+  if (!cam.live) return real && hint("Click the floor to send the car there");
   for (const b of $("views").children) b.classList.toggle("on", b.dataset.cam === sim.preset);
   const parts = (sim.parts || []).join();
   if (parts !== cam.parts) {
@@ -17,11 +17,7 @@ function renderSim(sim) {
     $("menu-parts").innerHTML = (sim.parts || []).map((p) => `<button data-cam="${p}">${cap(p)}</button>`).join("");
   }
   for (const b of $("menu-parts").children) b.classList.toggle("on", b.dataset.cam === sim.preset);
-  if (!cam.hinted) {
-    cam.hinted = true;
-    $("hint").classList.add("show");
-    setTimeout(dismissHint, 6000);
-  }
+  hint();
   const play = $("play");
   if (play.dataset.cmd !== (sim.paused ? "resume" : "pause") || !play.firstChild) {
     play.innerHTML = sim.paused ? ICON_PLAY : ICON_PAUSE;
@@ -35,6 +31,14 @@ function renderSim(sim) {
 }
 
 const dismissHint = () => $("hint").classList.remove("show");
+
+function hint(text) {
+  if (cam.hinted) return;
+  cam.hinted = true;
+  if (text) $("hint").textContent = text;
+  $("hint").classList.add("show");
+  setTimeout(dismissHint, 6000);
+}
 const interactive = () => cam.live && !document.body.classList.contains("mapview");
 
 function menu(name) {
@@ -80,9 +84,19 @@ async function flush() {
 
 // The server renders a fixed aspect and #hero crops it with object-fit: cover.
 function frameBox() {
-  const r = hero.getBoundingClientRect(), ar = hero.naturalWidth / hero.naturalHeight || 16 / 9;
-  const w = Math.max(r.width, r.height * ar), h = w / ar;
-  return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h };
+  return cover(hero.getBoundingClientRect(), hero.naturalWidth / hero.naturalHeight || 16 / 9);
+}
+
+// On hardware a click on the phone frame sends the selected car to that floor point.
+function goTo(e) {
+  const s = app.state, cam = s.camera, { w, h } = s.site.floor, m = cam.inset;
+  const [x, y] = screenToFloor(cam, cover(hero.getBoundingClientRect(), cam.size[0] / cam.size[1]), e.clientX, e.clientY);
+  const at = `(${x.toFixed(2)}, ${y.toFixed(2)})`, inside = x >= m && x <= w - m && y >= m && y <= h - m;
+  dismissHint();
+  app.pin = { xy: [x, y], at: performance.now(), inside };
+  if (!inside) toast(`${at} is outside the floor inset`, null, "#ff453a", ICON.zone);
+  else if (s.dry) toast(`Dry run: not driving to ${at}`, app.sel, "#ff9f0a", ICON.zone);
+  post("/cmd", { text: `go to ${x.toFixed(2)} ${y.toFixed(2)}` });
 }
 
 function pick(e, focus) {

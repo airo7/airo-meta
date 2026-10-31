@@ -119,32 +119,114 @@ function drawPlan(cv, state, selected, rect) {
       g.setLineDash([]);
     }
     if (!r.pose) continue;
-    const [cx, cy] = P([r.pose.x, r.pose.y]), s = big ? 13 : on ? 8 : 6.5, t = -r.pose.theta;
-    if (on) {
-      g.beginPath();
-      g.arc(cx, cy, s * 1.9, 0, 7);
-      g.fillStyle = alpha(col, 0.2);
-      g.fill();
-    }
-    g.save();
-    g.translate(cx, cy);
-    g.rotate(t);
-    g.beginPath();
-    g.moveTo(s * 1.15, 0);
-    g.lineTo(-s * 0.8, s * 0.78);
-    g.lineTo(-s * 0.4, 0);
-    g.lineTo(-s * 0.8, -s * 0.78);
-    g.closePath();
-    g.fillStyle = col;
-    g.strokeStyle = "rgba(0,0,0,0.45)";
-    g.lineWidth = 1.2;
-    g.fill();
-    g.stroke();
-    g.restore();
+    const [cx, cy] = P([r.pose.x, r.pose.y]), s = big ? 13 : on ? 8 : 6.5;
+    car(g, cx, cy, -r.pose.theta, s, col, on);
     if (big) {
       font(13, 600);
       g.fillStyle = "rgba(255,255,255,0.92)";
       g.fillText(r.name || r.id, cx + s * 1.6, cy - s * 0.9);
     }
+  }
+}
+
+function car(g, cx, cy, angle, s, col, halo) {
+  if (halo) {
+    g.beginPath();
+    g.arc(cx, cy, s * 1.9, 0, 7);
+    g.fillStyle = alpha(col, 0.2);
+    g.fill();
+  }
+  g.save();
+  g.translate(cx, cy);
+  g.rotate(angle);
+  g.beginPath();
+  g.moveTo(s * 1.15, 0);
+  g.lineTo(-s * 0.8, s * 0.78);
+  g.lineTo(-s * 0.4, 0);
+  g.lineTo(-s * 0.8, -s * 0.78);
+  g.closePath();
+  g.fillStyle = col;
+  g.strokeStyle = "rgba(0,0,0,0.45)";
+  g.lineWidth = 1.2;
+  g.fill();
+  g.stroke();
+  g.restore();
+}
+
+// The hero fills its rect with object-fit: cover; the image's box on screen.
+function cover(r, aspect) {
+  const w = Math.max(r.width, r.height * aspect), h = w / aspect;
+  return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h };
+}
+
+function homography(M, [x, y]) {
+  const d = M[2][0] * x + M[2][1] * y + M[2][2];
+  return [(M[0][0] * x + M[0][1] * y + M[0][2]) / d, (M[1][0] * x + M[1][1] * y + M[1][2]) / d];
+}
+
+// cam is the state's camera: to_image and to_floor map floor metres and phone frame pixels (size) both ways.
+function floorToScreen(cam, box, p) {
+  const [u, v] = homography(cam.to_image, p);
+  return [box.x + (u * box.w) / cam.size[0], box.y + (v * box.h) / cam.size[1]];
+}
+
+function screenToFloor(cam, box, x, y) {
+  return homography(cam.to_floor, [((x - box.x) * cam.size[0]) / box.w, ((y - box.y) * cam.size[1]) / box.h]);
+}
+
+// Over the live phone frame: the floor inset, and the selected car's ghost cloud, plan, goal and heading.
+function drawAR(cv, state, sel, pin) {
+  const g = sizeCanvas(cv), cam = state.camera;
+  if (!cam) return;
+  const box = cover({ left: 0, top: 0, width: cv.clientWidth, height: cv.clientHeight }, cam.size[0] / cam.size[1]);
+  const P = (p) => floorToScreen(cam, box, p), col = sel.color || "#0a84ff", { w, h } = state.site.floor, m = cam.inset;
+  const trace = (pts, close) => {
+    g.beginPath();
+    pts.forEach((p, i) => g[i ? "lineTo" : "moveTo"](...P(p)));
+    if (close) g.closePath();
+  };
+  const ring = (xy, c, r, a) => {
+    const [x, y] = P(xy);
+    g.beginPath();
+    g.arc(x, y, r, 0, 7);
+    g.strokeStyle = alpha(c, a);
+    g.lineWidth = 2;
+    g.stroke();
+    g.beginPath();
+    g.arc(x, y, 3, 0, 7);
+    g.fillStyle = alpha(c, a);
+    g.fill();
+  };
+  g.lineCap = g.lineJoin = "round";
+  g.shadowColor = "rgba(0,0,0,0.4)";
+  g.shadowBlur = 4;
+  trace([[m, m], [w - m, m], [w - m, h - m], [m, h - m]], true);
+  g.strokeStyle = "rgba(255,255,255,0.5)";
+  g.lineWidth = 1.2;
+  g.stroke();
+  g.strokeStyle = alpha(col, 0.3);
+  g.lineWidth = 1;
+  for (const c of sel.cloud || []) (trace(c), g.stroke());
+  if (sel.path?.length > 1) {
+    trace(sel.path);
+    g.setLineDash([6, 6]);
+    g.strokeStyle = alpha(col, 0.9);
+    g.lineWidth = 2;
+    g.stroke();
+    g.setLineDash([]);
+  }
+  if (sel.goal) ring(sel.goal, col, 10, 1);
+  const age = pin ? (performance.now() - pin.at) / 1800 : 1;
+  if (age < 1) ring(pin.xy, pin.inside ? col : "#ff453a", 6 + 12 * age, 1 - age);
+  if (sel.pose) {
+    const { x, y, theta } = sel.pose, c = Math.cos(theta), s = Math.sin(theta);
+    trace(Array.from({ length: 32 }, (_, i) => [x + 0.13 * Math.cos(i * Math.PI / 16), y + 0.13 * Math.sin(i * Math.PI / 16)]), true);
+    g.fillStyle = alpha(col, 0.14);
+    g.fill();
+    g.strokeStyle = alpha(col, 0.9);
+    g.lineWidth = 2;
+    g.stroke();
+    const [ax, ay] = P([x + 0.18 * c, y + 0.18 * s]), [bx, by] = P([x + 0.28 * c, y + 0.28 * s]);
+    car(g, ax, ay, Math.atan2(by - ay, bx - ax), 7, col, false);
   }
 }

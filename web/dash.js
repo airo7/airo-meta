@@ -18,7 +18,7 @@ const ICON = {
 };
 const LABELS = { "Gain left": "Left gain", "Gain right": "Right gain", "Dead zone": "Dead zone", "Turn efficiency": "Turning", Delay: "Delay", "Wheel lag": "Lag", Drift: "Drift" };
 
-const app = { state: null, sel: null, loaded: false, want: null, notes: {}, phases: {}, zones: new Set(), heard: new Set(), recallAt: {}, radar: null };
+const app = { state: null, sel: null, loaded: false, want: null, notes: {}, phases: {}, zones: new Set(), heard: new Set(), recallAt: {}, radar: null, pin: null };
 
 // Today's single-robot Mission.state() still works: it becomes a fleet of one.
 function normalise(s) {
@@ -65,7 +65,7 @@ function update(raw) {
   renderMemory(app.sel);
   renderFeed(s);
   renderNotebook(app.sel);
-  renderSim(s.sim || {});
+  renderSim(s.sim || {}, s.mode === "real");
   for (const b of document.querySelectorAll("[data-busy]")) b.classList.toggle("on", b.dataset.busy === s.site?.busy);
   app.loaded = true;
 }
@@ -384,7 +384,7 @@ $("plan").addEventListener("click", (e) => {
 function toggleMap() {
   document.body.classList.toggle("mapview");
 }
-$("hero").addEventListener("click", () => document.body.classList.contains("mapview") && toggleMap());
+$("hero").addEventListener("click", (e) => (document.body.classList.contains("mapview") ? toggleMap() : app.state?.camera && goTo(e)));
 
 function frame() {
   requestAnimationFrame(frame);
@@ -392,6 +392,7 @@ function frame() {
   const rect = mapRect(), f = app.state.site.floor;
   Object.assign($("video").style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${f.w * rect.k}px`, height: `${f.h * rect.k}px` });
   drawPlan($("plan"), app.state, app.sel.id, rect);
+  if (app.state.mode === "real") drawAR($("ar"), app.state, app.sel, app.pin);
   const rd = app.radar;
   if (rd?.svg?.isConnected && rd.target) {
     rd.shown = rd.target.map((v, i) => (rd.shown[i] ?? v) + (v - (rd.shown[i] ?? v)) * (calm() ? 1 : 0.09));
