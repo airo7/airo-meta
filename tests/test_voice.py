@@ -22,6 +22,12 @@ from airo.voice import Intent, parse_intent
     ("how do you feel", Intent("status")),
     ("Hey, how are you doing?", Intent("status")),
     ("what a nice day", None),
+    ("go to 0.4 0.6", Intent("goto", xy=(0.4, 0.6))),
+    ("Drive to (0.25, 1.1).", Intent("goto", xy=(0.25, 1.1))),
+    ("move to .5 1", Intent("goto", xy=(0.5, 1.0))),
+    ("go to blue", None),
+    ("patrol the floor", Intent("patrol")),
+    ("stop patrolling", Intent("stop")),
 ])
 def test_parse_intent(text, intent):
     assert parse_intent(text) == intent

@@ -307,16 +307,16 @@ class Fleet:
     # dashboard state, v3
 
     def state(self) -> dict:
-        w = self.world
-        objects = w.objects if w is not None else getattr(self.robots[0].rig, "objects", None)
+        w, rig = self.world, self.robots[0].rig
+        objects = w.objects if w is not None else getattr(rig, "objects", None)
         stations = self.site.station_xy(objects) if objects else \
             next((r.mission.scene.stations for r in self.robots if r.mission.scene), {})
         zones = [{"kind": "slippery", "polygon": _rect(w.zone), "label": self.site.spill_label, "found_by": None,
                   "t": w.zone_t}] if w is not None and w.zone else []
-        floor = self.site.floor if w is None else w.floor
+        floor = rig.floor if w is None else w.floor
         return {
             "t": w.t if w is not None else max((r.rig.pose.t for r in self.robots if r.rig.pose), default=0.0),
-            "mode": self.mode,
+            "mode": self.mode, "dry": self.dry, "camera": _camera(rig) if self.mode == "real" else None,
             "site": {"name": self.site.name, "floor": {"w": floor[0], "h": floor[1]},
                      "stations": {k: [round(v, 3) for v in xy] for k, xy in stations.items()}, "zones": zones,
                      "movers": self.life.movers() if self.life is not None else [],
@@ -333,7 +333,7 @@ class Fleet:
                 return f"Waiting: {b.name} {b.why}." if b.person else f"Stopped: {b.name} {b.why}; replanning."
             other = next((o.name for o in self.robots if o.rig is b), "another robot")
             return f"Waiting: {other} is in its way."
-        if m.cell is not None:
+        if m.cell is not None or m.status in ("driving", "patrolling"):
             return m.now()
         intent = parse_intent(m.command, m.stations) if m.command else None
         station = intent.target if intent and intent.target else "its"
@@ -352,6 +352,14 @@ class Fleet:
                 if not hasattr(rig, "view"):
                     dash.set_view(frame)
             await asyncio.sleep(1 / hz)
+
+
+def _camera(rig) -> dict | None:
+    """What the dashboard needs to draw over the raw phone frame and turn a click on it into a floor point."""
+    frame = rig.frame()
+    if rig.H is None or frame is None:
+        return None
+    return {"size": frame.shape[1::-1], "to_floor": rig.H, "to_image": np.linalg.inv(rig.H), "inset": rig.inset}
 
 
 def _rect(r) -> list[list[float]]:

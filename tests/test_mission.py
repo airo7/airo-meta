@@ -272,3 +272,39 @@ def test_sustained_surprise_below_threshold_still_fires(mission, monkeypatch, sc
             asyncio.run(run())
     else:
         asyncio.run(run())
+
+
+def test_go_to_a_point_relearns_on_the_way_and_arrives(mission):
+    async def run():
+        async def add_weight():
+            await until(mission.rig, 0.6)
+            mission.rig.truth = HEAVY
+
+        asyncio.create_task(add_weight())
+        await mission.handle("go to 0.4 0.4")
+        await mission._task
+
+    asyncio.run(run())
+    p = mission.rig.pose
+    assert math.dist((p.x, p.y), (0.4, 0.4)) < 0.06 and mission.sci.n == 2 and mission.status == "idle"
+    assert mission.notes[-1]["text"] == "Arrived at (0.40, 0.40)." and mission.goal is None
+
+
+def test_a_point_outside_the_inset_is_noted_not_driven(mission):
+    asyncio.run(mission.handle("go to 0.05 0.7"))
+    assert not mission.busy and mission.notes[-1]["text"] == "(0.05, 0.70) is outside the floor inset."
+
+
+def test_patrol_laps_the_inset_corners_until_stopped(mission):
+    async def run():
+        await mission.handle("patrol")
+        await until(mission.rig, 8.0)
+        state = mission.state()
+        await mission.handle("stop")
+        return state
+
+    state = asyncio.run(run())
+    m = mission.rig.inset + 0.05
+    assert state["status"] == "patrolling" and state["now"].startswith("Patrolling")
+    assert {tuple(q) for q in state["path"][1:]} <= {(m, m), (2.0 - m, m), (2.0 - m, 1.4 - m), (m, 1.4 - m)}
+    assert mission.status == "stopped" and not mission.busy
