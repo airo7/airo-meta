@@ -261,29 +261,33 @@ class Mission:
                 self.path = [(p.x, p.y), goal]
                 try:
                     await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
-                    self.note("result", f"Arrived at ({goal[0]:.2f}, {goal[1]:.2f}).")
+                    off = math.dist((self.rig.pose.x, self.rig.pose.y), goal)
+                    self.note("result", f"Arrived at ({goal[0]:.2f}, {goal[1]:.2f}), {off * 100:.1f} cm off.")
                     return True
                 except Surprised as e:
                     await self.relearn(str(e))
             self.note("alert", f"Gave up on ({goal[0]:.2f}, {goal[1]:.2f}) after {attempts} attempts.")
             return False
         finally:
-            self.goal = None
+            self.goal, self.path = None, []
 
     async def patrol(self):
         """Laps of the inset's corners until stopped, relearning or recalling the body whenever it changes."""
         m, (w, h) = self.rig.inset + PATROL_IN, self.rig.floor
         corners = [(m, m), (w - m, m), (w - m, h - m), (m, h - m)]
-        while True:
-            self.status = "patrolling"
-            p = self.rig.pose
-            i = min(range(4), key=lambda i: math.dist(corners[i], (p.x, p.y)))
-            # follow stops once near its last point, so a lap back to the start would end at once
-            self.path = [(p.x, p.y), *(corners[(i + k) % 4] for k in (1, 2, 3))]
-            try:
-                await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
-            except Surprised as e:
-                await self.relearn(str(e))
+        try:
+            while True:
+                self.status = "patrolling"
+                p = self.rig.pose
+                i = min(range(4), key=lambda i: math.dist(corners[i], (p.x, p.y)))
+                # follow stops once near its last point, so a lap back to the start would end at once
+                self.path = [(p.x, p.y), *(corners[(i + k) % 4] for k in (1, 2, 3))]
+                try:
+                    await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
+                except Surprised as e:
+                    await self.relearn(str(e))
+        finally:
+            self.path = []
 
     def _plan(self, goal, **kw) -> list:
         p = self.rig.pose

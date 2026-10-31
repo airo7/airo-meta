@@ -287,7 +287,7 @@ def test_go_to_a_point_relearns_on_the_way_and_arrives(mission):
     asyncio.run(run())
     p = mission.rig.pose
     assert math.dist((p.x, p.y), (0.4, 0.4)) < 0.06 and mission.sci.n == 2 and mission.status == "idle"
-    assert mission.notes[-1]["text"] == "Arrived at (0.40, 0.40)." and mission.goal is None
+    assert mission.notes[-1]["text"].startswith("Arrived at (0.40, 0.40), ") and mission.goal is None
 
 
 def test_a_point_outside_the_inset_is_noted_not_driven(mission):
