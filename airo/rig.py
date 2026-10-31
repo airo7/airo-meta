@@ -77,9 +77,11 @@ class BaseRig:
         self._cmd: list[tuple[int, int]] = []
         self._ticks: list[tuple[float, Pose | None]] = []
         self._log = None
+        self.log_path: Path | None = None
         if log_dir:
             Path(log_dir).mkdir(parents=True, exist_ok=True)
-            self._log = open(Path(log_dir) / f"{time.strftime('%Y%m%d-%H%M%S')}.jsonl", "w")
+            self.log_path = Path(log_dir) / f"{time.strftime('%Y%m%d-%H%M%S')}.jsonl"
+            self._log = open(self.log_path, "w")
 
     @property
     def history(self) -> tuple[np.ndarray, np.ndarray]:
