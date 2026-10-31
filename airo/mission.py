@@ -2,6 +2,7 @@
 cloud, then replans from where the car stands."""
 
 import asyncio
+import json
 import math
 import re
 import time
@@ -151,6 +152,12 @@ class Mission:
         self.path: list = []
         self.goal: tuple[float, float] | None = None
         self.notes: list[dict] = []
+        self._saved = (0, 0)
+        self._notes_log = None
+        if log := getattr(rig, "log_path", None):
+            self._notes_log = open(log.with_suffix(".notes.jsonl"), "a", buffering=1)
+            if hasattr(sci, "on_update"):
+                sci.on_update = _also(self._persist, sci.on_update)
         self.t0 = time.time()
         self.relearned_s: float | None = None
         self.probing_s: float | None = None
@@ -185,6 +192,17 @@ class Mission:
 
     def note(self, kind: str, text: str):
         self.notes.append({"t": time.time(), "kind": kind, "text": text})
+        self._persist()
+
+    def _persist(self, *extra: dict):
+        """Append the notebook entries not yet written next to the rig's tick log, for scripts/report.py."""
+        if self._notes_log is None:
+            return
+        notebook = list(self.sci.notebook)
+        new = self.notes[self._saved[0]:] + notebook[self._saved[1]:] + list(extra)
+        self._saved = len(self.notes), len(notebook)
+        for n in sorted(new, key=lambda n: n["t"]):
+            self._notes_log.write(json.dumps(n, default=_plain) + "\n")
 
     def watch(self):
         """Score the last window; raise Surprised when the median of three unsuppressed windows passes threshold, or
@@ -579,6 +597,7 @@ class Mission:
             self.note("alert", f'Not understood: "{text}"')
             return
         self.command = text
+        self._persist({"t": time.time(), "kind": "command", "text": text, "intent": intent.kind})
         if intent.kind == "stop":
             await self._cancel()
             await self.rig.stop()
@@ -750,6 +769,18 @@ class Mission:
                     dash.set_frame(topdown(frame, self.rig.H, self.rig.floor))
                     if not hasattr(self.rig, "view"):
                         dash.set_view(frame)
+
+
+def _also(first, then):
+    """Chains the scientist's on_update; the scientist awaits what it returns."""
+    def call(sci):
+        first()
+        return then(sci) if then else None
+    return call
+
+
+def _plain(o):
+    return o.tolist() if hasattr(o, "tolist") else str(o)
 
 
 def _title(station: str) -> str:
