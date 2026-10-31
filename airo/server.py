@@ -12,7 +12,7 @@ State contract, published as one dict (numpy values are fine, they are converted
               "portrait": int | None,                # bumps when GET /portrait has a new self-portrait
               "params": [{"name", "value", "key", "unit", "lo", "hi"}]},
      "surprise": {"values": [float], "threshold": float},
-     "notebook": [{"t": float, "kind": "alert|hypothesis|prediction|result|conclusion|fallback", "text": str}]}
+     "notebook": [{"t": float, "kind": "alert|hypothesis|prediction|result|conclusion|fallback|eye", "text": str}]}
 
 Optional fields:
 

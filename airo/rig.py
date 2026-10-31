@@ -136,7 +136,7 @@ class Rig(BaseRig):
 
     def __init__(self, car: Car | None, cap, tracker: PoseTracker, floor, **kw):
         super().__init__(floor, **kw)
-        self.car, self._cap, self._tracker = car, cap, tracker
+        self.car, self._cap, self.tracker = car, cap, tracker
         self.safety = car is not None
         self._latest: Pose | None = None
         self._frame: np.ndarray | None = None
@@ -189,7 +189,7 @@ class Rig(BaseRig):
             ok, frame = self._cap.retrieve()
             if not ok:
                 continue
-            pose = self._tracker.update(frame, t)
+            pose = self.tracker.update(frame, t)
             self._frame = frame
             if pose:
                 self._latest = pose
@@ -200,7 +200,7 @@ class Rig(BaseRig):
 
     @property
     def H(self):
-        return self._tracker.H
+        return self.tracker.H
 
     def frame(self) -> np.ndarray | None:
         return self._frame
