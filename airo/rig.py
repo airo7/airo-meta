@@ -35,6 +35,8 @@ def add_args(p):
     p.add_argument("--camera", default=os.getenv("AIRO_CAMERA", os.getenv("AIRO_CAMERA_INDEX", "0")),
                    help="camera index, or a stream URL (a phone on Wi-Fi: http://<phone>:8080/video)")
     p.add_argument("--marker-h", type=float, default=0.0, help="car marker height above floor (m)")
+    p.add_argument("--marker-offset", nargs=2, type=float, default=(0.0, 0.0), metavar=("FWD", "LEFT"),
+                   help="turning centre from the marker centre (m); scripts/centre_check.py measures it")
     p.add_argument("--cam-h", type=float, default=1.8, help="camera height above floor (m)")
     p.add_argument("--address", help="BLE address; default scans for the HM-10 by name")
     p.add_argument("--dry", action="store_true", help="camera and pose only: no BLE, nothing drives")
@@ -56,7 +58,8 @@ async def open_rig(args, **sim):
         from airo.sim import SimRig
 
         return SimRig(KEY, floor=tuple(args.floor), realtime=True, **sim)
-    return await Rig.open(tuple(args.floor), args.camera, args.marker_h, args.cam_h, args.address, args.dry)
+    return await Rig.open(tuple(args.floor), args.camera, args.marker_h, args.cam_h, args.address, args.dry,
+                          offset=tuple(args.marker_offset))
 
 
 class BaseRig:
@@ -144,14 +147,15 @@ class Rig(BaseRig):
 
     @classmethod
     async def open(cls, floor, camera: int | str = 0, marker_h: float = 0.0, cam_h: float = 1.8,
-                   address: str | None = None, dry: bool = False, timeout: float = 5.0, **kw) -> "Rig":
+                   address: str | None = None, dry: bool = False, timeout: float = 5.0,
+                   offset: tuple[float, float] = (0.0, 0.0), **kw) -> "Rig":
         """Checks the camera, then the markers, then BLE, so each failure names its own fix."""
         cap = open_camera(camera)
         if not cap.isOpened() or not cap.read()[0]:
             cap.release()
             raise RigAbort(f"camera {camera} gives no frames: try --camera 1 (or set AIRO_CAMERA), for a phone "
                            "on Wi-Fi check its stream URL opens in a browser, and allow camera access for this terminal")
-        rig = cls(None, cap, PoseTracker(floor_layout(*floor), marker_h, cam_h), floor, **kw)
+        rig = cls(None, cap, PoseTracker(floor_layout(*floor), marker_h, cam_h, offset=offset), floor, **kw)
         try:
             await rig._first_pose(timeout)
             if not dry:

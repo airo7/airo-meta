@@ -44,3 +44,18 @@ def test_pose_from_synthetic_overhead(marker_h):
     assert tracker.residual_m < 0.002
     assert math.hypot(pose.x - truth[0], pose.y - truth[1]) < 0.005
     assert abs(pose.theta - theta) < math.radians(1)
+
+
+def test_offset_moves_pose_to_turning_centre():
+    layout = floor_layout(2.0, 1.2)
+    canvas = np.full((H, W), 255, np.uint8)
+    for i, centre in layout.items():
+        stamp(canvas, i, centre, CORNER_MARKER_M)
+    theta = math.radians(30)
+    stamp(canvas, CAR_ID, (1.0, 0.6), CAR_MARKER_M, theta)
+    plain = PoseTracker(layout).update(canvas)
+    pose = PoseTracker(layout, offset=(0.06, -0.02)).update(canvas)
+    th = plain.theta
+    fwd, left = np.array([math.cos(th), math.sin(th)]), np.array([-math.sin(th), math.cos(th)])
+    want = np.array([plain.x, plain.y]) + 0.06 * fwd - 0.02 * left
+    assert np.allclose((pose.x, pose.y), want, atol=1e-9) and pose.theta == plain.theta

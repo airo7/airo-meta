@@ -76,12 +76,15 @@ class PoseTracker:
     """Car pose from marker 0. The floor homography is a running median, so the car may occlude a corner.
 
     The car marker sits above the floor, so its floor projection is scaled away from the camera nadir by
-    cam_h / (cam_h - marker_h); this assumes the phone looks roughly straight down.
+    cam_h / (cam_h - marker_h); this assumes the phone looks roughly straight down. The pose is the car's turning
+    centre, offset (forward, left) metres from the marker centre.
     """
 
-    def __init__(self, layout: dict, marker_h: float = 0.0, cam_h: float = 1.8, window: int = 15):
+    def __init__(self, layout: dict, marker_h: float = 0.0, cam_h: float = 1.8, window: int = 15,
+                 offset: tuple[float, float] = (0.0, 0.0)):
         self.layout = layout
         self.k = 1 - marker_h / cam_h
+        self.offset = offset
         self._hs: deque[np.ndarray] = deque(maxlen=window)
         self._ts: deque[float] = deque(maxlen=30)
         self.H: np.ndarray | None = None
@@ -103,10 +106,12 @@ class PoseTracker:
         c = to_floor(self.H, markers[CAR_ID])
         nadir = to_floor(self.H, np.array([[gray.shape[1] / 2, gray.shape[0] / 2]]))[0]
         c = nadir + (c - nadir) * self.k
-        centre = c.mean(axis=0)
         fwd = (c[0] + c[1]) / 2 - (c[2] + c[3]) / 2
+        th = math.atan2(fwd[1], fwd[0])
+        (a, b), cs, sn = self.offset, math.cos(th), math.sin(th)
+        x, y = c.mean(axis=0) + (a * cs - b * sn, a * sn + b * cs)
         self._ts.append(t)
-        return Pose(float(centre[0]), float(centre[1]), math.atan2(fwd[1], fwd[0]), t)
+        return Pose(float(x), float(y), th, t)
 
     @property
     def hz(self) -> float:
