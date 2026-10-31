@@ -57,9 +57,11 @@ CLEAR = 0.3
 BAY_RUN = 0.3
 DOCK_RUN = 0.38
 KINDS = ("heavy", "light")
+PATROL_IN = 0.05
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
           "fetching": ("drive", "drive to the pick cell"), "loading": ("drive", "loaded by the arm"),
           "unloading": ("drive", "unloaded by the arm"), "returning": ("drive", "back to the dock"),
+          "driving": ("drive", "drive to a point"), "patrolling": ("drive", "patrol"),
           "surprised": ("surprise", "reality left the cloud"), "relearning": ("relearn", "relearn"),
           "learning": ("probe", "learn the body")}
 PARAMS = [("g_l", "Gain left", "mm/s/PWM", 1000, 0, 5), ("g_r", "Gain right", "mm/s/PWM", 1000, 0, 5),
@@ -147,6 +149,7 @@ class Mission:
         self._status, self.command, self.station = "idle", "", ""
         self.scene: planner.Scene | None = None
         self.path: list = []
+        self.goal: tuple[float, float] | None = None
         self.notes: list[dict] = []
         self.t0 = time.time()
         self.relearned_s: float | None = None
@@ -247,6 +250,40 @@ class Mission:
                 self._near = None
         self.note("alert", f"Gave up on {station} after {attempts} attempts.")
         return False
+
+    async def drive(self, goal, attempts: int = 5) -> bool:
+        """Straight to a floor point: the inset is convex, so the line stays on the floor."""
+        self.goal = goal = tuple(goal)
+        try:
+            for _ in range(attempts):
+                self.status = "driving"
+                p = self.rig.pose
+                self.path = [(p.x, p.y), goal]
+                try:
+                    await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
+                    self.note("result", f"Arrived at ({goal[0]:.2f}, {goal[1]:.2f}).")
+                    return True
+                except Surprised as e:
+                    await self.relearn(str(e))
+            self.note("alert", f"Gave up on ({goal[0]:.2f}, {goal[1]:.2f}) after {attempts} attempts.")
+            return False
+        finally:
+            self.goal = None
+
+    async def patrol(self):
+        """Laps of the inset's corners until stopped, relearning or recalling the body whenever it changes."""
+        m, (w, h) = self.rig.inset + PATROL_IN, self.rig.floor
+        corners = [(m, m), (w - m, m), (w - m, h - m), (m, h - m)]
+        while True:
+            self.status = "patrolling"
+            p = self.rig.pose
+            i = min(range(4), key=lambda i: math.dist(corners[i], (p.x, p.y)))
+            # follow stops once near its last point, so a lap back to the start would end at once
+            self.path = [(p.x, p.y), *(corners[(i + k) % 4] for k in (1, 2, 3))]
+            try:
+                await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
+            except Surprised as e:
+                await self.relearn(str(e))
 
     def _plan(self, goal, **kw) -> list:
         p = self.rig.pose
@@ -546,6 +583,11 @@ class Mission:
             b = self.body
             self.note("result", f"Body #{self.sci.n} {self.sci.name}: gains {b.g_l * 1000:.2f}/{b.g_r * 1000:.2f} "
                                 f"mm/s/PWM, dead zone {b.dz:.0f}, delay {b.tau * 1000:.0f} ms.")
+        elif intent.kind == "goto" and not self.rig.inside(*intent.xy):
+            self.note("alert", f"({intent.xy[0]:.2f}, {intent.xy[1]:.2f}) is outside the floor inset.")
+        elif intent.kind in ("goto", "patrol"):
+            await self._cancel()
+            self._task = asyncio.create_task(self._run(self.drive(intent.xy) if intent.xy else self.patrol()))
         elif intent.kind == "learn" or intent.target in self.stations:
             await self._cancel()
             self.kind = next((k for k in KINDS if re.search(rf"\b{k}\b", text.lower())), None)
@@ -591,7 +633,7 @@ class Mission:
         return {
             "t": p.t if p else 0.0, "status": self.status, "command": self.command,
             "floor": {"w": self.rig.floor[0], "h": self.rig.floor[1]},
-            "pose": pose, "cloud": ghost, "path": self.path, "polygons": polygons,
+            "pose": pose, "cloud": ghost, "path": self.path, "goal": self.goal, "polygons": polygons,
             "body": {"n": self.sci.n, "name": self.sci.name, "relearned_s": self.relearned_s,
                      "probing_s": self.probing_s, "portrait": self.portrait_n or None,
                      "params": _params(b, self.sci.n <= 1)},
@@ -622,12 +664,15 @@ class Mission:
             r = self._relearn_state()
             step = f" ({r['step']} of up to {r['steps']} probes run)" if r and r["step"] else ""
             return f"My body changed while driving, so I am testing what changed{step}."
+        if s == "driving" and self.goal:
+            return f"Driving to ({self.goal[0]:.2f}, {self.goal[1]:.2f}) m on the floor."
         if s == "delivering":
             why = "" if getattr(sci, "verified", True) else f", slowly because {me} is not confirmed"
             return f"Driving behind the parcel to push it to {to}{why}."
         return {"idle": f"Waiting for a command as {me}.", "scanning": f"Looking for the parcel and {to}.",
                 "pushing": f"Pushing the parcel to {to}.", "surprised": "I moved differently than predicted: stopping.",
                 "learning": "Learning my body from scratch with probe drives.", "stopped": "Stopped on command.",
+                "patrolling": "Patrolling the floor's corners until told to stop.",
                 "aborted": "Stopped for safety; waiting for a command."}.get(s, f"Stopped: {s}.")
 
     def _draw(self):
