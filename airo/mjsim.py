@@ -47,13 +47,14 @@ def fleet(site: Site, n: int, realtime: bool = False, seed: int = 0, log_dir: st
 class MjRig(BaseRig):
     """One car in a World, with the same interface as sim.SimRig. On its own it builds a single-car world on the home
     site (floor and objects overridable). source="aruco" renders the overhead camera and runs camera.PoseTracker on
-    it; source="truth" reads the physics state plus noise. realtime=False advances instantly, for tests."""
+    it; source="truth" reads the physics state plus noise. realtime=False advances instantly, for tests. marker_at
+    (forward, left) metres tapes the car's marker off its turning centre."""
 
     def __init__(self, floor=(2.0, 1.2), pose0=None, objects=None, source: str = "truth",
                  noise=(0.002, math.radians(0.3)), delay: float = DELAY, realtime: bool = False, seed: int = 0,
                  size=(1920, 1080), bumper: bool = False, weight: float = 0.0, tow=None, patch=None,
                  flip: str | None = None, world: World | None = None, prefix: str = "", name: str = "AIRO",
-                 marker: int = 0, accent=None, **kw):
+                 marker: int = 0, accent=None, marker_at=(0.0, 0.0), **kw):
         self._own = world is None
         if world is None:
             world = World(replace(HOME, floor=tuple(floor), pose=source, frame=tuple(size)), objects, realtime)
@@ -70,6 +71,7 @@ class MjRig(BaseRig):
         self._chase: mujoco.MjvCamera | None = None
         self.tracker = PoseTracker(floor_layout(*self.floor), MARKER_H, world.site.cam_h) if source == "aruco" else None
         scene.add_car(world.spec, prefix, pose0 or (self.floor[0] / 2, self.floor[1] / 2, 0.0), marker, accent)
+        world.spec.body(prefix + "marker_card").pos = [*marker_at, 0]
         world.cars.append(self)
         if world.site.mode == "carry":
             self.add_tray()

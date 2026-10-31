@@ -83,6 +83,7 @@ function events(s) {
     const seen = app.notes[r.id] ?? 0, notes = r.notebook || [];
     if (app.loaded && notes.length > seen) {
       for (const e of notes.slice(seen)) {
+        if (e.kind === "eye" && e.moved) toast(`Found my eye · marker ${Math.hypot(...e.marker_cm).toFixed(1)} cm off my turning centre`, r, "#0a84ff");
         if (e.kind !== "recall") continue;
         app.recallAt[r.id] = { at: performance.now(), e };
         toast(`Recalled Body #${e.n} · ${e.name}${e.recall_s != null ? ` · ${e.recall_s.toFixed(1)} s` : ""}`, r);

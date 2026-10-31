@@ -11,7 +11,7 @@ from typing import Callable
 
 import numpy as np
 
-from airo import meta_api
+from airo import eye, meta_api
 from airo.body import PRIOR, THRESHOLD, Body, Segment, _residual, ensemble, fit, surprise
 from airo.memory import Entry, Memory, since_change
 from airo.probes import (FLOOR, QTY, LIBRARY, SCHEDULE, Recentre, executed, halt, measure, outcome, predict, run, safe,
@@ -39,6 +39,10 @@ BUMPED = 4.0
 # A remembered body must be this much more likely (log-likelihood, ~2.7x) than the current one to replace it.
 CHANGE_LL = 1.0
 UNITS = ("cm forward", "cm lateral", "deg turn")
+# The eye check moves the tracked point onto the turning centre when they are over EYE_MOVE apart. While it pivots the
+# tracked point swings up to twice that distance, so it needs EYE_ROOM of floor; a fit worse than EYE_RMS means the car
+# was disturbed.
+EYE_MOVE, EYE_ROOM, EYE_RMS = 0.015, 0.15, 0.01
 LOOK = "In one short line: is anything attached to, sitting on or towed behind the small robot car?"
 
 SYSTEM = """You are the scientist inside AIRO: a $50 skid-steer robot car with no wheel encoders, watched by an \
@@ -106,6 +110,13 @@ def _verdict(probe: str, pred: dict, meas: dict) -> str:
     return f"{probe} {m:.0f}{u} ± {math.hypot(sd, FLOOR[i]):.0f} vs {meas[QTY[i]]:.0f}{u}"
 
 
+def _where(m) -> str:
+    """A body-frame point (forward, left) in metres, in words, e.g. "6.4 cm behind and 1.0 cm left of"."""
+    fwd = f"{abs(m[0]) * 100:.1f} cm {'in front of' if m[0] > 0 else 'behind'}" if abs(m[0]) >= 0.005 else ""
+    side = f"{abs(m[1]) * 100:.1f} cm {'left' if m[1] > 0 else 'right'} of" if abs(m[1]) >= 0.005 else ""
+    return " and ".join(filter(None, (fwd.removesuffix(" of") if side else fwd, side)))
+
+
 def regime(probe: str) -> str:
     return "turn" if LIBRARY[probe].kind in ("pivot", "arc") else "straight"
 
@@ -155,7 +166,7 @@ def _brief(out: dict) -> str:
 
 class Scientist:
     """Notebook entries are {"t", "kind", "text", ...}, kind in alert|hypothesis|prediction|result|conclusion|
-    recall|fallback; entries written by the scripted policy also carry "fallback": True.
+    recall|fallback|eye; entries written by the scripted policy also carry "fallback": True.
 
     A relearn ends once a probe run after a refit lands within |z| < 2 on every quantity, or when the budget runs
     out; `verified` says which. Before relearning it tries the remembered body that best explains the window.
@@ -196,9 +207,37 @@ class Scientist:
 
     async def learn(self, budget: int = 10):
         self.segments, self._anchor, self._verify, self.verified = [], None, False, True
+        self._fallback = False
+        await self.find_eye()
         await self._session(f"Learn this car's body from scratch with {budget} probes. A reasonable schedule is "
                             f"{SCHEDULE[:budget]}, but order the probes to cut the largest uncertainty first. Nothing "
                             "is attached to the car yet; name the body after how it drives.", SCHEDULE, budget)
+
+    async def find_eye(self):
+        """On a rig that tracks a marker, pivot both ways in place and move the tracked point onto the turning centre:
+        a marker taped off it makes every pivot look like a slide. The pivots are not probes, so they stay out of the
+        fit."""
+        tracker = getattr(self.rig, "tracker", None)
+        if tracker is None:
+            return
+        if not all(safe(self.rig, p, self.best, margin=EYE_ROOM) for p in eye.PIVOTS):
+            await self._note("eye", "No room to pivot here, so I track my marker as it is.")
+            return
+        runs = await eye.pivots(self.rig)
+        d, rms = eye.fit(runs)
+        if (turn := min(eye.turns(runs))) < eye.MIN_TURN or rms > EYE_RMS:
+            await self._note("eye", f"My pivots could not place my marker (turned {turn:.0f}°, fit rms "
+                                    f"{rms * 1000:.0f} mm), so I track it as it is.")
+            return
+        at = {"marker_cm": [round(-v * 100, 1) for v in d], "rms_mm": round(rms * 1000, 1)}
+        if math.hypot(*d) <= EYE_MOVE:
+            await self._note("eye", f"My marker sits on my turning centre, within {math.hypot(*d) * 100:.1f} cm.", **at)
+            return
+        tracker.offset = tuple(float(v) for v in np.add(tracker.offset, d))
+        # the next pose is in the new frame: the probes start from it
+        await halt(self.rig, 0.25)
+        await self._note("eye", f"My marker sits {_where(-d)} my turning centre; I now track the centre.", moved=True,
+                         **at)
 
     async def relearn(self, window_seg: Segment, budget: int = len(RELEARN)) -> float:
         """window_seg ends with the surprise; its part since the change seeds the refit, older segments are dropped."""

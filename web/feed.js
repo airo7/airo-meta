@@ -14,8 +14,9 @@ const NOTE_ICON = {
   conclusion: '<circle cx="10" cy="10" r="7.5"/><path d="m6.8 10.3 2.3 2.3 4.2-5"/>',
   recall: '<path d="M3.5 10a6.5 6.5 0 1 0 2-4.7M3.5 3.5v3.3h3.3"/><path d="M10 6.5V10l2.5 1.5"/>',
   fallback: '<path d="M4 6h12M4 10h8M4 14h10"/>',
+  eye: '<path d="M1.5 10s3-5.5 8.5-5.5 8.5 5.5 8.5 5.5-3 5.5-8.5 5.5S1.5 10 1.5 10z"/><circle cx="10" cy="10" r="2.5"/>',
 };
-const NOTE_KIND = { alert: "Surprise", hypothesis: "Hypothesis", prediction: "Prediction", result: "Result", conclusion: "Conclusion", recall: "Recall", fallback: "Scripted fallback" };
+const NOTE_KIND = { alert: "Surprise", hypothesis: "Hypothesis", prediction: "Prediction", result: "Result", conclusion: "Conclusion", recall: "Recall", fallback: "Scripted fallback", eye: "Eye check" };
 const feed = { filter: "", cards: new Map() };
 
 function ago(t) {
@@ -129,9 +130,9 @@ function renderNotebook(r) {
 
 function addNote(e, animate) {
   $("notebook").querySelector(".empty")?.remove();
-  const c = nb.cur, own = e.kind === "alert" || e.kind === "recall";
+  const c = nb.cur, own = e.kind === "alert" || e.kind === "recall" || e.kind === "eye";
   if (!c || own || e.kind === "hypothesis" || c.single || c.done) {
-    const title = e.kind === "alert" ? "Surprise" : e.kind === "recall" ? `Recalled Body #${e.n} · ${e.name}` : `Experiment ${++nb.exp}`;
+    const title = e.kind === "alert" ? "Surprise" : e.kind === "recall" ? `Recalled Body #${e.n} · ${e.name}` : e.kind === "eye" ? (e.moved ? "Found my eye" : "Eye check") : `Experiment ${++nb.exp}`;
     const state = e.kind === "recall" && e.recall_s != null ? `${e.recall_s.toFixed(1)} s` : clock(e.t);
     nb.cur = el("section", `exp ${own ? e.kind : ""}`, `<header><h3>${esc(title)}</h3><span class="state">${state}</span></header>`);
     nb.cur.single = own;

@@ -402,6 +402,7 @@ body.clean #unfold { opacity: 0; pointer-events: none; }
 .exp.alert h3 { color: var(--orange); }
 .exp.recall { background: rgba(48, 209, 88, 0.1); }
 .exp.recall h3 { color: var(--green); }
+.exp.eye h3 { color: var(--blue); }
 .step { display: grid; grid-template-columns: 18px 1fr; gap: 10px; padding: 8px 0 2px; animation: swap 0.5s var(--spring) both; }
 .step svg { width: 16px; height: 16px; margin-top: 1px; color: var(--label3); }
 .step.conclusion svg { color: var(--green); }
