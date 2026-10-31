@@ -64,6 +64,7 @@ class BaseRig:
 
     H: np.ndarray | None = None
     safety = True
+    overrun = 0.0
 
     def __init__(self, floor: tuple[float, float], log_dir: str | None = "data/runs", inset: float = INSET):
         self.floor = floor
@@ -107,7 +108,7 @@ class BaseRig:
             return fresh
         if self.pose is None or t + DT - self.pose.t > LOST_S:
             await self._abort("pose lost")
-        if not self.inside(self.pose.x, self.pose.y):
+        if not self.inside(self.pose.x, self.pose.y, -self.overrun):
             await self._abort(f"left the floor inset at ({self.pose.x:.2f}, {self.pose.y:.2f})")
         return fresh
 
@@ -126,6 +127,9 @@ class BaseRig:
 
 class Rig(BaseRig):
     """With car=None (dry run) nothing is sent and the safety checks are off."""
+
+    # goals stay in the inset, but a real car overshoots it; the stop waits this much further so it can drive back
+    overrun = 0.1
 
     def __init__(self, car: Car | None, cap, tracker: PoseTracker, floor, **kw):
         super().__init__(floor, **kw)
