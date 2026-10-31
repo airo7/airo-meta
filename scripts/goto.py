@@ -21,6 +21,9 @@ WIN = "airo goto"
 
 def draw(frame, rig, goal, scale):
     inv = np.linalg.inv(rig.H)
+    m, (w, h) = rig.inset, rig.floor
+    box = np.array([[m, m], [w - m, m], [w - m, h - m], [m, h - m]])
+    cv2.polylines(frame, [to_floor(inv, box).astype(np.int32)], True, (0, 200, 0), 2)
     if goal is not None:
         cv2.circle(frame, tuple(to_floor(inv, goal[None])[0].astype(int)), 12, (0, 0, 255), 3)
     p = rig.pose
