@@ -141,6 +141,7 @@ class Rig(BaseRig):
         self._latest: Pose | None = None
         self._frame: np.ndarray | None = None
         self._next = 0.0
+        self._t0 = time.monotonic()
         self._running = True
         self._thread = threading.Thread(target=self._camera, daemon=True)
         self._thread.start()
@@ -184,7 +185,7 @@ class Rig(BaseRig):
         while self._running:
             if not self._cap.grab():
                 continue
-            t = time.monotonic()
+            t = self.clock()
             ok, frame = self._cap.retrieve()
             if not ok:
                 continue
@@ -192,6 +193,10 @@ class Rig(BaseRig):
             self._frame = frame
             if pose:
                 self._latest = pose
+
+    def clock(self) -> float:
+        """Seconds since the rig opened: the dashboard shows rig time as a mission clock."""
+        return time.monotonic() - self._t0
 
     @property
     def H(self):
@@ -201,13 +206,13 @@ class Rig(BaseRig):
         return self._frame
 
     async def step(self, pwm_l: int, pwm_r: int) -> Pose | None:
-        now = time.monotonic()
+        now = self.clock()
         try:
             sent = self.car is not None and self.car.drive(pwm_l, pwm_r)
         except CarLost as e:
             raise RigAbort(f"{e}; the firmware stops the car within 500 ms") from e
         self._next = max(self._next + DT, now + DT / 2)
-        await asyncio.sleep(self._next - time.monotonic())
+        await asyncio.sleep(self._next - self.clock())
         latest = self._latest
         return await self._tick(now, pwm_l, pwm_r, sent, latest if latest is not self.pose else None)
 
@@ -216,7 +221,7 @@ class Rig(BaseRig):
             return
         with contextlib.suppress(CarLost):
             await self.car.stop()
-        self._cmd_t.append(time.monotonic())
+        self._cmd_t.append(self.clock())
         self._cmd.append((0, 0))
 
     async def close(self):
