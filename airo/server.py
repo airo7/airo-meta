@@ -28,8 +28,8 @@ Floor frame: x right, y up, origin at corner marker 1. /video (set_frame) covers
 
 import asyncio
 import json
+import logging
 from contextlib import suppress
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -40,10 +40,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from airo import meta_api
+from airo.paths import DATA, WEB
 
-WEB = Path(__file__).resolve().parent.parent / "web"
 MJPEG = "multipart/x-mixed-replace; boundary=frame"
-PORTRAITS = Path("data/portraits")
+PORTRAITS = DATA / "portraits"
+log = logging.getLogger(__name__)
 
 
 def _encode(bgr: np.ndarray) -> bytes:
@@ -168,6 +169,7 @@ class Dashboard:
             try:
                 await transcribe(heard, frames=frames())
             except Exception as e:
+                log.exception("voice request failed")
                 with suppress(Exception):
                     await sock.send_json({"error": f"{type(e).__name__}: {e}"})
             finally:

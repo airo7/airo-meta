@@ -10,7 +10,9 @@ import re
 import statistics
 from pathlib import Path
 
-RUNS = Path("data/runs")
+from airo.paths import DATA
+
+RUNS = DATA / "runs"
 ARRIVED = re.compile(r"Arrived at \(([-\d.]+), ([-\d.]+)\), ([\d.]+) cm off")
 # Older runs carry these only in the text; newer notes say it in fields ("changed", "how").
 BACK = re.compile(r"Body #(\d+), (relearned|recalled) in ([\d.]+) s")

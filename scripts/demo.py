@@ -13,6 +13,7 @@ often such things happen by themselves (--busy). --dry shows the camera, pose an
 
 import argparse
 import asyncio
+import logging
 import os
 import signal
 import sys
@@ -28,6 +29,7 @@ from airo.fleet import Fleet, crew
 from airo.memory import Memory
 from airo.mjsim import fleet as fleet_rigs
 from airo.orbit import PARTS, VIEWS, Orbit
+from airo.paths import DATA
 from airo.rig import MJ_BODY_PATH, RigAbort, add_args, body_path, open_rig
 from airo.scientist import Scientist
 from airo.server import Dashboard
@@ -52,10 +54,10 @@ def scientist(rig, pool: Memory, robot: str) -> Scientist:
 async def open_rigs(args, site) -> list:
     if site.scene == "factory":
         return fleet_rigs(site, min(args.robots, len(site.starts)), realtime=True, bumper=site.mode == "push",
-                          log_dir="data/runs")
+                          log_dir=DATA / "runs")
     # From the floor centre the drive to the parcel starts far enough out to be watched: the parcel approach is not.
     pose0 = (1.0, 0.7, 0.0) if args.mujoco else (0.4, 0.7, 0.0)
-    return [await open_rig(args, objects=world(), pose0=pose0, log_dir="data/runs")]
+    return [await open_rig(args, objects=world(), pose0=pose0, log_dir=DATA / "runs")]
 
 
 async def console(commands: asyncio.Queue):
@@ -120,6 +122,16 @@ def live_sam(stand_in):
     return segment
 
 
+def setup_logging():
+    """Status on stdout, errors on stderr, as the prints were; other libraries from warnings up (httpx logs every
+    request)."""
+    out, err = logging.StreamHandler(sys.stdout), logging.StreamHandler()
+    out.addFilter(lambda r: r.levelno < logging.WARNING)
+    err.setLevel(logging.WARNING)
+    logging.basicConfig(format="%(message)s", handlers=[out, err])
+    logging.getLogger("airo").setLevel(logging.INFO)
+
+
 async def run_as(robot):
     """Model calls made by this robot's mission are tagged with its id in the dashboard's feed."""
     meta_api.ROBOT.set(robot.id)
@@ -171,6 +183,7 @@ if __name__ == "__main__":
     # uvicorn re-raises the signal it caught once it has stopped: a kill must unwind like Ctrl+C, so BLE is closed;
     # a car left connected stops advertising until it is power-cycled
     signal.signal(signal.SIGTERM, signal.default_int_handler)
+    setup_logging()
     try:
         asyncio.run(main(p.parse_args()))
     except KeyboardInterrupt:

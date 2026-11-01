@@ -9,6 +9,7 @@ import numpy as np
 
 from airo.body import KEY, Body, cloud_radius_cm, posterior, save
 from airo.control import recentre
+from airo.paths import DATA
 from airo.rig import RigAbort, add_args, body_path, open_rig
 from airo.scientist import Scientist
 
@@ -33,7 +34,7 @@ def gates(b: Body, kappa_sd: float, radii: list[float]) -> list[tuple[str, str]]
 
 
 async def main(args):
-    rig = await open_rig(args, log_dir="data/runs")
+    rig = await open_rig(args, log_dir=DATA / "runs")
     radii: list[float] = []
     seen, members = 0, None
 

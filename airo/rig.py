@@ -15,13 +15,14 @@ import numpy as np
 from airo.body import BODY_PATH, SIM_BODY_PATH, Segment
 from airo.camera import Pose, PoseTracker, detect, floor_layout, open_camera
 from airo.car import Car, CarLost
+from airo.paths import DATA
 
 HZ = 20
 DT = 1 / HZ
 INSET = 0.15
 LOST_S = 0.3
 HOLD_S = 1.5
-MJ_BODY_PATH = Path("data/body_mj.json")
+MJ_BODY_PATH = DATA / "body_mj.json"
 
 
 class RigAbort(RuntimeError):
@@ -72,7 +73,7 @@ class BaseRig:
     pivot_min = 0
     drive_min = 0
 
-    def __init__(self, floor: tuple[float, float], log_dir: str | None = "data/runs", inset: float = INSET):
+    def __init__(self, floor: tuple[float, float], log_dir: str | Path | None = DATA / "runs", inset: float = INSET):
         self.floor = floor
         self.inset = inset
         self.pose: Pose | None = None

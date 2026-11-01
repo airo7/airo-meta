@@ -2,6 +2,7 @@ import asyncio
 from types import SimpleNamespace
 
 import numpy as np
+import pytest
 
 from airo import meta_api
 
@@ -32,6 +33,18 @@ def test_segment_maps_box_local_mask_to_frame(monkeypatch):
     ys, xs = np.nonzero(s.mask)
     assert s.mask.shape == (334, 320) and len(xs) > 0
     assert xs.min() >= 211 and xs.max() < 271 and ys.min() >= 228 and ys.max() < 255
+
+
+def test_segment_times_out_into_the_feed(monkeypatch):
+    async def hang(**_):
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(meta_api, "client", lambda: SimpleNamespace(responses=SimpleNamespace(create=hang)))
+    meta_api.FEED.clear()
+    with pytest.raises(TimeoutError):
+        asyncio.run(meta_api.segment(np.zeros((10, 10, 3), np.uint8), "box", timeout=0.01))
+    e = meta_api.FEED[-1]
+    assert (e["kind"], e["ok"]) == ("segment", False) and e["output"].startswith("TimeoutError")
 
 
 def test_calls_land_in_the_feed_with_robot_image_tools_and_failures(monkeypatch):

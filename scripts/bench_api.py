@@ -5,15 +5,15 @@ import asyncio
 import os
 import statistics
 import time
-from pathlib import Path
 
 import cv2
 import numpy as np
 
 from airo.camera import open_camera
 from airo.meta_api import describe, segment
+from airo.paths import DATA
 
-OUT = Path("data")
+OUT = DATA
 
 
 def grab(camera: int | str) -> np.ndarray:

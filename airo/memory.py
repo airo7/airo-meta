@@ -11,8 +11,9 @@ from pathlib import Path
 import numpy as np
 
 from airo.body import THRESHOLD, Body, Segment, load, surprise
+from airo.paths import DATA
 
-MEMORY_DIR = Path("data/memory")
+MEMORY_DIR = DATA / "memory"
 MODEL = "elegoo-v4"
 WINDOW = 0.5
 

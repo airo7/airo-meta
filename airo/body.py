@@ -12,10 +12,11 @@ from scipy.optimize import least_squares
 from scipy.signal import lfilter
 from scipy.special import expit
 
+from airo.paths import DATA
 from airo.protocol import PWM_MAX
 
-BODY_PATH = Path("data/body.json")
-SIM_BODY_PATH = Path("data/body_sim.json")
+BODY_PATH = DATA / "body.json"
+SIM_BODY_PATH = DATA / "body_sim.json"
 TRACK = 0.145
 DT = 0.01
 WARMUP = 2.5
