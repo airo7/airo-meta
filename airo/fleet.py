@@ -31,6 +31,10 @@ WEIGHT_KG = 0.8
 NUMBERS = {"one": 1, "two": 2, "to": 2, "too": 2, "three": 3, "four": 4}
 _ROBOT = re.compile(r"^\s*(?:(select|switch to|follow|use)\s+)?(?:airo|aero|arrow|robot)[\s#-]*"
                     r"(\d+|one|two|to|too|three|four)\b[\s,:.!-]*(.*)$", re.IGNORECASE)
+# "airo 1 …, airo 2 … and airo 3 …" is one command per robot; "and" alone stays inside a command
+_SPLIT = re.compile(r"\s*(?:[,;]|\band\b)\s*(?=(?:airo|aero|arrow|robot)[\s#-]*(?:\d+|one|two|three|four)\b)",
+                    re.IGNORECASE)
+_ALL = re.compile(r"^\s*(?:all(?:\s+(?:robots|airos))?|everyone|every robot)[\s,:]+(.+)$", re.IGNORECASE)
 NOW = {
     "idle": "Idle, waiting for a job.",
     "scanning": "Looking at the floor for its tote and the {station} station.",
@@ -213,7 +217,11 @@ class Fleet:
         return self.robots[self.selected]
 
     def route(self, text: str) -> str:
-        """Act on one command; returns what was done, in a few words."""
+        """Act on one command, or one per robot ("airo 1 …, airo 2 …", "all robots …"); returns what was done."""
+        if len(parts := [p for p in _SPLIT.split(text) if p.strip()]) > 1:
+            return "; ".join(self.route(p) for p in parts)
+        if m := _ALL.match(text):
+            return "; ".join(self.route(f"{r.name} {m[1]}") for r in self.robots)
         k, select, rest = parse_robot(text)
         if k is not None and not 0 <= k < len(self.robots):
             return f"no robot {k + 1}"

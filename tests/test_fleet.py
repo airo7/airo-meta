@@ -186,3 +186,15 @@ def test_in_a_standoff_the_higher_numbered_car_gives_way_and_any_car_gives_way_t
 
     # b stands still: a gives way to it; once b also waits for a, b gives way
     assert asyncio.run(run()) == ((True, False), (False, True))
+
+
+def test_one_command_per_robot_and_all_robots():
+    from types import SimpleNamespace
+    robots = [SimpleNamespace(name=f"AIRO {k}", rig=None) for k in (1, 2, 3)]
+    fleet = Fleet(FACTORY, robots, dry=True)
+    said = fleet.route("airo 1 bring a heavy tote to packing, airo 2 bring a light tote to qa and airo 3 stop")
+    assert said.split("; ") == ["dry run, not driving: airo 1 bring a heavy tote to packing",
+                                "dry run, not driving: airo 2 bring a light tote to qa",
+                                "dry run, not driving: airo 3 stop"]
+    assert fleet.route("all robots bring a heavy tote to dock").count("AIRO") == 3
+    assert fleet.route("airo 2 bring a heavy and light tote to qa").count("dry run") == 1
