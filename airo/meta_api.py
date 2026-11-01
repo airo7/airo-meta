@@ -103,10 +103,10 @@ def _data_url(image_bgr: np.ndarray, max_side: int = 1024) -> tuple[str, float]:
     return "data:image/jpeg;base64," + base64.b64encode(jpg.tobytes()).decode(), scale
 
 
-async def segment(image_bgr: np.ndarray, concept: str) -> list[Segment]:
+async def segment(image_bgr: np.ndarray, concept: str, timeout: float = 8) -> list[Segment]:
     """All instances of one short noun phrase; boxes and masks in original frame pixels."""
     with _call("sam-3.1", "segment", concept) as rec:
-        out = await _segment(image_bgr, concept)
+        out = await asyncio.wait_for(_segment(image_bgr, concept), timeout)
         scores = ", ".join(f"{s.score:.2f}" for s in out if s.score is not None)
         rec["output"] = f"{len(out)} × {concept}" + (f" ({scores})" if scores else "")
         rec["image"] = _thumb(_overlay(image_bgr, out))
@@ -146,13 +146,14 @@ async def _segment(image_bgr: np.ndarray, concept: str) -> list[Segment]:
     return out
 
 
-async def describe(image_bgr: np.ndarray, prompt: str, model: str = "muse-spark-1.3") -> str:
+async def describe(image_bgr: np.ndarray, prompt: str, model: str = "muse-spark-1.3", timeout: float = 15) -> str:
     with _call(model, "describe", prompt) as rec:
         url, _ = _data_url(image_bgr)
-        resp = await client().chat.completions.create(model=model, messages=[{"role": "user", "content": [
+        messages = [{"role": "user", "content": [
             {"type": "text", "text": prompt},
             {"type": "image_url", "image_url": {"url": url}},
-        ]}])
+        ]}]
+        resp = await asyncio.wait_for(client().chat.completions.create(model=model, messages=messages), timeout)
         rec["output"], rec["image"] = resp.choices[0].message.content or "", _thumb(image_bgr)
     return rec["output"]
 
@@ -171,11 +172,11 @@ async def wonder(messages: list[dict], tools: list[dict], model: str = "muse-won
     return msg
 
 
-async def image(prompt: str, model: str = "muse-image-1.0") -> bytes:
+async def image(prompt: str, model: str = "muse-image-1.0", timeout: float = 60) -> bytes:
     with _call(model, "image", prompt) as rec:
         # output_format defaults to webp: https://dev.meta.ai/docs/api-reference/images/schemas
-        resp = await client().images.generate(model=model, prompt=prompt, n=1, output_format="png",
-                                              response_format="b64_json")
+        resp = await asyncio.wait_for(client().images.generate(model=model, prompt=prompt, n=1, output_format="png",
+                                                               response_format="b64_json"), timeout)
         png = base64.b64decode(resp.data[0].b64_json)
         rec["output"], rec["image"] = "self-portrait", _thumb(cv2.imdecode(np.frombuffer(png, np.uint8),
                                                                            cv2.IMREAD_COLOR), 480)
