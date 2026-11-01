@@ -204,6 +204,14 @@ function drawAR(cv, state, sel, pin, box) {
   g.strokeStyle = "rgba(255,255,255,0.5)";
   g.lineWidth = 1.2;
   g.stroke();
+  for (const p of sel.polygons || []) {
+    trace(p.points, true);
+    g.fillStyle = "rgba(255,159,10,0.18)";
+    g.fill();
+    g.strokeStyle = "rgba(255,159,10,0.9)";
+    g.lineWidth = 2;
+    g.stroke();
+  }
   g.strokeStyle = alpha(col, 0.3);
   g.lineWidth = 1;
   for (const c of sel.cloud || []) (trace(c), g.stroke());

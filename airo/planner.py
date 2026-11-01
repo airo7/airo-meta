@@ -97,9 +97,10 @@ def taken(scene: Scene, xy, ignore=()) -> bool:
                if label not in ignore)
 
 
-def plan(scene: Scene, start, goal, clearance: float = 0.16, ignore=(),
-         smooth: bool = True) -> list[tuple[float, float]] | None:
-    """Waypoints in metres from start to goal, or None. `ignore` holds polygon labels or floor polygons."""
+def plan(scene: Scene, start, goal, clearance: float = 0.16, ignore=(), smooth: bool = True,
+         allowed: np.ndarray | None = None) -> list[tuple[float, float]] | None:
+    """Waypoints in metres from start to goal, or None. `ignore` holds polygon labels or floor polygons; `allowed`,
+    a grid-shaped mask, keeps the path to its cells."""
     res = scene.res
     occ = scene.grid.astype(np.uint8)
     for item in ignore:
@@ -113,6 +114,8 @@ def plan(scene: Scene, start, goal, clearance: float = 0.16, ignore=(),
     rows, cols = occ.shape
     s, g = [(min(max(int(p[1] / res), 0), rows - 1), min(max(int(p[0] / res), 0), cols - 1)) for p in (start, goal)]
     free = dist >= clearance
+    if allowed is not None:
+        free &= allowed
     ii, jj = np.mgrid[:rows, :cols]
     for c in (s, g):
         # The car may already sit inside the margin: near an endpoint, allow cells no closer to an obstacle than it.

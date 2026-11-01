@@ -16,8 +16,9 @@ import numpy as np
 from airo import planner, portrait
 from airo.body import KEY, THRESHOLD, Body, cloud, inverse, save, surprise, wrap
 from airo.control import OM_MAX, V_MAX, face, follow
+from airo.floorwatch import FloorWatch
 from airo.probes import FLOOR, QTY
-from airo.rig import DT, BaseRig, RigAbort
+from airo.rig import DT, BaseRig, Rig, RigAbort
 from airo.server import topdown
 from airo.voice import parse_intent
 
@@ -60,6 +61,11 @@ BAY_RUN = 0.3
 DOCK_RUN = 0.38
 KINDS = ("heavy", "light")
 PATROL_IN = 0.05
+# the real floor: look this far along the path for anything nearer than WAY_R, wait WAY_WAIT_S for it to move on,
+# then go around with AROUND_CLEAR, a little wider so the detour does not trip the check again
+FLOOR_DT = 0.2
+WAY_REACH, WAY_R, AROUND_CLEAR = 0.35, 0.12, 0.15
+WAY_WAIT_S = 1.5
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
           "fetching": ("drive", "drive to the pick cell"), "loading": ("drive", "loaded by the arm"),
           "unloading": ("drive", "unloaded by the arm"), "returning": ("drive", "back to the dock"),
@@ -98,6 +104,12 @@ class Blocked(Exception):
     pass
 
 
+class InTheWay(Exception):
+    def __init__(self, xy: tuple[float, float]):
+        super().__init__(f"something at ({xy[0]:.2f}, {xy[1]:.2f})")
+        self.xy = xy
+
+
 class Stuck(Exception):
     """Another robot has stood in the way for a while: rescan and plan around it."""
 
@@ -113,6 +125,8 @@ class _Watched:
 
     async def step(self, pwm_l: int, pwm_r: int):
         pose = await self._m.rig.step(pwm_l, pwm_r)
+        self._m.look_floor()
+        self._m.check_way()
         self._m.watch()
         if self._m.cell is not None:
             self._m.moved()
@@ -152,6 +166,9 @@ class Mission:
         self.threshold = threshold
         self._status, self.command, self.station = "idle", "", ""
         self.scene: planner.Scene | None = None
+        self.floor = FloorWatch(rig.floor) if isinstance(rig, Rig) else None
+        self._floor_t = -math.inf
+        self._ahead: list[tuple[float, float]] = []
         self.path: list = []
         self.goal: tuple[float, float] | None = None
         self.notes: list[dict] = []
@@ -272,8 +289,78 @@ class Mission:
         self.note("alert", f"Gave up on {station} after {attempts} attempts.")
         return False
 
+    def look_floor(self):
+        p, frame = self.rig.pose, self.floor and self.rig.frame()
+        if frame is None or p is None or self.rig.H is None or p.t - self._floor_t < FLOOR_DT:
+            return
+        self._floor_t = p.t
+        self.floor.update(frame, self.rig.H, p)
+
+    def check_way(self):
+        p = self.rig.pose
+        if self.floor and self._ahead and (xy := self.floor.ahead([(p.x, p.y), *self._ahead], WAY_REACH, WAY_R)):
+            raise InTheWay(xy)
+
+    async def _reach(self, goal, skip: bool = False) -> bool:
+        """A pivot then a straight leg to goal. Something in the way: wait a moment, then go around it. skip gives
+        up on a goal with no way around instead of waiting for one; False then."""
+        legs = [tuple(goal)]
+        while True:
+            try:
+                for i, g in enumerate(legs):
+                    self._ahead = legs[i:]
+                    p, watched = self.rig.pose, _Watched(self)
+                    await face(watched, self.body, math.atan2(g[1] - p.y, g[0] - p.x))
+                    await follow(watched, self.body, [(p.x, p.y), g], v_max=self.v_max)
+                return True
+            except InTheWay as e:
+                legs = await self._around(e.xy, tuple(goal), skip)
+                if legs is None:
+                    return False
+            finally:
+                self._ahead = []
+
+    async def _around(self, xy, goal, skip: bool) -> list | None:
+        await self.rig.stop()
+        self.note("alert", f"Something is in my way at ({xy[0]:.2f}, {xy[1]:.2f}) m. Waiting a moment.")
+        if await self._clears(WAY_WAIT_S):
+            self.note("result", "It moved away. Carrying on.")
+            return [goal]
+        waiting = False
+        while True:
+            p = self.rig.pose
+            scene = self.floor.scene()
+            route = planner.plan(scene, (p.x, p.y), goal, clearance=AROUND_CLEAR, allowed=self._inside(scene))
+            if route:
+                self.note("result", "It is staying, so I am going around it.")
+                self.path = route
+                return route[1:]
+            if skip:
+                self.note("alert", f"({goal[0]:.2f}, {goal[1]:.2f}) is blocked, so I skip it.")
+                return None
+            if not waiting:
+                self.note("alert", "There is no way around it. Waiting until the way is clear.")
+                waiting = True
+            if await self._clears(WAY_WAIT_S):
+                return [goal]
+
+    async def _clears(self, seconds: float) -> bool:
+        for _ in range(round(seconds / DT)):
+            await self.rig.step(0, 0)
+            self.look_floor()
+            p = self.rig.pose
+            if not self.floor.ahead([(p.x, p.y), *self._ahead], WAY_REACH, WAY_R):
+                return True
+        return False
+
+    def _inside(self, scene: planner.Scene) -> np.ndarray:
+        rows, cols = scene.grid.shape
+        x, y = (np.arange(cols) + 0.5) * scene.res, (np.arange(rows) + 0.5) * scene.res
+        m, (w, h) = self.rig.inset, self.rig.floor
+        return ((y >= m) & (y <= h - m))[:, None] & ((x >= m) & (x <= w - m))[None, :]
+
     async def drive(self, goal, attempts: int = 5) -> bool:
-        """Straight to a floor point: the inset is convex, so the line stays on the floor."""
+        """To a floor point, around anything put in the way: the inset is convex, so legs stay on the floor."""
         self.goal = goal = tuple(goal)
         try:
             for _ in range(attempts):
@@ -281,7 +368,7 @@ class Mission:
                 p = self.rig.pose
                 self.path = [(p.x, p.y), goal]
                 try:
-                    await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
+                    await self._reach(goal)
                     off = math.dist((self.rig.pose.x, self.rig.pose.y), goal)
                     self.note("result", f"Arrived at ({goal[0]:.2f}, {goal[1]:.2f}), {off * 100:.1f} cm off.")
                     return True
@@ -306,9 +393,7 @@ class Mission:
                     # square corners, a pivot then a straight leg: the motions the body was learned on. Pure pursuit
                     # rounds a corner on one wheel, which no probe excites, and on hardware that read as a surprise
                     for goal in self.path[1:]:
-                        p, watched = self.rig.pose, _Watched(self)
-                        await face(watched, self.body, math.atan2(goal[1] - p.y, goal[0] - p.x))
-                        await follow(watched, self.body, [(p.x, p.y), goal], v_max=self.v_max)
+                        await self._reach(goal, skip=True)
                 except Surprised as e:
                     await self.relearn(str(e))
         finally:
@@ -670,6 +755,8 @@ class Mission:
             ghost = cloud(self.sci.members, t, cmd_t, cmd, (p.x, p.y, p.theta))[..., :2].round(3)
         b = self.body
         polygons = [{"label": lb, "points": pts.round(3)} for lb, pts in self.scene.polygons] if self.scene else []
+        polygons += [{"label": "obstacle", "points": pts.round(3)} for pts in (self.floor.polygons if self.floor
+                                                                              else [])]
         return {
             "t": p.t if p else 0.0, "status": self.status, "command": self.command,
             "floor": {"w": self.rig.floor[0], "h": self.rig.floor[1]},
@@ -771,6 +858,7 @@ class Mission:
         while True:
             while not self.inbox.empty():
                 await self.handle(self.inbox.get_nowait())
+            self.look_floor()
             if self.busy:
                 await self._next_event(timeout=DT if dash else None)
             else:
