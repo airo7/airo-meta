@@ -88,9 +88,11 @@ async def transcribe(on_text: Callable[[str, bool], None], device=None, frames: 
 
 @dataclass
 class Intent:
-    kind: Literal["deliver", "learn", "stop", "status", "goto", "patrol"]
+    kind: Literal["deliver", "learn", "stop", "status", "goto", "patrol", "turn", "say"]
     target: str | None = None
     xy: tuple[float, float] | None = None
+    angle: float | None = None
+    text: str | None = None
 
 
 _STOP = re.compile(r"\b(stop|halt|freeze|abort|cancel|emergency)\b")

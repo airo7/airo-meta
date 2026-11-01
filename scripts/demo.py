@@ -22,7 +22,7 @@ import time
 
 import numpy as np
 
-from airo import meta_api
+from airo import commander, meta_api
 from airo.body import cloud
 from airo.control import recentre
 from airo.fleet import Fleet, crew
@@ -151,6 +151,9 @@ async def main(args):
     robots = crew(site, rigs, lambda rig, rid: scientist(rig, pool, rid), mode="sim" if sim else "real",
                   body_path=path if len(rigs) == 1 else None, real=not sim)
     fleet = Fleet(site, robots, mode="sim" if sim else "real", dry=args.dry and not sim)
+    if os.getenv("MODEL_API_KEY"):
+        for r in robots:
+            r.mission.understand = commander.understand
     if fleet.life is not None:
         fleet.life.set_level(args.busy)
     dash = Dashboard()

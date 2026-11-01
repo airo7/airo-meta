@@ -62,7 +62,7 @@ the real car as two tabs behind one page), `scripts/report.py` (numbers from one
 | Model | Role |
 |---|---|
 | `muse-wonder-1.0` | The scientist: picks each probe with a falsifiable hypothesis, recalls a remembered body or relearns, concludes and names the body. Tools return every number; it never steers. A 12 s budget per relearn, then the scripted policy finishes. |
-| `muse-spark-1.3` | Looks at the car when the body changes ("a weight pack strapped on top"), in parallel with Wonder's first turn. |
+| `muse-spark-1.3` | Looks at the car when the body changes ("a weight pack strapped on top"), in parallel with Wonder's first turn. | Also reads every typed or spoken command and picks one action ("forward 20 cm", "face marker 2", "the far corner") from the robot's pose and floor; "stop" never waits for it, and the plain parser takes over offline.
 | `sam-3.1` | Segments the floor: parcel or totes, stations and obstacles become polygons and an occupancy grid. |
 | `muse-voice-transcribe-1.0` | Realtime speech to commands; the text bar is the fallback. |
 | `muse-image-1.0` | A self-portrait of each confirmed body for its memory card. |
@@ -84,7 +84,7 @@ the real car as two tabs behind one page), `scripts/report.py` (numbers from one
   bays, queues), `loader.py` and `cobot.py` (pick and station arms), `life.py`, `workers.py`, `forklift.py`,
   `walkmap.py` (people, the forklift and floor events), `orbit.py` (the interactive camera).
 - **Interface:** `server.py` and `web/` (dashboard), `meta_api.py` (Meta model clients and the model feed),
-  `voice.py`, `portrait.py`.
+  `voice.py`, `commander.py` (Spark turns a command into one action), `portrait.py`.
 
 Tuning constants, their values and where each came from: [docs/tuning.md](docs/tuning.md).
 

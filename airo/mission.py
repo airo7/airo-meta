@@ -163,6 +163,9 @@ class Mission:
         self._relearn_t: float | None = None
         self._relearn_end: float | None = None
         self.inbox = inbox or asyncio.Queue()
+        self.understand = None
+        self._asked = 0
+        self._asking: asyncio.Task | None = None
         parcel = None if cell is not None else planner.PARCEL
         self.scan = scan or (lambda: planner.scan(rig.frame(), rig.H, rig.floor, stations=stations, parcel=parcel))
         self.threshold = threshold
@@ -380,6 +383,15 @@ class Mission:
             return False
         finally:
             self.goal, self.path = None, []
+
+    async def turn(self, angle: float):
+        self.status = "turning"
+        try:
+            await face(_Watched(self), self.body, wrap(self.rig.pose.theta + angle))
+        except Surprised as e:
+            await self.relearn(str(e))
+            return
+        self.note("result", f"Turned {abs(math.degrees(angle)):.0f}° {'left' if angle > 0 else 'right'}.")
 
     async def patrol(self):
         """Laps of the inset's corners until stopped, relearning or recalling the body whenever it changes."""
@@ -694,9 +706,46 @@ class Mission:
             save(self.sci.best, self.sci.members, self.sci.name, self.body_path)
 
     async def handle(self, text: str):
-        intent = parse_intent(text, self.stations)
+        """With the model live it reads the command, off the loop so the rig keeps ticking; "stop" never waits."""
+        self._asked += 1
+        quick = parse_intent(text, self.stations)
+        if self.understand is None or (quick and quick.kind == "stop"):
+            await self.act(text, quick)
+        else:
+            self._asking = asyncio.create_task(self._ask(text, self._asked))
+
+    async def _ask(self, text: str, n: int):
+        try:
+            intent = await self.understand(text, self.situation(), self.stations)
+        except Exception:
+            log.warning("command model failed, falling back to the parser", exc_info=True)
+            intent = parse_intent(text, self.stations)
+        if n == self._asked:
+            await self.act(text, intent)
+
+    def situation(self) -> str:
+        """What the model needs to place a command on this floor."""
+        (w, h), m, p = self.rig.floor, self.rig.inset, self.rig.pose
+        s = f"The floor is {w:.2f} x {h:.2f} m"
+        if isinstance(self.rig, Rig):
+            s += (f", taped with marker 1 at (0, 0), marker 2 at ({w:.2f}, 0), marker 3 at ({w:.2f}, {h:.2f}) and "
+                  f"marker 4 at (0, {h:.2f})")
+        s += f". The drivable area is x {m:.2f} to {w - m:.2f}, y {m:.2f} to {h - m:.2f}."
+        if p is not None:
+            s += f" The robot is at ({p.x:.2f}, {p.y:.2f}) heading {math.degrees(p.theta):.0f} deg, {self.status}."
+        if self.floor is not None and self.floor.polygons:
+            s += " Objects on the floor at " + ", ".join(
+                f"({c[0]:.2f}, {c[1]:.2f})" for c in (q.mean(axis=0) for q in self.floor.polygons)) + "."
+        if self.stations:
+            s += " Stations: " + ", ".join(self.stations) + "."
+        return s
+
+    async def act(self, text: str, intent):
         if intent is None:
-            self.note("alert", f'Not understood: "{text}"')
+            self.note("alert", f'Not understood: "{text}". Try "go to 0.4 0.6", "patrol", "learn" or "stop".')
+            return
+        if intent.kind == "say":
+            self.note("result", intent.text)
             return
         self.command = text
         self._persist({"t": time.time(), "kind": "command", "text": text, "intent": intent.kind})
@@ -712,6 +761,9 @@ class Mission:
                              f"{b.tau * 1000:.0f} ms.")
         elif intent.kind == "goto" and not self.rig.inside(*intent.xy):
             self.note("alert", f"({intent.xy[0]:.2f}, {intent.xy[1]:.2f}) is outside the floor inset.")
+        elif intent.kind == "turn":
+            await self._cancel()
+            self._task = asyncio.create_task(self._run(self.turn(intent.angle)))
         elif intent.kind in ("goto", "patrol"):
             await self._cancel()
             self._task = asyncio.create_task(self._run(self.drive(intent.xy) if intent.xy else self.patrol()))

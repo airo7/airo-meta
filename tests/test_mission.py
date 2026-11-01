@@ -14,6 +14,7 @@ from airo.memory import Memory
 from airo.mission import Mission, _gauge
 from airo.rig import RigAbort
 from airo.sim import PARCEL, SimRig, world
+from airo.voice import Intent
 
 BLUE = (1.7, 0.3)
 HEAVY = replace(KEY, g_l=KEY.g_l * 0.6, g_r=KEY.g_r * 0.6, eta=KEY.eta * 0.7)
@@ -309,3 +310,50 @@ def test_patrol_laps_the_inset_corners_until_stopped(mission):
     assert state["status"] == "patrolling" and state["now"].startswith("Patrolling")
     assert {tuple(q) for q in state["path"][1:]} <= {(m, m), (2.0 - m, m), (2.0 - m, 1.4 - m), (m, 1.4 - m)}
     assert mission.status == "stopped" and not mission.busy
+
+
+def test_the_model_reads_commands_and_stop_never_waits_for_it(mission):
+    async def understand(text, situation, stations):
+        await asyncio.sleep(0.3)
+        return Intent("goto", xy=(0.6, 0.7)) if "middle" in text else Intent("say", text="I am a robot car.")
+
+    async def run():
+        mission.understand = understand
+        await mission.handle("what are you?")
+        await mission._asking
+        assert mission.notes[-1]["text"] == "I am a robot car."
+        await mission.handle("drive to the middle")
+        await mission.handle("stop")
+        await mission._asking
+        assert not mission.busy and mission.status == "stopped"
+        await mission.handle("drive to the middle")
+        await mission._asking
+        await mission._task
+
+    asyncio.run(run())
+    assert "(0.60, 0.70)" in mission.notes[-1]["text"]
+
+
+def test_a_failing_model_falls_back_to_the_parser(mission):
+    async def understand(text, situation, stations):
+        raise TimeoutError
+
+    async def run():
+        mission.understand = understand
+        await mission.handle("go to 0.6 0.7")
+        await mission._asking
+        await mission._task
+
+    asyncio.run(run())
+    assert mission.notes[-1]["text"].startswith("Arrived at (0.60, 0.70)")
+
+
+def test_turns_pivot_by_the_asked_angle(mission):
+    async def run():
+        mission.understand = None
+        await mission.act("turn left", Intent("turn", angle=math.pi / 2))
+        await mission._task
+
+    start = mission.rig.pose.theta
+    asyncio.run(run())
+    assert abs(math.remainder(mission.rig.pose.theta - start - math.pi / 2, 2 * math.pi)) < math.radians(12)
