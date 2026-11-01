@@ -3,10 +3,10 @@ cloud, then replans from where the car stands."""
 
 import asyncio
 import json
+import logging
 import math
 import re
 import time
-import traceback
 from collections import deque
 from pathlib import Path
 from contextlib import suppress
@@ -40,6 +40,7 @@ RUN_IN_HEADING = math.radians(30)
 CONTACT = 0.24
 STANDOFF = 0.22
 PORTRAITS = DATA / "portraits"
+log = logging.getLogger(__name__)
 PROBE_REACH = 0.6
 RELEARN_PROBES = 5
 FAULT_Z = 5.0
@@ -730,7 +731,7 @@ class Mission:
             self.status = "aborted"
             self.note("alert", f"Safety stop: {e}.")
         except Exception as e:  # otherwise the task ends silently and the robot keeps a stale status
-            traceback.print_exc()
+            log.exception("mission stopped on an internal error")
             self.status = "error"
             self.note("alert", f"Stopped on an internal error: {type(e).__name__}: {e}.")
             with suppress(Exception):

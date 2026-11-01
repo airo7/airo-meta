@@ -13,6 +13,7 @@ often such things happen by themselves (--busy). --dry shows the camera, pose an
 
 import argparse
 import asyncio
+import logging
 import os
 import signal
 import sys
@@ -121,6 +122,16 @@ def live_sam(stand_in):
     return segment
 
 
+def setup_logging():
+    """Status on stdout, errors on stderr, as the prints were; other libraries from warnings up (httpx logs every
+    request)."""
+    out, err = logging.StreamHandler(sys.stdout), logging.StreamHandler()
+    out.addFilter(lambda r: r.levelno < logging.WARNING)
+    err.setLevel(logging.WARNING)
+    logging.basicConfig(format="%(message)s", handlers=[out, err])
+    logging.getLogger("airo").setLevel(logging.INFO)
+
+
 async def run_as(robot):
     """Model calls made by this robot's mission are tagged with its id in the dashboard's feed."""
     meta_api.ROBOT.set(robot.id)
@@ -172,6 +183,7 @@ if __name__ == "__main__":
     # uvicorn re-raises the signal it caught once it has stopped: a kill must unwind like Ctrl+C, so BLE is closed;
     # a car left connected stops advertising until it is power-cycled
     signal.signal(signal.SIGTERM, signal.default_int_handler)
+    setup_logging()
     try:
         asyncio.run(main(p.parse_args()))
     except KeyboardInterrupt:

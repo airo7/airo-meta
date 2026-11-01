@@ -3,6 +3,7 @@ to packing", "select airo 2", body changes to the selected robot, "spill" to the
 dashboard state. Robots plan around each other's footprints and hold still rather than drive into one another."""
 
 import asyncio
+import logging
 import math
 import re
 from collections.abc import Callable
@@ -19,6 +20,7 @@ from airo.server import topdown
 from airo.site import Site, robot
 from airo.voice import parse_intent
 
+log = logging.getLogger(__name__)
 REACH = 0.38
 WIDTH = 0.2
 LANE = 0.12
@@ -351,7 +353,7 @@ class Fleet:
         """Route commands from the dashboard and terminal, publish the state and the top-down floor view."""
         while True:
             while not dash.commands.empty():
-                print(self.route(dash.commands.get_nowait()))
+                log.info(self.route(dash.commands.get_nowait()))
             dash.publish(self.state())
             dash.portrait = self.robot.mission.portrait
             rig = self.robots[0].rig
