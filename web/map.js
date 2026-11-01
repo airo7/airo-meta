@@ -153,7 +153,7 @@ function car(g, cx, cy, angle, s, col, halo) {
   g.restore();
 }
 
-// The hero fills its rect with object-fit: cover; the image's box on screen.
+// The sim hero fills its rect with object-fit: cover; the image's box on screen.
 function cover(r, aspect) {
   const w = Math.max(r.width, r.height * aspect), h = w / aspect;
   return { x: r.left + (r.width - w) / 2, y: r.top + (r.height - h) / 2, w, h };
@@ -175,10 +175,10 @@ function screenToFloor(cam, box, x, y) {
 }
 
 // Over the live phone frame: the floor inset, and the selected car's ghost cloud, plan, goal and heading.
-function drawAR(cv, state, sel, pin) {
+// box is the phone frame's rect on screen, which the canvas covers 1:1.
+function drawAR(cv, state, sel, pin, box) {
   const g = sizeCanvas(cv), cam = state.camera;
   if (!cam) return;
-  const box = cover({ left: 0, top: 0, width: cv.clientWidth, height: cv.clientHeight }, cam.size[0] / cam.size[1]);
   const P = (p) => floorToScreen(cam, box, p), col = sel.color || "#0a84ff", { w, h } = state.site.floor, m = cam.inset;
   const trace = (pts, close) => {
     g.beginPath();
