@@ -69,6 +69,7 @@ class BaseRig:
     H: np.ndarray | None = None
     safety = True
     overrun = 0.0
+    pivot_min = 0
 
     def __init__(self, floor: tuple[float, float], log_dir: str | None = "data/runs", inset: float = INSET):
         self.floor = floor
@@ -141,6 +142,8 @@ class Rig(BaseRig):
 
     # goals stay in the inset, but a real car overshoots it; the stop waits this much further so it can drive back
     overrun = 0.1
+    # four fixed wheels scrub sideways on a pivot: below this a pivot stalls, though a straight moves at much less
+    pivot_min = 70
 
     def __init__(self, car: Car | None, cap, tracker: PoseTracker, floor, **kw):
         super().__init__(floor, **kw)

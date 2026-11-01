@@ -53,7 +53,7 @@ async def goto(rig: BaseRig, body: Body, xy, tol: float = 0.04, timeout: float =
         pose = predict(rig, body)
         v = float(np.clip(v_max * math.dist(pose[:2], goal) / SLOW_R, V_MIN, v_max))
         v, om, pivoting = _steer(pose, goal, v, pivoting, om_max)
-        await rig.step(*inverse(body, v, om))
+        await rig.step(*inverse(body, v, om, pivot_min=rig.pivot_min))
     await _settle(rig)
     return math.dist((rig.pose.x, rig.pose.y), goal)
 
@@ -65,7 +65,7 @@ async def face(rig: BaseRig, body: Body, theta: float, tol: float = math.radians
         err = float(wrap(theta - predict(rig, body, body.tau + 3 * body.lag, stop=True)[2]))
         if abs(err) < tol:
             break
-        await rig.step(*inverse(body, 0, float(np.clip(3 * err, -om_max, om_max))))
+        await rig.step(*inverse(body, 0, float(np.clip(3 * err, -om_max, om_max)), pivot_min=rig.pivot_min))
     await _settle(rig)
 
 
@@ -111,5 +111,5 @@ async def follow(rig: BaseRig, body: Body, path, tol: float = 0.04, lookahead: f
         if math.dist(pose[:2], path[-1]) < lookahead or not len(ahead):
             break
         v, om, pivoting = _steer(pose, path[i + ahead[0]], v_max, pivoting, om_max)
-        await rig.step(*inverse(body, v, om))
+        await rig.step(*inverse(body, v, om, pivot_min=rig.pivot_min))
     return await goto(rig, body, path[-1], tol, timeout, v_max, om_max)

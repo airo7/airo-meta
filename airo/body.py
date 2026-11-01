@@ -217,13 +217,16 @@ def cloud_radius_cm(segments: list[Segment], best: Body, anchor: Body | None = N
 _P = np.linspace(0, PWM_MAX, 4 * PWM_MAX + 1)
 
 
-def inverse(body: Body, v: float, omega: float, bump: float = 3) -> tuple[int, int]:
-    """PWM for steady-state (v, omega); non-zero sides are bumped just past the dead zone."""
+def inverse(body: Body, v: float, omega: float, bump: float = 3, pivot_min: float = 0) -> tuple[int, int]:
+    """PWM for steady-state (v, omega); non-zero sides are bumped just past the dead zone, and sides turning
+    against each other to at least pivot_min."""
     d = (omega - body.kappa * v) * TRACK / body.eta
     w = np.array([v - d / 2, v + d / 2])
     speed = np.abs(body.wheel_target(np.column_stack([_P, _P])))
     p = np.array([np.interp(abs(w[i]), speed[:, i], _P) for i in range(2)])
     p = np.where(np.abs(w) > 1e-3, np.maximum(p, body.dz + bump), 0)
+    if w[0] * w[1] < 0:
+        p = np.maximum(p, pivot_min)
     l, r = np.clip(np.sign(w) * np.sign([body.g_l, body.g_r]) * p, -PWM_MAX, PWM_MAX).round().astype(int)
     return int(l), int(r)
 
