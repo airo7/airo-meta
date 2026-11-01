@@ -20,6 +20,7 @@ HZ = 20
 DT = 1 / HZ
 INSET = 0.15
 LOST_S = 0.3
+HOLD_S = 1.5
 MJ_BODY_PATH = Path("data/body_mj.json")
 
 
@@ -73,6 +74,7 @@ class BaseRig:
         self.floor = floor
         self.inset = inset
         self.pose: Pose | None = None
+        self.held_t = -math.inf
         self._cmd_t: list[float] = []
         self._cmd: list[tuple[int, int]] = []
         self._ticks: list[tuple[float, Pose | None]] = []
@@ -112,10 +114,14 @@ class BaseRig:
         if not self.safety:
             return fresh
         if self.pose is None or t + DT - self.pose.t > LOST_S:
-            await self._abort("pose lost")
+            if not (fresh := await self._regain()):
+                await self._abort("pose lost")
         if not self.inside(self.pose.x, self.pose.y, -self.overrun):
             await self._abort(f"left the floor inset at ({self.pose.x:.2f}, {self.pose.y:.2f})")
         return fresh
+
+    async def _regain(self) -> Pose | None:
+        return None
 
     async def _abort(self, why: str):
         await self.stop()
@@ -217,6 +223,21 @@ class Rig(BaseRig):
         await asyncio.sleep(self._next - self.clock())
         latest = self._latest
         return await self._tick(now, pwm_l, pwm_r, sent, latest if latest is not self.pose else None)
+
+    async def _regain(self) -> Pose | None:
+        """Blind: stand still until the marker is back, so a moment of glare or a hand over the card is not a stop."""
+        if self.pose is None:
+            return None
+        await self.stop()
+        end = self.clock() + HOLD_S
+        while self.clock() < end:
+            await asyncio.sleep(DT)
+            if (p := self._latest) is not None and p.t > self.pose.t:
+                self.pose = p
+                self.held_t = self.clock()
+                self._next = self.clock()
+                return p
+        return None
 
     async def stop(self):
         if self.car is None:

@@ -218,7 +218,7 @@ class Mission:
         cmd = np.abs(seg.cmd[seg.cmd_t >= seg.t[0]])
         p = self.rig.pose
         quiet = (now < self._quiet_until or not len(cmd) or cmd.max(axis=1).min() <= self.body.dz
-                 or self._running_in(p) or self._touching(p))
+                 or self.rig.held_t > now - WINDOW - DT or self._running_in(p) or self._touching(p))
         s = [] if quiet else surprise(self.sci.members, seg, WINDOW)
         score = None if not len(s) or np.isnan(s[-1]) else float(s[-1])
         self.values.append(score or 0.0)
