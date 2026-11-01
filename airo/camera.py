@@ -15,6 +15,9 @@ DICT = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 CAR_ID = 0
 CAR_MARKER_M = 0.095
 CORNER_MARKER_M = 0.12
+# markers are found on a copy at most this wide: a 1080p phone stream then tracks at 720p cost and the dashboard
+# still shows the full frame
+DETECT_W = 1280
 # ArUco corner order TL, TR, BR, BL as offsets in the floor frame (top edge toward +y).
 _UNIT = np.array([[-0.5, 0.5], [0.5, 0.5], [0.5, -0.5], [-0.5, -0.5]])
 
@@ -93,7 +96,9 @@ class PoseTracker:
     def update(self, frame: np.ndarray, t: float | None = None) -> Pose | None:
         t = time.monotonic() if t is None else t
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
-        markers = detect(gray)
+        s = min(1.0, DETECT_W / gray.shape[1])
+        small = gray if s == 1 else cv2.resize(gray, None, fx=s, fy=s, interpolation=cv2.INTER_AREA)
+        markers = {i: c / s for i, c in detect(small).items()}
 
         H, res = fit_floor(markers, self.layout)
         if H is not None:
