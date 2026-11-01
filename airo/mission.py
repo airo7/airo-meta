@@ -11,11 +11,12 @@ from collections import deque
 from pathlib import Path
 from contextlib import suppress
 
+import cv2
 import numpy as np
 
-from airo import planner, portrait
+from airo import meta_api, planner, portrait
 from airo.body import KEY, THRESHOLD, Body, cloud, inverse, save, surprise, wrap
-from airo.control import OM_MAX, V_MAX, face, follow
+from airo.control import OM_MAX, V_MAX, V_MIN, face, follow
 from airo.floorwatch import FloorWatch
 from airo.paths import DATA
 from airo.probes import FLOOR, QTY
@@ -68,10 +69,12 @@ PATROL_IN = 0.05
 FLOOR_DT = 0.2
 WAY_REACH, WAY_R, AROUND_CLEAR = 0.35, 0.12, 0.15
 WAY_WAIT_S = 1.5
+PUSH_MAX, PUSH_M, RUN_IN_PUSH = 0.2, 0.25, 0.2
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
           "fetching": ("drive", "drive to the pick cell"), "loading": ("drive", "loaded by the arm"),
           "unloading": ("drive", "unloaded by the arm"), "returning": ("drive", "back to the dock"),
           "driving": ("drive", "drive to a point"), "patrolling": ("drive", "patrol"),
+          "clearing": ("drive", "push an obstacle aside"),
           "surprised": ("surprise", "reality left the cloud"), "relearning": ("relearn", "relearn"),
           "learning": ("probe", "learn the body")}
 PARAMS = [("g_l", "Gain left", "mm/s/PWM", 1000, 0, 5), ("g_r", "Gain right", "mm/s/PWM", 1000, 0, 5),
@@ -110,6 +113,40 @@ class InTheWay(Exception):
     def __init__(self, xy: tuple[float, float]):
         super().__init__(f"something at ({xy[0]:.2f}, {xy[1]:.2f})")
         self.xy = xy
+
+
+def push_plan(poly, start, goal, inside, clearance) -> dict | None:
+    """Which side to shove a blocking polygon to, and from where: None when too big or with no room."""
+    poly = np.asarray(poly, float)
+    c = poly.mean(axis=0)
+    size = float(max(cv2.minAreaRect(poly.astype(np.float32))[1]))
+    if size > PUSH_MAX:
+        return None
+    d = np.asarray(goal, float) - np.asarray(start, float)
+    if (norm := float(np.hypot(*d))) < 1e-9:
+        return None
+    n0 = np.array([-d[1], d[0]]) / norm
+    best = None
+    for s in (1.0, -1.0):
+        n = s * n0
+        to = c + PUSH_M * n
+        if not inside(float(to[0]), float(to[1])):
+            continue
+        room = clearance((float(to[0]) + 0.1 * float(n[0]), float(to[1]) + 0.1 * float(n[1])))
+        if best is None or room > best[0]:
+            best = (room, n)
+    if best is None:
+        return None
+    n = best[1]
+    standoff = STANDOFF + (size - 0.1) / 2
+    push_from = c - standoff * n
+    run_in = push_from - RUN_IN_PUSH * n
+    if not inside(float(push_from[0]), float(push_from[1])) or not inside(float(run_in[0]), float(run_in[1])):
+        return None
+    push_to = c + PUSH_M * n - standoff * n
+    tup = lambda p: (float(p[0]), float(p[1]))
+    return {"centroid": tup(c), "size": size, "n": tup(n),
+            "run_in": tup(run_in), "push_from": tup(push_from), "push_to": tup(push_to)}
 
 
 class Stuck(Exception):
@@ -193,6 +230,7 @@ class Mission:
         self._next_window = -math.inf
         self._quiet_until = -math.inf
         self._near: tuple[float, float, float] | None = None
+        self._push_name = "the obstacle"
         self._task: asyncio.Task | None = None
 
     @property
@@ -331,7 +369,7 @@ class Mission:
         if await self._clears(WAY_WAIT_S):
             self.note("result", "It moved away. Carrying on.")
             return [goal]
-        waiting = False
+        waiting, tried = False, False
         while True:
             p = self.rig.pose
             scene = self.floor.scene()
@@ -343,11 +381,77 @@ class Mission:
             if skip:
                 self.note("alert", f"({goal[0]:.2f}, {goal[1]:.2f}) is blocked, so I skip it.")
                 return None
+            if not tried:
+                tried = True
+                if await self._unblock(xy, goal):
+                    return [goal]
             if not waiting:
                 self.note("alert", "There is no way around it. Waiting until the way is clear.")
                 waiting = True
             if await self._clears(WAY_WAIT_S):
                 return [goal]
+
+    async def _unblock(self, xy, goal) -> bool:
+        """Name the only thing in the way and shove it aside when small enough, or ask for help."""
+        p = self.rig.pose
+        try:
+            name = await asyncio.wait_for(meta_api.describe(
+                self.rig.frame(), "In 2-5 words, what object is on the floor in front of the small robot car? "
+                "Answer like: a small cardboard box."), 8)
+            name = name.strip().lower()
+            if name.endswith("."):
+                name = name[:-1]
+            name = name or "a box"
+        except Exception:
+            name = "a box"
+        Name = name.capitalize()
+        polys = self.floor.polygons if self.floor is not None else []
+        poly = min(polys, key=lambda q: math.dist(q.mean(axis=0), xy), default=None)
+        plan = push_plan(poly, (p.x, p.y), tuple(goal), self.rig.inside, self.floor.clearance) \
+            if poly is not None and self.floor is not None else None
+        if plan is None:
+            self.note("alert", f"{Name} blocks the only way and I can't push it aside. Could someone move it?")
+            return False
+        self.note("result", f"{Name} blocks the only way. It is {plan['size'] * 100:.0f} cm, small enough to push, "
+                            f"so I'll move it aside.")
+        prev, self._push_name = self.status, name
+        self.status = "clearing"
+        try:
+            n = np.asarray(plan["n"], float)
+            await follow(self.rig, self.body, [(p.x, p.y), plan["run_in"]], v_max=self.v_max)
+            await face(self.rig, self.body, math.atan2(n[1], n[0]))
+            s0 = float(np.dot((self.rig.pose.x, self.rig.pose.y), n))
+            dist = math.dist(plan["push_from"], plan["push_to"])
+            try:
+                await asyncio.wait_for(
+                    follow(self.rig, self.body, [plan["push_from"], plan["push_to"]], v_max=self.v_max),
+                    dist / V_MIN + 2)
+                timed_out = False
+            except TimeoutError:
+                timed_out = True
+            travel = float(np.dot((self.rig.pose.x, self.rig.pose.y), n)) - s0
+            stalled = timed_out or travel < 0.4 * dist
+            start = self.rig.pose
+            for _ in range(round(GIVE_WAY_S / DT)):
+                q = self.rig.pose
+                back = (q.x - GIVE_WAY_ROOM * math.cos(q.theta), q.y - GIVE_WAY_ROOM * math.sin(q.theta))
+                if math.dist((q.x, q.y), (start.x, start.y)) > 0.12 or not self.rig.inside(*back):
+                    break
+                await self.rig.step(-GIVE_WAY_PWM, -GIVE_WAY_PWM)
+            self._quiet_until = self.rig.pose.t + QUIET_S
+            for _ in range(round(0.6 / DT)):
+                await self.rig.step(0, 0)
+                self.look_floor()
+            c = np.asarray(plan["centroid"], float)
+            near = min(self.floor.polygons, key=lambda q: math.dist(q.mean(axis=0), c), default=None)
+            moved = near is not None and math.dist(near.mean(axis=0), c) >= PUSH_M / 2
+            if not stalled and moved:
+                self.note("result", f"Moved {name} aside. Carrying on.")
+                return True
+            self.note("alert", f"{Name} won't move: too heavy for me. Could someone move it?")
+            return False
+        finally:
+            self.status = prev
 
     async def _clears(self, seconds: float) -> bool:
         for _ in range(round(seconds / DT)):
@@ -851,7 +955,8 @@ class Mission:
             why = "" if getattr(sci, "verified", True) else f", slowly because {me} is not confirmed"
             return f"Driving behind the parcel to push it to {to}{why}."
         return {"idle": f"Waiting for a command as {me}.", "scanning": f"Looking for the parcel and {to}.",
-                "pushing": f"Pushing the parcel to {to}.", "surprised": "I moved differently than predicted: stopping.",
+                "pushing": f"Pushing the parcel to {to}.", "clearing": f"Pushing {self._push_name} out of my way.",
+                "surprised": "I moved differently than predicted: stopping.",
                 "learning": "Learning my body from scratch with probe drives.", "stopped": "Stopped on command.",
                 "patrolling": "Patrolling the floor's corners until told to stop.",
                 "aborted": "Stopped for safety; waiting for a command."}.get(s, f"Stopped: {s}.")
