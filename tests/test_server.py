@@ -5,7 +5,7 @@ import numpy as np
 from fastapi.testclient import TestClient
 
 from airo.camera import to_floor
-from airo.server import Dashboard, topdown
+from airo.server import WEB, Dashboard, topdown
 
 
 def test_index_cmd_and_ws():
@@ -23,6 +23,14 @@ def test_index_cmd_and_ws():
     with client.websocket_connect("/ws") as ws:
         state = ws.receive_json()
     assert state["t"] == 1.5 and state["path"] == [[0.0, 0.0], [1.0, 1.0]]
+
+
+def test_every_web_file_is_served():
+    client = TestClient(Dashboard().app)
+    files = sorted(f.name for f in WEB.iterdir() if f.is_file())
+    assert "index.html" in files
+    for name in files:
+        assert client.get(f"/static/{name}").status_code == 200, name
 
 
 def test_topdown_known_homography():
