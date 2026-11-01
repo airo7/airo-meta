@@ -57,3 +57,9 @@ def test_recentre_caps_power_when_the_body_is_wrong():
     rig = asyncio.run(run())
     assert np.abs(rig.history[1]).max() <= RECENTRE_PWM
     assert math.dist((rig.pose.x, rig.pose.y), (rig.floor[0] / 2, rig.floor[1] / 2)) < 0.08
+
+
+def test_pivots_get_the_floor_and_straights_do_not():
+    from airo.body import inverse
+    assert min(map(abs, inverse(KEY, 0, 0.3, pivot_min=70))) >= 70
+    assert inverse(KEY, 0.1, 0, pivot_min=70) == inverse(KEY, 0.1, 0)
