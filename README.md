@@ -82,6 +82,28 @@ Other entry points: `scripts/learn.py` (learn and gate a body against the hand-m
 - **Interface:** `server.py` and `web/` (dashboard), `meta_api.py` (Meta model clients and the model feed),
   `voice.py`, `portrait.py`.
 
+Tuning constants, their values and where each came from: [docs/tuning.md](docs/tuning.md).
+
+## Threading model
+
+- **One event loop per process.** `demo.py` runs on a single asyncio loop: the dashboard (uvicorn), the fleet
+  publishing state at 10 Hz, each robot's mission stepping its rig at 20 Hz, the ticker that paces MuJoCo by the wall
+  clock, the 3D view at 24 fps and voice.
+- **Threads only hand data over.** On the real car a daemon thread grabs camera frames and tracks the marker; the
+  loop reads its latest pose. Typed commands come from a daemon stdin thread and microphone audio from the sound
+  card's callback, both through `loop.call_soon_threadsafe`. Body fits run in `asyncio.to_thread` (numpy only).
+- **There is no render thread.** Every MuJoCo renderer (overhead camera, SAM stand-in, 3D view) is created, used and
+  closed on the event-loop thread; the dashboard's `/camera` handler queues its request for the 3D view loop instead
+  of rendering itself.
+- **`show.py` separates by process.** The warehouse and the live car are two child `demo.py` processes, each with its
+  own loop, GL contexts and BLE link; `show.py` serves the tab page from a small threaded HTTP server. On Ctrl+C it
+  sends each child one SIGTERM so it can close BLE, and kills the process group only after 20 s.
+
+Two rules prevent the crashes: a MuJoCo GL context must be freed on the thread that made it, or it segfaults (so
+never render through `to_thread` or an executor, and `tests/conftest.py` collects garbage after each test rather
+than on a `TestClient` worker thread); and threads off the loop are daemons, because `asyncio.run` waits for
+executor threads at exit and one blocked on stdin would keep the process and its BLE link alive.
+
 ## Measured numbers
 
 **Simulation** (`uv run scripts/eval.py --n 10 --rig sim|mujoco`, scripted scientist, no API; hardware numbers to
