@@ -28,6 +28,7 @@ from airo.fleet import Fleet, crew
 from airo.memory import Memory
 from airo.mjsim import fleet as fleet_rigs
 from airo.orbit import PARTS, VIEWS, Orbit
+from airo.paths import DATA
 from airo.rig import MJ_BODY_PATH, RigAbort, add_args, body_path, open_rig
 from airo.scientist import Scientist
 from airo.server import Dashboard
@@ -52,10 +53,10 @@ def scientist(rig, pool: Memory, robot: str) -> Scientist:
 async def open_rigs(args, site) -> list:
     if site.scene == "factory":
         return fleet_rigs(site, min(args.robots, len(site.starts)), realtime=True, bumper=site.mode == "push",
-                          log_dir="data/runs")
+                          log_dir=DATA / "runs")
     # From the floor centre the drive to the parcel starts far enough out to be watched: the parcel approach is not.
     pose0 = (1.0, 0.7, 0.0) if args.mujoco else (0.4, 0.7, 0.0)
-    return [await open_rig(args, objects=world(), pose0=pose0, log_dir="data/runs")]
+    return [await open_rig(args, objects=world(), pose0=pose0, log_dir=DATA / "runs")]
 
 
 async def console(commands: asyncio.Queue):

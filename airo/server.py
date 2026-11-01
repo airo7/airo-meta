@@ -29,7 +29,6 @@ Floor frame: x right, y up, origin at corner marker 1. /video (set_frame) covers
 import asyncio
 import json
 from contextlib import suppress
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -40,10 +39,10 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from airo import meta_api
+from airo.paths import DATA, WEB
 
-WEB = Path(__file__).resolve().parent.parent / "web"
 MJPEG = "multipart/x-mixed-replace; boundary=frame"
-PORTRAITS = Path("data/portraits")
+PORTRAITS = DATA / "portraits"
 
 
 def _encode(bgr: np.ndarray) -> bytes:

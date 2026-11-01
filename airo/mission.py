@@ -17,6 +17,7 @@ from airo import planner, portrait
 from airo.body import KEY, THRESHOLD, Body, cloud, inverse, save, surprise, wrap
 from airo.control import OM_MAX, V_MAX, face, follow
 from airo.floorwatch import FloorWatch
+from airo.paths import DATA
 from airo.probes import FLOOR, QTY
 from airo.rig import DT, BaseRig, Rig, RigAbort
 from airo.server import topdown
@@ -38,7 +39,7 @@ RUN_IN_HEADING = math.radians(30)
 # it. No wider: the alignment pivot at the push pose (~0.27 m) is where a heavier body shows first.
 CONTACT = 0.24
 STANDOFF = 0.22
-PORTRAITS = Path("data/portraits")
+PORTRAITS = DATA / "portraits"
 PROBE_REACH = 0.6
 RELEARN_PROBES = 5
 FAULT_Z = 5.0

@@ -8,6 +8,7 @@ import numpy as np
 from PIL import Image
 
 from airo.camera import CAR_ID, CAR_MARKER_M, CORNER_MARKER_M, DICT
+from airo.paths import DATA
 
 DPI = 300
 A4 = (2480, 3508)
@@ -42,5 +43,5 @@ def main(out: Path):
 
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
-    p.add_argument("--out", type=Path, default=Path("data/markers"))
+    p.add_argument("--out", type=Path, default=DATA / "markers")
     main(p.parse_args().out)

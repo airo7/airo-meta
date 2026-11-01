@@ -13,6 +13,7 @@ import numpy as np
 from airo.body import cloud, ensemble, fit
 from airo.control import follow
 from airo.mjsim import MjRig
+from airo.paths import DATA
 
 PATH = [(0.35, 0.3), (0.75, 0.6), (1.1, 0.35), (1.55, 0.45), (1.75, 0.8)]
 PROBES = [(40, 40), (60, 60), (110, 110), (150, 150), (-110, -110), (100, -100), (-100, 100), (120, 60), (60, 120)]
@@ -71,7 +72,7 @@ async def main(out: Path, source: str):
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", type=Path, default=Path("data/mj"))
+    ap.add_argument("--out", type=Path, default=DATA / "mj")
     ap.add_argument("--source", choices=("truth", "aruco"), default="aruco")
     args = ap.parse_args()
     asyncio.run(main(args.out, args.source))

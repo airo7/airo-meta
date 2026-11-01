@@ -23,6 +23,7 @@ from airo.body import KEY, Body, cloud_radius_cm, ensemble
 from airo.control import follow, recentre
 from airo.memory import Memory
 from airo.mission import Mission, Surprised, _Watched
+from airo.paths import DATA
 from airo.planner import PARCEL, STATIONS
 from airo.probes import LIBRARY, halt, measure, predict, run, safe, zscore
 from airo.rig import RigAbort
@@ -435,5 +436,5 @@ if __name__ == "__main__":
     p.add_argument("--busy", choices=("calm", "normal", "busy"), default="normal",
                    help="how often warehouse events happen in the carry condition")
     p.add_argument("--wonder", action="store_true", help="live Muse Wonder and Spark; needs MODEL_API_KEY")
-    p.add_argument("--out", default="data/eval.json")
+    p.add_argument("--out", default=DATA / "eval.json")
     asyncio.run(main(p.parse_args()))
