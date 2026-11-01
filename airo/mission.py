@@ -257,6 +257,7 @@ class Mission:
         self.floor = FloorWatch(rig.floor) if isinstance(rig, Rig) else None
         self._floor_t = -math.inf
         self._ahead: list[tuple[float, float]] = []
+        self._ignore = None
         self.path: list = []
         self.goal: tuple[float, float] | None = None
         self.notes: list[dict] = []
@@ -387,7 +388,8 @@ class Mission:
 
     def check_way(self):
         p = self.rig.pose
-        if self.floor and self._ahead and (xy := self.floor.ahead([(p.x, p.y), *self._ahead], WAY_REACH, WAY_R)):
+        if self.floor and self._ahead and (xy := self.floor.ahead([(p.x, p.y), *self._ahead], WAY_REACH, WAY_R,
+                                                                self._ignore)):
             raise InTheWay(xy)
 
     async def _reach(self, goal, skip: bool = False) -> bool:
@@ -473,7 +475,14 @@ class Mission:
             if path is None:
                 self.note("alert", f"I can't get behind {name} to push it. Could someone move it?")
                 return False
-            await follow(self.rig, self.body, path, v_max=self.v_max)
+            ahead, self._ahead, self._ignore = self._ahead, path[1:], poly
+            try:
+                await follow(_Watched(self), self.body, path, v_max=self.v_max)
+            except InTheWay:
+                self.note("alert", f"Something else is in my way to {name}. Waiting until it is clear.")
+                return False
+            finally:
+                self._ahead, self._ignore = ahead, None
             await face(self.rig, self.body, math.atan2(n[1], n[0]))
             s0 = float(np.dot(plan["push_from"], n))
             dist = math.dist(plan["push_from"], plan["push_to"])

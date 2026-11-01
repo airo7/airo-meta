@@ -76,16 +76,20 @@ class FloorWatch:
             return math.inf
         return float(self.dist[i, j])
 
-    def ahead(self, path, reach: float, radius: float) -> tuple[float, float] | None:
-        """The first point along path, within reach of its start, closer than radius to something on the floor."""
+    def ahead(self, path, reach: float, radius: float, ignore=None) -> tuple[float, float] | None:
+        """The first point along path, within reach of its start, closer than radius to something on the floor.
+        Nearness to the outline ignore (a box being pushed) does not count."""
+        hull = None if ignore is None else np.asarray(ignore, np.float32)
         left = reach
         for a, b in zip(path, path[1:]):
             a, b = np.asarray(a, float), np.asarray(b, float)
             d = float(np.hypot(*(b - a)))
             for s in np.arange(0, min(d, left) + 1e-9, self.res * 4):
                 p = a + (b - a) * (s / d if d else 0)
-                if self.clearance(p) < radius:
-                    return float(p[0]), float(p[1])
+                c = self.clearance(p)
+                pt = float(p[0]), float(p[1])
+                if c < radius and (hull is None or -cv2.pointPolygonTest(hull, pt, True) > c + 4 * self.res):
+                    return pt
             left -= d
             if left <= 0:
                 break

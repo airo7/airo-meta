@@ -48,3 +48,15 @@ def test_the_light_changing_is_not_an_obstacle():
     w.update(frame((0.4, 0.4)), H, at(0.4, 0.4))
     w.update(frame((0.4, 0.4), gain=1.25), H, at(0.4, 0.4))
     assert not w.polygons
+
+
+def test_the_box_being_pushed_does_not_block_but_anything_else_does():
+    w = FloorWatch(FLOOR)
+    w.update(frame((0.4, 0.3)), H, at(0.4, 0.3))
+    w.update(frame((0.4, 0.3), carton=(0.4, 0.6)), H, at(0.4, 0.3))
+    box = w.polygons[0]
+    path = [(0.4, 0.3), (0.4, 1.0)]
+    assert w.ahead(path, reach=0.35, radius=0.12, ignore=box) is None
+    other = box + (0.0, 0.0)
+    other[:, 0] += 0.3
+    assert w.ahead(path, reach=0.35, radius=0.12, ignore=other) is not None
