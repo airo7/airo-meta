@@ -69,7 +69,9 @@ PATROL_IN = 0.05
 FLOOR_DT = 0.2
 WAY_REACH, WAY_R = 0.35, 0.12
 WAY_WAIT_S = 1.5
-PUSH_MAX, PUSH_M, RUN_IN_PUSH = 0.2, 0.25, 0.2
+PUSH_MAX, PUSH_M, RUN_IN_PUSH, PUSH_ROOM = 0.2, 0.25, 0.2, 0.05
+# a detour narrower than this trips the WAY_R check along it again and loops
+MIN_NEED = WAY_R + 0.03
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
           "fetching": ("drive", "drive to the pick cell"), "loading": ("drive", "loaded by the arm"),
           "unloading": ("drive", "unloaded by the arm"), "returning": ("drive", "back to the dock"),
@@ -134,8 +136,9 @@ def choose_route(scene, start, goal, need: float, drift: float, allowed, clearan
         gap = _narrowest(short, clearance_at)
         if (route is None or _length(route) > 1.15 * _length(short)) and gap < 2 * need:
             tail = "waiting." if route is None else "going the long way."
-            return route, (f"The short way has a {gap * 100:.0f} cm gap. I'm {2 * HALF_W * 100:.0f} cm wide and "
-                           f"drift ±{drift * 100:.0f} cm, so I need {2 * need * 100:.0f} cm: {tail}")
+            return route, (f"The short way has a {gap * 100:.0f} cm gap. I need {2 * need * 100:.0f} cm: "
+                           f"{2 * HALF_W * 100:.0f} cm for my body, room for ±{drift * 100:.0f} cm of drift and a "
+                           f"safety margin, so I'm {tail}")
     if route is not None and _narrowest(route, clearance_at) < 2 * (need + 0.05):
         gap = _narrowest(route, clearance_at)
         return route, f"The gap is {gap * 100:.0f} cm and I need {2 * need * 100:.0f} cm: it fits."
@@ -174,6 +177,8 @@ def push_plan(poly, start, goal, inside, clearance) -> dict | None:
         if not inside(float(to[0]), float(to[1])):
             continue
         room = clearance((float(to[0]) + 0.1 * float(n[0]), float(to[1]) + 0.1 * float(n[1])))
+        if room < PUSH_ROOM:
+            continue
         if best is None or room > best[0]:
             best = (room, n)
     if best is None:
@@ -415,7 +420,7 @@ class Mission:
             p = self.rig.pose
             scene = self.floor.scene()
             sd = lateral_sd(self.sci.members, self.sci.best)
-            need = min(0.25, max(0.12, HALF_W + 0.02 + 2 * sd))
+            need = min(0.25, max(MIN_NEED, HALF_W + 0.02 + 2 * sd))
             route, note = choose_route(scene, (p.x, p.y), goal, need, 2 * sd, allowed=self._inside(scene),
                                        clearance_at=self.floor.clearance)
             if route:
@@ -462,9 +467,15 @@ class Mission:
         self.status = "clearing"
         try:
             n = np.asarray(plan["n"], float)
-            await follow(self.rig, self.body, [(p.x, p.y), plan["run_in"]], v_max=self.v_max)
+            scene = self.floor.scene()
+            path = planner.plan(scene, (p.x, p.y), plan["run_in"], clearance=HALF_W + 0.02,
+                                allowed=self._inside(scene))
+            if path is None:
+                self.note("alert", f"I can't get behind {name} to push it. Could someone move it?")
+                return False
+            await follow(self.rig, self.body, path, v_max=self.v_max)
             await face(self.rig, self.body, math.atan2(n[1], n[0]))
-            s0 = float(np.dot((self.rig.pose.x, self.rig.pose.y), n))
+            s0 = float(np.dot(plan["push_from"], n))
             dist = math.dist(plan["push_from"], plan["push_to"])
             try:
                 await asyncio.wait_for(
@@ -488,7 +499,7 @@ class Mission:
                 self.look_floor()
             c = np.asarray(plan["centroid"], float)
             near = min(self.floor.polygons, key=lambda q: math.dist(q.mean(axis=0), c), default=None)
-            moved = near is not None and math.dist(near.mean(axis=0), c) >= PUSH_M / 2
+            moved = near is None or math.dist(near.mean(axis=0), c) >= PUSH_M / 2
             if not stalled and moved:
                 self.note("result", f"Moved {name} aside. Carrying on.")
                 return True

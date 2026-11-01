@@ -37,3 +37,7 @@ def test_standoff_grows_with_size():
     assert small is not None and big is not None
     assert math.dist(big["push_from"], big["centroid"]) > math.dist(small["push_from"], small["centroid"])
     assert math.dist(small["push_from"], small["centroid"]) == pytest.approx(STANDOFF + (0.08 - 0.1) / 2)
+
+
+def test_a_side_without_room_beyond_the_box_is_not_used():
+    assert push_plan(box(1.0, 0.7, 0.1), START, GOAL, lambda x, y: True, lambda xy: 0.01) is None

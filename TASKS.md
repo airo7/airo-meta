@@ -179,7 +179,7 @@ Demo beats on the real floor, all from the floor watch (no SAM needed):
 3. **Does it fit?** Two boxes with a gap: the car measures the gap against its own width and learned steering spread
    and says why it goes through or the long way.
 
-- [ ] Muse `feat/unblock` (worktree ~/airo/airo-wt/unblock): push a blocking box aside, or ask for help.
-- [ ] Muse `feat/fit` (worktree ~/airo/airo-wt/fit): detour clearance from the body's uncertainty, gap narration.
-- [ ] Controller: review, merge both into `_around`, tests green.
+- [x] Muse `feat/unblock` (worktree ~/airo/airo-wt/unblock): push a blocking box aside, or ask for help.
+- [x] Muse `feat/fit` (worktree ~/airo/airo-wt/fit): detour clearance from the body's uncertainty, gap narration.
+- [x] Controller: review, merge both into `_around`, tests green.
 - [ ] Abebe: real car, beats 1–3, share logs.
