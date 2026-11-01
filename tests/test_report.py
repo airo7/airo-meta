@@ -23,6 +23,7 @@ def _ticks(n=40, dry=False):
 
 
 def _notes():
+    """The first surprise in today's notes, the second in older ones that said it only in the text."""
     z = lambda *v: dict(zip(("forward_cm", "lateral_cm", "turn_deg"), v))
     return [
         {"t": 100.0, "kind": "command", "text": "learn", "intent": "learn"},
@@ -33,11 +34,12 @@ def _notes():
         {"t": 140.0, "kind": "result", "text": "Arrived at (1.00, 0.70), 2.0 cm off."},
         {"t": 150.0, "kind": "result", "text": "Arrived at (0.40, 0.40), 7.5 cm off."},
         {"t": 160.0, "kind": "result", "text": "Arrived at (1.60, 0.40), 3.0 cm off."},
-        {"t": 200.0, "kind": "alert", "text": "Body changed, surprise 4.1 over the last 1.5 s: ..."},
+        {"t": 200.0, "kind": "alert", "text": "My body feels different: ...", "changed": True},
         {"t": 204.0, "kind": "result", "text": "step: ...", "z": z(4.0, 0.2, 0.3)},
         {"t": 209.0, "kind": "result", "text": "pivot: ...", "z": z(0.2, 0.2, 0.3)},
         {"t": 212.0, "kind": "conclusion", "text": "Heavier.", "n": 2, "name": "loaded", "body": BODY, "fallback": True},
-        {"t": 212.5, "kind": "conclusion", "text": "Body #2, relearned in 12.6 s (9.0 s probing)."},
+        {"t": 212.5, "kind": "conclusion", "text": "...; learned it as Body #2 in 13 s.", "n": 2, "how": "relearned",
+         "seconds": 12.6},
         {"t": 300.0, "kind": "alert", "text": "Body changed, surprise 3.5 over the last 1.5 s: ..."},
         {"t": 303.0, "kind": "result", "text": "pivot: ...", "z": z(0.1, 0.1, 0.4)},
         {"t": 303.1, "kind": "recall", "text": "I know this one", "n": 1, "name": "bare chassis", "recall_s": 3.2},

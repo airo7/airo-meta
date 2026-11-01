@@ -238,7 +238,8 @@ def test_recall_shows_the_remembered_portrait_and_memory(mission, tmp_path):
     mission.sci.relearn = recalled
     asyncio.run(mission.relearn("test"))
     state = mission.state()
-    assert "recalled in" in mission.notes[-1]["text"] and mission.portrait == b"heavy png"
+    assert mission.notes[-1]["how"] == "recalled" and mission.portrait == b"heavy png"
+    assert mission.notes[-1]["text"].startswith("Recognised this body: Body #2, in ")
     assert [(m["n"], m["active"], m["portrait"]) for m in state["memory"]] == [(1, False, None),
                                                                               (2, True, "/portraits/body_2.png")]
     assert state["memory"][1]["params"][0]["value"] == pytest.approx(HEAVY.g_l * 1000)

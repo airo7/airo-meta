@@ -280,10 +280,10 @@ def test_one_robot_fetches_feels_its_body_and_delivers():
     assert r.sci.causes == ["loaded a heavy tote", "unloaded"]
     now = dict(seen[r.id])
     assert now["loading"] == "Waiting for the arm to load a heavy tote."
-    assert now["delivering"] == "Recalled Body #2 · heavy tote · 1.1 s. Driving to Packing with a heavy tote."
+    assert now["delivering"] == "Recognised Body #2 (heavy tote) in 1.1 s. Driving to Packing with a heavy tote."
     assert now["unloading"] == "Unloading at Packing."
     texts = [n["text"] for n in r.mission.notes]
-    assert "Loaded a heavy tote: recalled Body #2 · heavy tote · 1.1 s." in texts
+    assert "Loaded a heavy tote: recognised Body #2 (heavy tote) in 1.1 s." in texts
     assert "Delivered a heavy tote to Packing." in texts
     placed = [t for t in cell.totes if t.slot is not None]
     assert len(placed) == 1 and placed[0].slot.station == "packing" and placed[0].kind == "heavy"

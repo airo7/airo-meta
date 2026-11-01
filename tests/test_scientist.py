@@ -11,7 +11,7 @@ from openai.types.chat.chat_completion_message_function_tool_call import Functio
 from airo import meta_api
 from airo.body import Body, Segment, posterior, surprise
 from airo.probes import SCHEDULE
-from airo.scientist import RELEARN, WONDER_S, Scientist, describe, regime, regimes
+from airo.scientist import GAPS, RELEARN, WONDER_S, Scientist, describe, regime, regimes
 from airo.sim import SimRig
 
 TRUTH = Body(g_l=0.0030, g_r=0.0033, dz=25, eta=0.3, tau=0.2, lag=0.1, kappa=-0.1)
@@ -95,7 +95,7 @@ def test_fallback_finishes_the_schedule(monkeypatch):
     assert ran[:2] == ["pivot_l_100", "step_80"] and len(ran) == 10 and len(set(ran)) == 10
     assert len(seen) == 3 and sci.n == 1
     fb = [e for e in sci.notebook if e.get("fallback")]
-    assert fb[0]["kind"] == "fallback" and "TimeoutError" in fb[0]["text"] and fb[-1]["kind"] == "conclusion"
+    assert fb[0]["kind"] == "fallback" and "TimeoutError" in fb[0]["detail"] and fb[-1]["kind"] == "conclusion"
     assert not any(e.get("fallback") for e in sci.notebook[:6])
     assert_close(sci, TRUTH)
 
@@ -126,7 +126,7 @@ def test_relearn_after_heavy_load(monkeypatch):
     assert next(e for e in sci.notebook if e.get("seen"))["seen"].startswith("a weight")
     assert sci.memory.current.cause.startswith("a weight")
     assert len(sci.segments) == 1 + len(RELEARN)
-    assert sci.verified and re.search(r"Confirmed: \w+ -?\d+(°| cm) ± \d+ vs -?\d+", sci.notebook[-1]["text"])
+    assert sci.verified and re.search(r"Confirmed: \w+ -?\d+(°| cm) ± \d+ vs -?\d+", sci.notebook[-1]["detail"])
 
     asyncio.run(teleport(rig))
     after = asyncio.run(drive(rig, mission))
@@ -135,18 +135,22 @@ def test_relearn_after_heavy_load(monkeypatch):
 
 
 def test_rejects_unsafe_and_unknown_probes(monkeypatch):
+    """Near the wall: what does not fit is rejected, and the scripted policy fills the slow gap backing up."""
     calls = [probe("step_150"), probe("warp_9"), probe("pivot_l_100"),
              ("conclude", {"text": "Pivoted only.", "body_name": "edge"})]
-    seen = fake_wonder(monkeypatch, calls)
+    seen = fake_wonder(monkeypatch, calls, fail_after=4)
     rig = SimRig(TRUTH, pose0=(1.65, 0.6, 0.0), log_dir=None)
     sci = Scientist(rig, k=3)
     asyncio.run(sci.learn(budget=3))
 
     out = results(seen)
     assert "leave the floor" in out[0]["error"] and "unknown" in out[1]["error"] and "z" in out[2]
-    assert [e["probe"] for e in sci.notebook if e["kind"] == "result"] == ["pivot_l_100"]
-    assert any(e["kind"] == "alert" and "step_150" in e["text"] for e in sci.notebook)
-    assert rig.true_pose[0] < 1.7 and sci.n == 1
+    assert out[3]["error"].startswith("Not yet") and "slow straight drive" in out[3]["error"]
+    assert [e["probe"] for e in sci.notebook if e["kind"] == "result"] == ["pivot_l_100", "ramp_120", "step_back_60"]
+    alert = next(e for e in sci.notebook if e["kind"] == "alert")
+    assert "step_150" in alert["detail"] and alert["text"] == ("Not enough free floor here to drive forward fast, so "
+                                                               "I skipped that test.")
+    assert rig.inside(*rig.true_pose[:2]) and sci.n == 1 and sci.verified
 
 
 @pytest.fixture
@@ -164,11 +168,13 @@ def surprised(monkeypatch):
 def test_scripted_relearn_stops_once_confirmed(surprised):
     sci, window = surprised
     asyncio.run(sci.relearn(window))
-    alert = max(i for i, e in enumerate(sci.notebook) if e["text"].startswith("Body changed"))
+    alert = max(i for i, e in enumerate(sci.notebook) if e.get("changed"))
+    assert sci.notebook[alert]["text"].startswith("My body feels different: I ")
     ran = [e for e in sci.notebook[alert:] if e["kind"] == "result"]
     assert ran[-1]["confirmed"] and len(ran) < len(RELEARN) and sci.verified
-    assert "Confirmed:" in sci.notebook[-1]["text"] and "g_l -2" in sci.notebook[-1]["text"]
-    verdicts = sci.notebook[-1]["text"].split("Confirmed: ")[1].split("; ")
+    assert sci.notebook[-1]["text"].startswith("I feel heavier now: slower")
+    assert "Confirmed:" in sci.notebook[-1]["detail"] and "g_l -2" in sci.notebook[-1]["detail"]
+    verdicts = sci.notebook[-1]["detail"].split("Confirmed: ")[1].split("; ")
     assert {regime(v.split()[0]) for v in verdicts} == {"straight", "turn"}, "the window drove straight and turned"
 
 
@@ -179,7 +185,8 @@ def test_relearn_without_confirmation_says_so(surprised, monkeypatch, name, valu
     sci, window = surprised
     asyncio.run(sci.relearn(window))
     assert len(sci.segments) == 1 + len(RELEARN) and not sci.verified
-    assert sci.notebook[-1]["text"].endswith("Partial fit, continuing with caution.")
+    assert sci.notebook[-1]["detail"].endswith("Partial fit, continuing with caution.")
+    assert sci.notebook[-1]["text"].endswith("I'm not fully sure of it yet, so I'll drive carefully.")
 
 
 def test_wonder_cannot_conclude_unconfirmed(surprised, monkeypatch):
@@ -225,7 +232,7 @@ def test_wonder_time_runs_out_to_the_scripted_policy(surprised, monkeypatch):
     monkeypatch.setattr("airo.scientist.WONDER_S", 0.0)
     sci, window = surprised
     asyncio.run(sci.relearn(window))
-    fb = next(e for e in sci.notebook if e["kind"] == "fallback" and "Wonder time" in e["text"])
+    fb = next(e for e in sci.notebook if e["kind"] == "fallback" and "Wonder time" in e["detail"])
     assert sci.notebook[-1]["fallback"] and sci.verified and fb
 
 
@@ -248,6 +255,61 @@ def test_a_probe_that_ran_into_something_is_left_out_of_the_learn(monkeypatch):
     fake_wonder(monkeypatch, [], fail_after=0)
     sci = Scientist(SimRig(TRUTH, log_dir=None), teleport, k=4)
     asyncio.run(sci.learn())
-    assert any(e["text"].startswith("step_110 does not fit") for e in sci.notebook)
+    assert any(e.get("detail", "").startswith("step_110 does not fit") for e in sci.notebook)
     assert len(sci.segments) == len(SCHEDULE) - 1
     assert_close(sci, TRUTH)
+
+
+def ran(sci):
+    return [e["probe"] for e in sci.notebook if e["kind"] == "result"]
+
+
+def test_scripted_learn_fills_a_missing_speed(monkeypatch):
+    fake_wonder(monkeypatch, [], fail_after=0)
+    sci = Scientist(SimRig(TRUTH, log_dir=None), teleport, k=4)
+    asyncio.run(sci.learn(budget=3))
+    assert ran(sci) == ["ramp_120", "step_110", "pivot_l_100", "step_60"]
+    assert sci.verified and sci.n == 1 and not sci.notebook[-1].get("uncertain")
+    assert sci.notebook[-1]["text"].startswith("This car ")
+
+
+def test_wonder_cannot_conclude_on_one_speed(monkeypatch):
+    calls = [probe("pivot_l_100"), probe("step_60"), *[("conclude", {"text": "Done.", "body_name": "x"})] * 3]
+    seen = fake_wonder(monkeypatch, calls)
+    sci = Scientist(SimRig(TRUTH, log_dir=None), teleport, k=4)
+    asyncio.run(sci.learn(budget=2))
+
+    out = results(seen)
+    assert out[2]["error"].startswith("Not yet: driving at one speed can't tell")
+    assert "fast straight drive (step_110 or step_back_110 or ramp_120 or step_150)" in out[2]["error"]
+    filled = ran(sci)[2:]
+    assert len(filled) == 1 and filled[0] in GAPS["fast"] and not calls
+    assert out[3]["error"].startswith(f"I ran {filled[0]} myself") and (sci.n, sci.name) == (1, "x")
+
+
+def test_learn_without_room_for_a_fast_drive_ends_uncertain(monkeypatch):
+    from airo import scientist
+    from airo.body import PRIOR
+
+    monkeypatch.setattr(scientist, "safe", lambda rig, p, body, **kw: "fast" not in scientist._fills(p))
+    fake_wonder(monkeypatch, [], fail_after=0)
+    sci = Scientist(SimRig(TRUTH, log_dir=None), teleport, k=4)
+    asyncio.run(sci.learn())
+
+    assert not {"step_110", "step_150", "ramp_120", "step_back_110"} & set(ran(sci))
+    end = sci.notebook[-1]
+    assert end["uncertain"] and end["text"].startswith("I couldn't pin down my body: there was no room for a fast")
+    assert sci.best == PRIOR and not sci.verified and sci.n == 0 and not sci.memory.entries
+
+
+@pytest.mark.parametrize("meas, words", [
+    (36.0, "Drove 36 cm, expected 35 ± 2 cm — as predicted."),
+    (50.0, "Drove 50 cm, expected 35 ± 2 cm — much further than expected."),
+])
+def test_results_in_plain_words(meas, words):
+    from airo.probes import zscore
+    from airo.scientist import _outcome
+
+    pred = {"forward_cm": (35.0, 1.5), "lateral_cm": (0.0, 0.5), "turn_deg": (1.0, 1.0)}
+    m = {"forward_cm": meas, "lateral_cm": 0.2, "turn_deg": 0.0}
+    assert _outcome(pred, m, zscore(pred, m), "step") == words

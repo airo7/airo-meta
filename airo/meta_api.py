@@ -48,12 +48,14 @@ def record(model: str, kind: str, input: str, output: str, ms: float, ok: bool =
     return e
 
 
-def tool_result(call_id: str, result: str):
-    """Fill in a Wonder tool call's result once the engine has run it."""
+def tool_result(call_id: str, result: str, plain: str | None = None):
+    """Fill in a Wonder tool call's result once the engine has run it; plain is the same in words for the feed."""
     for e in reversed(FEED):
         for t in e["tools"] or ():
             if t.get("id") == call_id:
                 t["result"] = result[:200]
+                if plain:
+                    t["plain"] = plain[:240]
                 return
 
 

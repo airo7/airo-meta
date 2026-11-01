@@ -60,7 +60,7 @@ def scientist(library, monkeypatch, tmp_path, current: int, truth, wonder=()):
 
 
 def since_alert(sci, kind):
-    alert = max(i for i, e in enumerate(sci.notebook) if e["text"].startswith("Body changed"))
+    alert = max(i for i, e in enumerate(sci.notebook) if e.get("changed"))
     return [e for e in sci.notebook[alert:] if e["kind"] == kind]
 
 
@@ -122,7 +122,7 @@ def test_recall_confirms_with_one_probe(library, monkeypatch, tmp_path, current,
     assert (sci.n, sci.name) == (expect, library[expect - 1].name) and sci.verified
     assert len(since_alert(sci, "result")) == 1 and sci.notebook[-1]["kind"] == "recall"
     recall = sci.notebook[-1]
-    assert recall["n"] == expect and recall["recall_s"] < 3 and "I know this one" in recall["text"]
+    assert recall["n"] == expect and recall["recall_s"] < 3 and "I recognise this body" in recall["text"]
     assert {"predicted", "measured", "z"} <= recall.keys()
     assert len(sci.memory.entries) == 2 and sci.memory.get(expect).recalls == 1
     assert Memory(tmp_path / "m.json").current.n == expect
@@ -178,7 +178,7 @@ def test_check_body_after_loads_and_unloads(library, monkeypatch, tmp_path):
     assert sci.memory.get(2).verified and out[1]["seconds"] < 3 and len(sci.memory.entries) == 2
     probes = [e["probe"] for e in sci.notebook if e["kind"] == "hypothesis"]
     assert {LIBRARY[p].kind for p in probes} <= {"pivot", "step"} and probes.count("step_60") <= 1
-    assert "Tote loaded: checking" in sci.notebook[0]["text"]
+    assert "Tote loaded: a quick spin" in sci.notebook[0]["text"]
 
 
 def test_check_body_without_room_learns_partly_and_the_next_relearn_completes_it(library, monkeypatch, tmp_path):
@@ -229,7 +229,7 @@ def test_a_check_bumped_twice_keeps_the_body_and_learns_nothing(carried, monkeyp
     probes_run(monkeypatch, [0.15, -0.1])
     out = asyncio.run(carried.check_body("loaded a heavy tote"))
     assert (out["result"], out["n"], len(carried.memory.entries)) == ("same", 1, 2)
-    assert "something is moving the car" in carried.notebook[-1]["text"]
+    assert "something is moving me" in carried.notebook[-1]["text"]
 
 
 def test_a_probe_the_rig_ran_long_is_scored_on_what_it_ran(carried, monkeypatch):
@@ -279,7 +279,7 @@ def test_a_relearn_that_lands_on_a_known_body_refines_it(library, monkeypatch, t
     sci, _ = scientist(library, monkeypatch, tmp_path, current, TRUTH)
     asyncio.run(sci.relearn(asyncio.run(changed(sci.rig, TRUTH, library[current - 1].body))))
     assert (sci.n, len(sci.memory.entries), sci.name) == (1, 2, "bare chassis")
-    assert "same body as #1" in sci.notebook[-1]["text"] and sci.memory.get(1).verified
+    assert "same body as #1" in sci.notebook[-1]["detail"] and sci.memory.get(1).verified
 
 
 @pytest.mark.parametrize("room, result", [({"pivot_l_60"}, "recalled"), (set(), "same")])
@@ -292,4 +292,4 @@ def test_a_tight_bay_checks_with_the_pivot_it_has_room_for(carried, monkeypatch,
     out = asyncio.run(carried.check_body("loaded a heavy tote"))
     ran = {e["probe"] for e in carried.notebook if e["kind"] == "result" and "probe" in e}
     assert out["result"] == result and ran <= room
-    assert result != "same" or "no pivot clears this bay" in carried.notebook[-1]["text"]
+    assert result != "same" or "no room to spin here" in carried.notebook[-1]["text"]
