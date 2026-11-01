@@ -32,6 +32,10 @@ SCENES = {
         (0, "select airo 1"), (0, "cam chase"), (1, "airo 1 bring a light tote to packing"),
         (12, "airo 1 weight"), (40, "cam iso"), (55, "airo 1 remove weight"),
     ],
+    "science": [
+        (0, "select airo 1"), (0, "cam chase"), (0, "calm"), (1, "airo 1 bring a light tote to qa"),
+        (6, "airo 1 weight"), (45, "cam iso"),
+    ],
     "talk": [
         (0, "cam deck"), (0, "calm"), (1, "select airo 2"),
         (2, "airo 2 packing is running low on heavy totes, could you help them out"),
