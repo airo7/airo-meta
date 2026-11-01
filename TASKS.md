@@ -171,3 +171,15 @@ Workstreams (worktrees under ~/airo/airo-wt, merged by the controller):
 Notebook gains kind "recall": {"text", "n", "name", "predicted", "measured", "z", "recall_s"}.
 Commands: "<robot> <command>" targets one robot ("airo 2 deliver to packing"); no prefix targets the selected one;
 "select airo 2" switches; body changes apply to the selected robot, "spill" is a place change.
+
+## D6+ · Mon Nov 2 · real car: a blocked way and tight gaps (code by Muse Spark via Codex CLI)
+Demo beats on the real floor, all from the floor watch (no SAM needed):
+1. **A box blocks the only way.** Stop → wait → no way around → Spark names it → small enough → push it aside → carry on.
+2. **Too heavy.** Same with a heavy box: the push stalls → back off → "it won't move, could someone move it?" → a hand removes it → carry on.
+3. **Does it fit?** Two boxes with a gap: the car measures the gap against its own width and learned steering spread
+   and says why it goes through or the long way.
+
+- [ ] Muse `feat/unblock` (worktree ~/airo/airo-wt/unblock): push a blocking box aside, or ask for help.
+- [ ] Muse `feat/fit` (worktree ~/airo/airo-wt/fit): detour clearance from the body's uncertainty, gap narration.
+- [ ] Controller: review, merge both into `_around`, tests green.
+- [ ] Abebe: real car, beats 1–3, share logs.
