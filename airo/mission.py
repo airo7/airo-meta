@@ -298,10 +298,14 @@ class Mission:
                 self.status = "patrolling"
                 p = self.rig.pose
                 i = min(range(4), key=lambda i: math.dist(corners[i], (p.x, p.y)))
-                # follow stops once near its last point, so a lap back to the start would end at once
-                self.path = [(p.x, p.y), *(corners[(i + k) % 4] for k in (1, 2, 3))]
+                self.path = [(p.x, p.y), *(corners[(i + k) % 4] for k in (1, 2, 3, 4))]
                 try:
-                    await follow(_Watched(self), self.body, self.path, v_max=self.v_max)
+                    # square corners, a pivot then a straight leg: the motions the body was learned on. Pure pursuit
+                    # rounds a corner on one wheel, which no probe excites, and on hardware that read as a surprise
+                    for goal in self.path[1:]:
+                        p, watched = self.rig.pose, _Watched(self)
+                        await face(watched, self.body, math.atan2(goal[1] - p.y, goal[0] - p.x))
+                        await follow(watched, self.body, [(p.x, p.y), goal], v_max=self.v_max)
                 except Surprised as e:
                     await self.relearn(str(e))
         finally:
