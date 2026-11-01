@@ -154,6 +154,7 @@ async def main(args):
     if os.getenv("MODEL_API_KEY"):
         for r in robots:
             r.mission.understand = commander.understand
+        warming = asyncio.create_task(commander.warm())  # noqa: F841 (held so it is not collected)
     if fleet.life is not None:
         fleet.life.set_level(args.busy)
     dash = Dashboard()

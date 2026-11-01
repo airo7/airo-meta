@@ -1,7 +1,9 @@
 """Muse Spark reads a command, typed or spoken, and picks one action for the robot from where it is and what it knows."""
 
+import asyncio
 import json
 import math
+from contextlib import suppress
 
 from airo import meta_api
 from airo.voice import Intent
@@ -48,8 +50,15 @@ async def understand(text: str, situation: str, stations=None) -> Intent:
     if stations:
         tools = [*TOOLS, _tool("deliver", "Take a tote or parcel to a station.", ("station",),
                                station={"type": "string", "enum": list(stations)})]
-    msg = await meta_api.wonder([{"role": "system", "content": PROMPT + situation}, {"role": "user", "content": text}],
-                                tools, model=MODEL, timeout=15, effort="low")
+    messages = [{"role": "system", "content": PROMPT + situation}, {"role": "user", "content": text}]
+    # a reply usually takes 1-2 s; a slow one rarely recovers, a fresh request usually does
+    for wait in (6, 9):
+        try:
+            msg = await meta_api.wonder(messages, tools, model=MODEL, timeout=wait, effort="low")
+            break
+        except TimeoutError:
+            if wait == 9:
+                raise
     if not msg.tool_calls:
         return Intent("say", text=msg.content or "I did not catch that.")
     call = msg.tool_calls[0]
@@ -62,3 +71,10 @@ async def understand(text: str, situation: str, stations=None) -> Intent:
     }.get(call.function.name, lambda: Intent(call.function.name))()
     meta_api.tool_result(call.id, json.dumps(a), plain=_plain(intent))
     return intent
+
+
+async def warm():
+    """The first request from a process takes several seconds; pay that at start, not on the first command."""
+    with suppress(Exception):
+        await asyncio.wait_for(meta_api.client().chat.completions.create(
+            model=MODEL, messages=[{"role": "user", "content": "Reply with: ok"}], reasoning_effort="low"), 30)

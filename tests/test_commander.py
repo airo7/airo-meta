@@ -36,3 +36,16 @@ def test_a_plain_answer_without_a_tool_is_said(monkeypatch):
         return SimpleNamespace(content="Hello.", tool_calls=None)
     monkeypatch.setattr(meta_api, "wonder", wonder)
     assert asyncio.run(commander.understand("hi", "")) == Intent("say", text="Hello.")
+
+
+def test_a_slow_reply_is_asked_once_more(monkeypatch):
+    waits = []
+
+    async def wonder(messages, tools, model, timeout, effort=None):
+        waits.append(timeout)
+        if len(waits) == 1:
+            raise TimeoutError
+        return SimpleNamespace(content="Hello.", tool_calls=None)
+    monkeypatch.setattr(meta_api, "wonder", wonder)
+    assert asyncio.run(commander.understand("hi", "")) == Intent("say", text="Hello.")
+    assert len(waits) == 2
