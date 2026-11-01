@@ -88,6 +88,13 @@ def _r(x: float) -> float:
     return float(f"{x:.3g}")
 
 
+def _moved(fit: dict) -> str:
+    moved = [f"{k} {v:+.0f}%" for k, v in fit["change_pct"].items() if abs(v) >= 10]
+    if abs(fit["dz_change_pwm"]) >= 3:
+        moved.append(f"dz {fit['dz_change_pwm']:+.0f} PWM")
+    return ", ".join(moved) or "no parameter moved 10% or more"
+
+
 def describe(before: Body, after: Body) -> str:
     """A short name for how a relearned body differs, e.g. "heavier: −15% speed, −25% turn"."""
     flipped = [f"{side} motor reversed" for side, a, b in (("left", before.g_l, after.g_l),
@@ -352,8 +359,7 @@ class Scientist:
                 continue
             await self.refit()
             await self.run_probe(name, f"Scripted {name} for {MEASURES[LIBRARY[name].kind]}.")
-        moved = [f"{k} {v:+.0f}%" for k, v in (await self.refit())["change_pct"].items() if abs(v) >= 10]
-        await self.conclude(f"Scripted refit: {', '.join(moved) or 'no parameter moved 10% or more'}.",
+        await self.conclude(f"Scripted refit: {_moved(await self.refit())}.",
                             describe(self._start, self.best) if self._verify else "bare chassis")
 
     async def _call(self, name: str, arguments: str | None) -> dict:
@@ -547,8 +553,7 @@ class Scientist:
                 continue
             await self.run_probe(name, f"After the refit, {name} lands in the new cloud.")
         self._budget = len(self._ran)
-        moved = [f"{k} {v:+.0f}%" for k, v in (await self.refit())["change_pct"].items() if abs(v) >= 10]
-        await self.conclude(f"{cause}: {', '.join(moved) or 'no parameter moved 10% or more'}.",
+        await self.conclude(f"{cause}: {_moved(await self.refit())}.",
                             describe(before, self.best))
         if not self.verified:
             self._unfinished = (self.rig.pose.t, self.n, before)
@@ -566,10 +571,12 @@ class Scientist:
             self.members = await asyncio.to_thread(ensemble, self.segments, self.best, self.k, anchor=self._anchor)
             self._stale = False
             await self._emit()
-        before = asdict(self._start)
+        before, after = asdict(self._start), asdict(self.best)
+        # a dead zone near 0 PWM makes any percentage explode, so it moves in PWM
         return {"body": self._body(), "spread": self._spread(),
-                "change_pct": {k: _r(100 * (v / before[k] - 1)) for k, v in asdict(self.best).items()
-                               if k != "kappa" and before[k]}}
+                "change_pct": {k: _r(100 * (v / before[k] - 1)) for k, v in after.items()
+                               if k not in ("kappa", "dz") and before[k]},
+                "dz_change_pwm": _r(after["dz"] - before["dz"])}
 
     def _bumped(self) -> int | None:
         """Index of a probe segment the fit cannot explain while it explains the rest, if there is one."""
