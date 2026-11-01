@@ -7,6 +7,7 @@
 <link rel="stylesheet" href="/static/dash.css">
 </head>
 <body>
+<canvas id="ambient" width="32" height="18"></canvas>
 <img id="hero" src="/view" alt="Live 3D view of the selected robot" draggable="false">
 <canvas id="ar"></canvas>
 <div id="scrim"></div>
@@ -29,17 +30,26 @@
     </div>
     <div class="menu mat" id="menu-changes">
       <h3>Body</h3>
-      <button data-cmd="weight" data-on="weight">Add weight</button><button data-cmd="remove weight">Remove weight</button><button data-cmd="tow" data-on="tow">Tow a box</button><button data-cmd="untow">Release tow</button><button data-cmd="flip" data-on="flip">Flip a motor</button>
+      <button data-cmd="weight" data-on="weight">Add weight</button><button data-cmd="remove weight">Remove weight</button>
       <h3>Place</h3>
-      <button data-cmd="spill" data-on="slippery">Oil spill</button><button data-cmd="clean">Clean floor</button><button data-cmd="drop a pallet">Drop a pallet</button><button data-cmd="drop a carton">Drop a carton</button><button data-cmd="clear the aisle">Clear the aisle</button><button data-cmd="send a worker across">Send a worker across</button><button data-cmd="jam at packing">Jam at packing</button>
+      <button data-cmd="send a worker across">Send a worker across</button><button data-cmd="drop a carton">Drop a carton</button><button data-cmd="clear the aisle">Clear the aisle</button>
       <h3>Activity</h3>
       <button data-cmd="calm" data-busy="calm">Calm</button><button data-cmd="normal" data-busy="normal">Normal</button><button data-cmd="busy" data-busy="busy">Busy</button>
     </div>
   </nav>
-  <div id="meta"><i id="conn"></i><time id="clock">0:00</time></div>
+  <div id="meta"><i id="conn"></i><time id="clock">0:00</time>
+    <div id="panes" class="mat">
+      <button data-pane="rail" title="Left panel (L)"><svg viewBox="0 0 16 16"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2.4"/><path d="M6 3v10"/></svg></button><button data-pane="side" title="Right panel (M)"><svg viewBox="0 0 16 16"><rect x="1.8" y="2.8" width="12.4" height="10.4" rx="2.4"/><path d="M10 3v10"/></svg></button><button data-pane="clean" title="Focus: hide the interface (H)"><svg viewBox="0 0 16 16"><path d="M2.5 6V4.2c0-.9.8-1.7 1.7-1.7H6M10 2.5h1.8c.9 0 1.7.8 1.7 1.7V6M13.5 10v1.8c0 .9-.8 1.7-1.7 1.7H10M6 13.5H4.2c-.9 0-1.7-.8-1.7-1.7V10"/></svg></button>
+    </div>
+  </div>
 </header>
 <div id="hint" class="mat">Drag to orbit, scroll to zoom, double-click a part</div>
 <div id="toasts"></div>
+<div id="lens" class="mat">
+  <button data-lens="in" title="Zoom in (+)"><svg viewBox="0 0 16 16"><path d="M8 3.5v9M3.5 8h9"/></svg></button><button data-lens="out" title="Zoom out (−)"><svg viewBox="0 0 16 16"><path d="M3.5 8h9"/></svg></button>
+  <i></i>
+  <button data-lens="fit" title="Fit the floor (0)"><svg viewBox="0 0 16 16"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10"/><rect x="5.5" y="5.5" width="5" height="5" rx="1"/></svg></button><button data-lens="follow" title="Follow the car (double-click it)"><svg viewBox="0 0 16 16"><path d="M13.2 2.8 2.8 7.2l4.6 1.4 1.4 4.6z"/></svg></button>
+</div>
 
 <aside id="rail">
   <section id="fleet"></section>
@@ -68,6 +78,7 @@
       <span id="heard"></span>
       <div id="acts">
         <button type="button" class="pop" data-menu="send">Send to<svg class="chev" viewBox="0 0 12 12"><path d="m3 7.5 3-3 3 3"/></svg></button>
+        <button type="button" id="patrol" data-cmd="patrol">Patrol</button>
         <button type="button" data-cmd="learn">Learn</button>
         <button type="button" class="stop" data-cmd="stop">Stop</button>
       </div>
@@ -92,8 +103,8 @@
 <div id="tag" class="mat"><b></b><span></span></div>
 <aside id="help" class="mat" hidden>
   <h2>Keyboard</h2>
-  <dl><dt>R</dt><dd>Next robot</dd><dt>V</dt><dd>Swap 3D view and floor plan</dd><dt>N</dt><dd>Models or notebook</dd><dt>M</dt><dd>Hide or show the models panel</dd>
-  <dt>H</dt><dd>Hide the interface</dd><dt>1–5</dt><dd>Chase, iso, top, floor, deck</dd><dt>Space</dt><dd>Pause</dd>
+  <dl><dt>R</dt><dd>Next robot</dd><dt>V</dt><dd>Swap 3D view and floor plan</dd><dt>N</dt><dd>Models or notebook</dd><dt>M</dt><dd>Hide or show the models panel</dd><dt>L</dt><dd>Hide or show the robot panel</dd>
+  <dt>H</dt><dd>Focus: hide the interface</dd><dt>0</dt><dd>Live camera: fit the floor</dd><dt>+ −</dt><dd>Live camera: zoom</dd><dt>1–5</dt><dd>Chase, iso, top, floor, deck</dd><dt>Space</dt><dd>Pause</dd>
   <dt>T</dt><dd>Talk: click the mic or press T, then speak</dd><dt>F</dt><dd>Full screen</dd><dt>/</dt><dd>Type a command</dd></dl>
 </aside>
 

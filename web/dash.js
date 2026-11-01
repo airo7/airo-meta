@@ -10,13 +10,14 @@ const setText = (node, v) => node.textContent !== v && (node.textContent = v);
 const calm = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
 const place = (key) => (key.length <= 3 ? key.toUpperCase() : cap(key));
 const ACCENT = "#0a84ff";
-const AXES = { "Gain left": "Gain L", "Gain right": "Gain R", "Dead zone": "Dead", "Turn efficiency": "Turn", Delay: "Delay", "Wheel lag": "Lag", Drift: "Drift" };
+const NAMES = { "Gain left": "Left speed", "Gain right": "Right speed", "Dead zone": "Start-up", "Turn efficiency": "Turning", "Wheel lag": "Wheel lag" };
 const ICON = {
   stack: '<svg viewBox="0 0 16 16"><path d="M8 2 2 5l6 3 6-3zM2 8l6 3 6-3M2 11l6 3 6-3"/></svg>',
   check: '<svg viewBox="0 0 16 16"><path d="m3.5 8.5 3 3 6-7"/></svg>',
   zone: '<svg viewBox="0 0 16 16"><path d="M8 2.5 1.8 13.5h12.4zM8 7v3m0 1.8v.2"/></svg>',
 };
-const LABELS = { "Gain left": "Left gain", "Gain right": "Right gain", "Dead zone": "Dead zone", "Turn efficiency": "Turning", Delay: "Delay", "Wheel lag": "Lag", Drift: "Drift" };
+const named = (p) => NAMES[p.name] || p.name;
+if (window.top !== window.self) document.documentElement.classList.add("embedded");
 
 const app = { state: null, sel: null, loaded: false, want: null, notes: {}, phases: {}, zones: new Set(), heard: new Set(), recallAt: {}, radar: null, pin: null };
 
@@ -153,7 +154,7 @@ function robotCard(r) {
       <svg class="spark" viewBox="0 0 64 26" preserveAspectRatio="none"><path class="area"/><line class="thr" x1="0" x2="64"/><path class="line"/></svg>
     </div>
     <div class="sub"><b></b><span class="bname"></span><span class="mem">${ICON.stack}<span></span></span></div>
-    <div class="more"><div><div class="sig"><svg class="radar" viewBox="-79 -70 158 140"></svg><ul class="deltas"></ul></div></div></div>`);
+    <div class="more"><div><div class="sig"><svg class="radar" viewBox="-80 -56 172 108"></svg><ul class="deltas"></ul></div></div></div>`);
   a.dataset.id = r.id;
   a.addEventListener("click", () => select(r.id));
   return a;
@@ -205,7 +206,7 @@ const norm = (p, v = p.value) => clamp((v - p.lo) / (p.hi - p.lo || 1), 0.04, 1)
 function radar(card, r) {
   const params = r.body?.params;
   if (!params?.length) return;
-  const svg = card.querySelector(".radar"), n = params.length, R = 44, bare = bareOf(r);
+  const svg = card.querySelector(".radar"), n = params.length, R = 40, bare = bareOf(r);
   const at = (i, k) => {
     const a = -Math.PI / 2 + (i * 2 * Math.PI) / n;
     return [Math.cos(a) * R * k, Math.sin(a) * R * k];
@@ -216,8 +217,9 @@ function radar(card, r) {
     const ring = (k) => params.map((_, i) => at(i, k).join(",")).join(" ");
     svg.innerHTML = `<polygon class="grid" points="${ring(1)}"/><polygon class="grid" points="${ring(0.5)}"/>` +
       params.map((p, i) => {
-        const [x, y] = at(i, 1), [lx, ly] = at(i, 1.24), anchor = Math.abs(lx) < 6 ? "middle" : lx > 0 ? "start" : "end";
-        return `<line class="grid" x1="0" y1="0" x2="${x}" y2="${y}"/><text x="${lx}" y="${ly + 3.5}" text-anchor="${anchor}">${esc(AXES[p.name] || p.name.split(" ")[0])}</text>`;
+        const [x, y] = at(i, 1), [lx, ly] = at(i, 1.2), side = Math.abs(lx) > 6, words = side ? named(p).split(" ") : [named(p)];
+        const label = words.map((w, j) => `<tspan x="${lx}" dy="${j ? 10.5 : 3.5 - (words.length - 1) * 5.25}">${esc(w)}</tspan>`).join("");
+        return `<line class="grid" x1="0" y1="0" x2="${x}" y2="${y}"/><text y="${ly}" text-anchor="${side ? (lx > 0 ? "start" : "end") : "middle"}"><title>${esc(p.name)} (${esc(p.unit || "ratio")})</title>${label}</text>`;
       }).join("") + `<polygon class="bare"/><polygon class="cur"/>`;
     if (app.radar?.id !== r.id) app.radar = { id: r.id, shown: params.map((p) => norm(p)) };
   }
@@ -228,10 +230,11 @@ function radar(card, r) {
   deltas(card.querySelector(".deltas"), params, bare, r);
 }
 
+// A percentage of a value near zero explodes (a 1 PWM dead zone that becomes 16 reads +1481%), so those move in units.
 function fmtDelta(p, b) {
-  const d = p.value - b.value;
-  if (p.lo >= 0 && Math.abs(b.value) > 1e-9) return `${d >= 0 ? "+" : "−"}${Math.abs((d / Math.abs(b.value)) * 100).toFixed(0)}%`;
-  return `${d >= 0 ? "+" : "−"}${+Math.abs(d).toPrecision(2)} ${p.unit || ""}`.trim();
+  const d = p.value - b.value, sign = d >= 0 ? "+" : "−";
+  if (p.unit !== "PWM" && p.lo >= 0 && Math.abs(b.value) > 0.1 * (p.hi - p.lo)) return `${sign}${Math.abs((d / b.value) * 100).toFixed(0)}%`;
+  return `${sign}${+Math.abs(d).toPrecision(2)} ${p.unit || ""}`.trim();
 }
 
 function deltas(ul, params, bare, r) {
@@ -240,7 +243,7 @@ function deltas(ul, params, bare, r) {
   else {
     const top = params.map((p, i) => ({ p, b: bare[i], k: Math.abs(norm(p) - norm(bare[i])) }))
       .filter((d) => d.k > 0.015).sort((a, b) => b.k - a.k).slice(0, 3);
-    rows = top.length ? top.map(({ p, b }) => `<li><b>${fmtDelta(p, b)}</b><span>${esc(LABELS[p.name] || p.name)}</span></li>`).join("")
+    rows = top.length ? top.map(({ p, b }) => `<li><b>${fmtDelta(p, b)}</b><span>${esc(named(p))}</span></li>`).join("")
       : `<li><b>Bare</b><span>Matches the first body</span></li>`;
     rows += `<li class="key"><i></i>${r.memory?.length ? "Bare body" : "Hand-measured"}</li>`;
   }
@@ -383,9 +386,9 @@ $("plan").addEventListener("click", (e) => {
 });
 
 function toggleMap() {
-  document.body.classList.toggle("mapview");
+  if (app.state?.mode !== "real") document.body.classList.toggle("mapview");
 }
-$("hero").addEventListener("click", (e) => (document.body.classList.contains("mapview") ? toggleMap() : app.state?.camera && goTo(e)));
+$("hero").addEventListener("click", () => document.body.classList.contains("mapview") && toggleMap());
 
 function frame() {
   requestAnimationFrame(frame);
@@ -393,7 +396,8 @@ function frame() {
   const rect = mapRect(), f = app.state.site.floor;
   Object.assign($("video").style, { left: `${rect.x}px`, top: `${rect.y}px`, width: `${f.w * rect.k}px`, height: `${f.h * rect.k}px` });
   drawPlan($("plan"), app.state, app.sel.id, rect);
-  if (app.state.mode === "real") drawAR($("ar"), app.state, app.sel, app.pin);
+  if (app.state.mode === "real") drawAR($("ar"), app.state, app.sel, app.pin, liveBox());
+  else if (hero.style.width) hero.removeAttribute("style");
   const rd = app.radar;
   if (rd?.svg?.isConnected && rd.target) {
     rd.shown = rd.target.map((v, i) => (rd.shown[i] ?? v) + (v - (rd.shown[i] ?? v)) * (calm() ? 1 : 0.09));
@@ -401,28 +405,45 @@ function frame() {
   }
 }
 
-function fold(on = !document.body.classList.contains("sidefold")) {
-  document.body.classList.toggle("sidefold", on);
-  localStorage.setItem("sidefold", on ? "1" : "");
+function fold(cls = "sidefold", on = !document.body.classList.contains(cls)) {
+  document.body.classList.toggle(cls, on);
+  localStorage.setItem(cls, on ? "1" : "");
 }
-fold(!!localStorage.getItem("sidefold"));
-$("fold").addEventListener("click", () => fold(true));
-$("unfold").addEventListener("click", () => fold(false));
+for (const cls of ["sidefold", "railfold"]) fold(cls, !!localStorage.getItem(cls));
+$("fold").addEventListener("click", () => fold("sidefold", true));
+$("unfold").addEventListener("click", () => fold("sidefold", false));
+
+function focus(on = !document.body.classList.contains("clean")) {
+  document.body.classList.toggle("clean", on);
+  if (on) say("Press H or Esc to bring the panels back", 2500);
+  else dismissHint();
+}
+$("panes").addEventListener("click", (e) => {
+  const b = e.target.closest("button");
+  if (!b) return;
+  b.blur();
+  if (b.dataset.pane === "clean") focus(true);
+  else fold(`${b.dataset.pane}fold`);
+});
 
 addEventListener("keydown", (e) => {
   if (e.target.tagName === "INPUT") return e.key === "Escape" && e.target.blur();
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === "v") toggleMap();
-  else if (k === "h") document.body.classList.toggle("clean");
+  else if (k === "h") focus();
   else if (k === "m") fold();
+  else if (k === "l") fold("railfold");
   else if (k === "t") listen();
   else if (k === "n") tab($("notebook").hidden ? "notebook" : "models");
   else if (k === "r" && app.state) {
     const ids = app.state.robots.map((r) => r.id);
     select(ids[(ids.indexOf(app.sel.id) + 1) % ids.length]);
   } else if (k === "?") $("help").hidden = !$("help").hidden;
-  else if (k === "escape") $("help").hidden = true;
+  else if (k === "escape") {
+    $("help").hidden = true;
+    if (document.body.classList.contains("clean")) focus(false);
+  }
   else if (k === "f") document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
   else if (k === "/") {
     e.preventDefault();
