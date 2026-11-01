@@ -10,7 +10,7 @@ from airo.voice import Intent
 def reply(name, **args):
     call = SimpleNamespace(id="c1", function=SimpleNamespace(name=name, arguments=json.dumps(args)))
 
-    async def wonder(messages, tools, model, timeout):
+    async def wonder(messages, tools, model, timeout, effort=None):
         reply.seen = messages, tools
         return SimpleNamespace(content=None, tool_calls=[call])
     return wonder
@@ -32,7 +32,7 @@ def test_tool_calls_become_intents(monkeypatch):
 
 
 def test_a_plain_answer_without_a_tool_is_said(monkeypatch):
-    async def wonder(messages, tools, model, timeout):
+    async def wonder(messages, tools, model, timeout, effort=None):
         return SimpleNamespace(content="Hello.", tool_calls=None)
     monkeypatch.setattr(meta_api, "wonder", wonder)
     assert asyncio.run(commander.understand("hi", "")) == Intent("say", text="Hello.")

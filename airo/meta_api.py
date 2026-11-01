@@ -158,13 +158,15 @@ async def describe(image_bgr: np.ndarray, prompt: str, model: str = "muse-spark-
     return rec["output"]
 
 
-async def wonder(messages: list[dict], tools: list[dict], model: str = "muse-wonder-1.0", timeout: float = 30):
+async def wonder(messages: list[dict], tools: list[dict], model: str = "muse-wonder-1.0", timeout: float = 30,
+                 effort: str | None = None):
     """One chat.completions turn with function tools; returns the assistant message (may carry tool_calls)."""
     n = next((i for i, m in enumerate(reversed(messages)) if m.get("role") != "tool"), len(messages))
     asked = f"{n} tool result{'s' * (n > 1)}" if n else (messages[-1].get("content") or "" if messages else "")
     with _call(model, "wonder", asked if isinstance(asked, str) else "") as rec:
-        resp = await asyncio.wait_for(client().chat.completions.create(model=model, messages=messages, tools=tools),
-                                      timeout)
+        extra = {"reasoning_effort": effort} if effort else {}
+        resp = await asyncio.wait_for(client().chat.completions.create(model=model, messages=messages, tools=tools,
+                                                                       **extra), timeout)
         msg = resp.choices[0].message
         rec["output"] = msg.content or ""
         rec["tools"] = [{"id": c.id, "name": c.function.name, "args": c.function.arguments, "result": None}

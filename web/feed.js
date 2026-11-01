@@ -6,6 +6,9 @@ const GLYPH = {
   image: '<svg viewBox="0 0 20 20"><rect x="2.5" y="3.5" width="15" height="13" rx="2.5"/><circle cx="7" cy="8" r="1.5"/><path d="m3 15 4.5-4.5 3 3 2-2L17 15.5"/></svg>',
 };
 const MODEL_NAME = { segment: "SAM", describe: "Muse Spark", wonder: "Muse Wonder", transcribe: "Muse Voice", image: "Muse Image" };
+// command reading goes through the tool-call path but runs on Spark
+const modelName = (m) => (m.model?.startsWith("muse-spark") ? "Muse Spark" : MODEL_NAME[m.kind] || m.model);
+const group = (m) => (m.model?.startsWith("muse-spark") ? "describe" : m.kind);
 const NOTE_ICON = {
   alert: '<path d="M10 3 2 17h16zM10 8.5v3.5m0 2.2v.3"/>',
   hypothesis: '<circle cx="10" cy="10" r="7.5"/><path d="M8 8a2 2 0 1 1 2.8 1.9c-.5.2-.8.6-.8 1.1v.5m0 2.3v.2"/>',
@@ -89,8 +92,8 @@ function cardHtml(m) {
   else if (m.kind === "transcribe") body = `<p class="quote">${esc(m.output)}</p>`;
   else if (m.kind === "image") body = `<p class="in">${esc(m.input)}</p>${img ? `<img class="shot square" src="${img}" alt="">` : ""}<p class="out">${esc(m.output)}</p>`;
   else body = `<div class="sayl">${sayHtml(m) || `<p class="say">${esc(m.input)}</p>`}</div>${more(`<p class="in">${esc(m.input)}</p>${m.output ? `<p class="out">${esc(minus(m.output))}</p>` : ""}<div class="tl">${tools(m.tools)}</div>`)}`;
-  return `<article><header><span class="glyph">${GLYPH[m.kind] || GLYPH.wonder}</span>
-    <span class="title"><b>${esc(MODEL_NAME[m.kind] || m.model)}<small>${esc(ver)}</small></b><span>${who} · <time></time></span></span>
+  return `<article><header><span class="glyph">${GLYPH[group(m)] || GLYPH.wonder}</span>
+    <span class="title"><b>${esc(modelName(m))}<small>${esc(ver)}</small></b><span>${who} · <time></time></span></span>
     <span class="lat">${m.ok ? "" : "Failed · "}${latency(m.ms)}<i></i></span></header>${body}</article>`;
 }
 
@@ -101,7 +104,7 @@ function renderFeed(s) {
     let c = feed.cards.get(m.id);
     if (!c) {
       c = el("div", `card${m.ok ? "" : " failed"}`, `<div>${cardHtml(m)}</div>`);
-      c.dataset.kind = m.kind;
+      c.dataset.kind = group(m);
       feed.cards.set(m.id, c);
       box.prepend(c);
       if (app.loaded && !calm()) {
@@ -110,17 +113,17 @@ function renderFeed(s) {
         setTimeout(() => c.classList.remove("fresh"), 2400);
       }
       c.toolsKey = JSON.stringify(m.tools);
-      $("lastcall").textContent = `${MODEL_NAME[m.kind] || m.model} · ${(said(m)[0]?.[0] || words(m.output || m.input)).slice(0, 48)}`;
+      $("lastcall").textContent = `${modelName(m)} · ${(said(m)[0]?.[0] || words(m.output || m.input)).slice(0, 48)}`;
     } else if (m.tools && JSON.stringify(m.tools) !== c.toolsKey) {
       c.toolsKey = JSON.stringify(m.tools);
       const tl = c.querySelector(".tl"), sl = c.querySelector(".sayl");
       if (tl) tl.innerHTML = tools(m.tools);
       if (sl && said(m).length) sl.innerHTML = sayHtml(m);
     }
-    c.classList.toggle("hide", !!feed.filter && m.kind !== feed.filter);
+    c.classList.toggle("hide", !!feed.filter && group(m) !== feed.filter);
     setText(c.querySelector("time"), ago(m.t));
   }
-  const shown = list.filter((m) => !feed.filter || m.kind === feed.filter).length;
+  const shown = list.filter((m) => !feed.filter || group(m) === feed.filter).length;
   let empty = box.querySelector(".empty");
   if (!shown && !empty) box.append((empty = el("p", "empty", "")));
   if (empty) shown ? empty.remove() : setText(empty, list.length ? "No calls to this model yet." : "Calls to Meta's models appear here as the robots see, think and listen.");

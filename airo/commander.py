@@ -49,7 +49,7 @@ async def understand(text: str, situation: str, stations=None) -> Intent:
         tools = [*TOOLS, _tool("deliver", "Take a tote or parcel to a station.", ("station",),
                                station={"type": "string", "enum": list(stations)})]
     msg = await meta_api.wonder([{"role": "system", "content": PROMPT + situation}, {"role": "user", "content": text}],
-                                tools, model=MODEL, timeout=8)
+                                tools, model=MODEL, timeout=15, effort="low")
     if not msg.tool_calls:
         return Intent("say", text=msg.content or "I did not catch that.")
     call = msg.tool_calls[0]
