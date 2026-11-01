@@ -13,8 +13,8 @@ from contextlib import suppress
 
 import numpy as np
 
-from airo import planner, portrait
-from airo.body import KEY, THRESHOLD, Body, cloud, inverse, save, surprise, wrap
+from airo import geometry, planner, portrait
+from airo.body import KEY, THRESHOLD, Body, cloud, inverse, lateral_sd, save, surprise, wrap
 from airo.control import OM_MAX, V_MAX, face, follow
 from airo.floorwatch import FloorWatch
 from airo.paths import DATA
@@ -64,9 +64,9 @@ DOCK_RUN = 0.38
 KINDS = ("heavy", "light")
 PATROL_IN = 0.05
 # the real floor: look this far along the path for anything nearer than WAY_R, wait WAY_WAIT_S for it to move on,
-# then go around with AROUND_CLEAR, a little wider so the detour does not trip the check again
+# then go around at the clearance the car needs: its own half-width plus its learned sideways spread
 FLOOR_DT = 0.2
-WAY_REACH, WAY_R, AROUND_CLEAR = 0.35, 0.12, 0.15
+WAY_REACH, WAY_R = 0.35, 0.12
 WAY_WAIT_S = 1.5
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
           "fetching": ("drive", "drive to the pick cell"), "loading": ("drive", "loaded by the arm"),
@@ -96,6 +96,47 @@ def _gauge(entry: dict) -> dict:
     sd = math.hypot(p[q][1], FLOOR[QTY.index(q)])
     return {**entry, "predicted": round(p[q][0], 1), "sd": round(sd, 1), "measured": round(m[q], 1),
             "unit": GAUGE_UNITS[q]}
+
+
+HALF_W = geometry.CAR[1]
+STEP = 0.02
+
+
+def _length(route) -> float:
+    return sum(math.dist(a, b) for a, b in zip(route, route[1:]))
+
+
+def _narrowest(route, clearance_at) -> float:
+    """Width of the tightest gap along route: twice the least clearance, sampled every 2 cm."""
+    if len(route) < 2:
+        return 2 * clearance_at(route[0])
+    low = math.inf
+    for a, b in zip(route, route[1:]):
+        a, b = np.asarray(a, float), np.asarray(b, float)
+        d = float(np.hypot(*(b - a)))
+        for x in np.arange(0, d + 1e-9, STEP):
+            low = min(low, clearance_at(a + (b - a) * (x / d if d else 0)))
+    return 2 * low
+
+
+def choose_route(scene, start, goal, need: float, drift: float, allowed, clearance_at):
+    """Detour at the clearance the car needs against the tightest way through. Returns (route, note).
+
+    need is the per-side clearance in metres, drift its sideways spread in metres for the narration; clearance_at
+    maps a floor point to its distance from the nearest obstacle."""
+    tight = HALF_W + 0.01
+    route = planner.plan(scene, start, goal, clearance=need, allowed=allowed)
+    short = planner.plan(scene, start, goal, clearance=tight, allowed=allowed)
+    if short is not None:
+        gap = _narrowest(short, clearance_at)
+        if (route is None or _length(route) > 1.15 * _length(short)) and gap < 2 * need:
+            tail = "waiting." if route is None else "going the long way."
+            return route, (f"The short way has a {gap * 100:.0f} cm gap. I'm {2 * HALF_W * 100:.0f} cm wide and "
+                           f"drift ±{drift * 100:.0f} cm, so I need {2 * need * 100:.0f} cm: {tail}")
+    if route is not None and _narrowest(route, clearance_at) < 2 * (need + 0.05):
+        gap = _narrowest(route, clearance_at)
+        return route, f"The gap is {gap * 100:.0f} cm and I need {2 * need * 100:.0f} cm: it fits."
+    return route, None
 
 
 class Surprised(Exception):
@@ -335,9 +376,12 @@ class Mission:
         while True:
             p = self.rig.pose
             scene = self.floor.scene()
-            route = planner.plan(scene, (p.x, p.y), goal, clearance=AROUND_CLEAR, allowed=self._inside(scene))
+            sd = lateral_sd(self.sci.members, self.sci.best)
+            need = min(0.25, max(0.12, HALF_W + 0.02 + 2 * sd))
+            route, note = choose_route(scene, (p.x, p.y), goal, need, 2 * sd, allowed=self._inside(scene),
+                                       clearance_at=self.floor.clearance)
             if route:
-                self.note("result", "It is staying, so I am going around it.")
+                self.note("result", note or "It is staying, so I am going around it.")
                 self.path = route
                 return route[1:]
             if skip:
