@@ -668,7 +668,7 @@ class Episode:
         img = tex[m:m + int(H * PPM), m:m + int(W * PPM)].copy()
         for rid, (x, y, th) in poses.items():
             parts = car(x, y, th, ROBOTS[rid]["color"], self.weighted(rid, T), self.cargo(rid, T))
-            for (bx, by, z0), (l, w, _), yaw, bgr in sorted(parts, key=lambda b: b[0][2] + b[1][2]):
+            for (bx, by, _z0), (l, w, _), yaw, bgr in sorted(parts, key=lambda b: b[0][2] + b[1][2]):
                 c, s = math.cos(yaw), math.sin(yaw)
                 pts = [(bx + a * c - b * s, by + a * s + b * c) for a, b in ((l / 2, w / 2), (l / 2, -w / 2), (-l / 2, -w / 2), (-l / 2, w / 2))]
                 cv2.fillConvexPoly(img, np.int32([(px * PPM * 16, (H - py) * PPM * 16) for px, py in pts]), bgr, cv2.LINE_AA, 4)

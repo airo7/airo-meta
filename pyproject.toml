@@ -22,6 +22,7 @@ dependencies = [
 dev = [
     "httpx>=0.28.1",
     "pytest>=8",
+    "ruff>=0.17.3",
 ]
 
 [build-system]
@@ -30,3 +31,14 @@ build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
 packages = ["airo"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py313"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "B", "UP"]
+ignore = ["E731", "E741", "B905", "B023", "B008"]

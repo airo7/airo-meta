@@ -1,8 +1,8 @@
 """Open-loop probe experiments: the library, a free-space check, a runner, and predicted vs measured outcomes."""
 
 import math
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, replace
-from typing import Awaitable, Callable
 
 import numpy as np
 

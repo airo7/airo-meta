@@ -7,8 +7,8 @@ import json
 import math
 import re
 import time
+from collections.abc import Callable
 from dataclasses import asdict
-from typing import Callable
 
 import numpy as np
 
