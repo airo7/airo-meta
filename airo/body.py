@@ -217,9 +217,10 @@ def cloud_radius_cm(segments: list[Segment], best: Body, anchor: Body | None = N
 _P = np.linspace(0, PWM_MAX, 4 * PWM_MAX + 1)
 
 
-def inverse(body: Body, v: float, omega: float, bump: float = 3, pivot_min: float = 0) -> tuple[int, int]:
-    """PWM for steady-state (v, omega); non-zero sides are bumped just past the dead zone, and sides turning
-    against each other to at least pivot_min."""
+def inverse(body: Body, v: float, omega: float, bump: float = 3, pivot_min: float = 0,
+            drive_min: float = 0) -> tuple[int, int]:
+    """PWM for steady-state (v, omega); non-zero sides are bumped just past the dead zone. Sides turning against
+    each other get at least pivot_min, and a slow command is scaled up until its stronger side reaches drive_min."""
     d = (omega - body.kappa * v) * TRACK / body.eta
     w = np.array([v - d / 2, v + d / 2])
     speed = np.abs(body.wheel_target(np.column_stack([_P, _P])))
@@ -227,6 +228,8 @@ def inverse(body: Body, v: float, omega: float, bump: float = 3, pivot_min: floa
     p = np.where(np.abs(w) > 1e-3, np.maximum(p, body.dz + bump), 0)
     if w[0] * w[1] < 0:
         p = np.maximum(p, pivot_min)
+    elif 0 < p.max() < drive_min:
+        p = p * drive_min / p.max()
     l, r = np.clip(np.sign(w) * np.sign([body.g_l, body.g_r]) * p, -PWM_MAX, PWM_MAX).round().astype(int)
     return int(l), int(r)
 

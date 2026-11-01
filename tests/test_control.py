@@ -63,3 +63,10 @@ def test_pivots_get_the_floor_and_straights_do_not():
     from airo.body import inverse
     assert min(map(abs, inverse(KEY, 0, 0.3, pivot_min=70))) >= 70
     assert inverse(KEY, 0.1, 0, pivot_min=70) == inverse(KEY, 0.1, 0)
+
+
+def test_slow_commands_reach_the_drive_floor_keeping_their_shape():
+    from airo.body import inverse
+    l, r = inverse(KEY, 0.03, 0.05, drive_min=45)
+    l0, r0 = inverse(KEY, 0.03, 0.05)
+    assert max(l, r) == 45 and abs(l / r - l0 / r0) < 0.05
