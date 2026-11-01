@@ -235,6 +235,14 @@ def inverse(body: Body, v: float, omega: float, bump: float = 3, pivot_min: floa
     return int(l), int(r)
 
 
+def lateral_sd(members: list[Body], best: Body, v: float = 0.2, seconds: float = 1.0) -> float:
+    """Spread (std, metres) of the sideways position across members after driving straight from rest."""
+    l, r = inverse(best, v, 0)
+    t = np.linspace(0, seconds, max(2, round(seconds / DT) + 1))
+    end = cloud(members, t, [0], [(l, r)], (0, 0, 0), wheels0=(0, 0))
+    return float(end[:, -1, 1].std())
+
+
 def save(body: Body, members: list[Body], name: str, path: Path = BODY_PATH):
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
