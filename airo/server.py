@@ -81,7 +81,9 @@ class Dashboard:
         self._jpeg["view"] = _encode(bgr)
 
     async def serve(self, host: str = "127.0.0.1", port: int = 8000) -> None:
-        await uvicorn.Server(uvicorn.Config(self.app, host=host, port=port, log_level="warning")).serve()
+        # the MJPEG streams never end, so a graceful shutdown with no timeout would wait on them forever
+        config = uvicorn.Config(self.app, host=host, port=port, log_level="warning", timeout_graceful_shutdown=1)
+        await uvicorn.Server(config).serve()
 
     async def _mjpeg(self, name: str):
         last = None

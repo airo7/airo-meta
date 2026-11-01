@@ -14,7 +14,9 @@ often such things happen by themselves (--busy). --dry shows the camera, pose an
 import argparse
 import asyncio
 import os
+import signal
 import sys
+import threading
 import time
 
 import numpy as np
@@ -57,10 +59,15 @@ async def open_rigs(args, site) -> list:
 
 
 async def console(commands: asyncio.Queue):
+    """Typed commands. A daemon thread, not the loop's executor: asyncio.run waits for executor threads on exit, and
+    one blocked on stdin would keep the process (and its BLE link) alive."""
     loop = asyncio.get_running_loop()
-    while line := await loop.run_in_executor(None, sys.stdin.readline):
-        if text := line.strip():
-            commands.put_nowait(text)
+
+    def read():
+        for line in sys.stdin:
+            if text := line.strip():
+                loop.call_soon_threadsafe(commands.put_nowait, text)
+    threading.Thread(target=read, daemon=True).start()
 
 
 async def film(fleet: Fleet, dash: Dashboard):
@@ -161,9 +168,14 @@ if __name__ == "__main__":
     p.add_argument("--voice", action="store_true")
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=8000)
+    # uvicorn re-raises the signal it caught once it has stopped: a kill must unwind like Ctrl+C, so BLE is closed;
+    # a car left connected stops advertising until it is power-cycled
+    signal.signal(signal.SIGTERM, signal.default_int_handler)
     try:
         asyncio.run(main(p.parse_args()))
     except KeyboardInterrupt:
-        pass
+        # main has closed the rigs; an idle executor thread must not hold the process (and the port) at exit
+        sys.stdout.flush()
+        os._exit(0)
     except RigAbort as e:
         sys.exit(f"airo: {e}")
