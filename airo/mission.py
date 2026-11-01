@@ -190,8 +190,8 @@ class Mission:
         """Slower after a relearn the scientist could not confirm."""
         return V_MAX * (1 if getattr(self.sci, "verified", True) else CAUTION)
 
-    def note(self, kind: str, text: str):
-        self.notes.append({"t": time.time(), "kind": kind, "text": text})
+    def note(self, kind: str, text: str, **extra):
+        self.notes.append({"t": time.time(), "kind": kind, "text": text, **extra})
         self._persist()
 
     def _persist(self, *extra: dict):
@@ -561,7 +561,8 @@ class Mission:
         p, parcel = self.rig.pose, self.scene and self.scene.parcel
         recentre = getattr(self.sci, "recentre", None)
         if recentre and parcel and math.dist((p.x, p.y), parcel) < PROBE_REACH:
-            self.note("alert", f"Reality left the cloud ({why}). Moving clear of the parcel to probe.")
+            self.note("alert", "I'm not moving the way I predicted. Moving away from the parcel to test my body.",
+                      detail=f"Reality left the cloud ({why}).", changed=True)
             centre = (self.rig.floor[0] / 2, self.rig.floor[1] / 2)
             if path := planner.plan(self.scene, (p.x, p.y), centre):
                 await follow(self.rig, self.body, path, v_max=CAUTION * V_MAX)
@@ -574,14 +575,19 @@ class Mission:
              for v in e["z"].values()]
         if not getattr(self.sci, "verified", True) and z and max(z) > FAULT_Z:
             await self.rig.stop()
-            self.note("alert", f"Hardware fault: no body I can fit explains these probes (|z| up to {max(z):.0f}). "
-                               "Stopping; check the motors and wiring.")
+            self.note("alert", "Hardware fault: nothing I learn explains how I move. Stopping; please check the motors "
+                               "and wiring.",
+                      detail=f"No body I can fit explains these probes (|z| up to {max(z):.0f}).")
             raise RigAbort("hardware fault")
         self._quiet_until = self.rig.pose.t + QUIET_S
         how = "recalled" if any(e["kind"] == "recall" for e in self.sci.notebook if e["t"] >= self._relearn_t) \
             else "relearned"
-        self.note("conclusion", f"Body #{self.sci.n}, {how} in {self.relearned_s:.1f} s "
-                                f"({self.probing_s:.1f} s probing).")
+        s, n = self.relearned_s, self.sci.n
+        change = getattr(self.sci, "change", "") or "My body changed"
+        self.note("conclusion", f"Recognised this body: Body #{n}, in {s:.0f} s." if how == "recalled" else
+                                f"{change}; learned it as Body #{n} in {s:.0f} s.",
+                  detail=f"Body #{n}, {how} in {s:.1f} s ({self.probing_s:.1f} s probing).", n=n, how=how,
+                  seconds=round(s, 1))
         known = self._memory and self._memory.get(self.sci.n)
         if how == "recalled" and known and known.portrait and Path(known.portrait).exists():
             self.portrait, self.portrait_n = Path(known.portrait).read_bytes(), self.portrait_n + 1
@@ -591,6 +597,8 @@ class Mission:
     async def learn(self):
         self.status = "learning"
         await self.sci.learn()
+        if not getattr(self.sci, "verified", True):
+            return
         self._draw()
         if self.body_path:
             save(self.sci.best, self.sci.members, self.sci.name, self.body_path)
@@ -608,8 +616,10 @@ class Mission:
             self.status = "stopped"
         elif intent.kind == "status":
             b = self.body
-            self.note("result", f"Body #{self.sci.n} {self.sci.name}: gains {b.g_l * 1000:.2f}/{b.g_r * 1000:.2f} "
-                                f"mm/s/PWM, dead zone {b.dz:.0f}, delay {b.tau * 1000:.0f} ms.")
+            sketch = getattr(self.sci, "sketch", None)
+            self.note("result", f"Body #{self.sci.n} {self.sci.name}." + (f" {sketch()}" if sketch else ""),
+                      detail=f"Gains {b.g_l * 1000:.2f}/{b.g_r * 1000:.2f} mm/s/PWM, dead zone {b.dz:.0f}, delay "
+                             f"{b.tau * 1000:.0f} ms.")
         elif intent.kind == "goto" and not self.rig.inside(*intent.xy):
             self.note("alert", f"({intent.xy[0]:.2f}, {intent.xy[1]:.2f}) is outside the floor inset.")
         elif intent.kind in ("goto", "patrol"):
@@ -796,7 +806,7 @@ def _nth(k: int) -> str:
 
 
 def _felt(r: dict) -> str:
-    """check_body's answer in a few words: "recalled Body #2 · heavy tote · 1.1 s"."""
-    what = f"Body #{r['n']} · {r['name']}"
-    return {"same": f"same body, {what}", "recalled": f"recalled {what} · {r['seconds']:.1f} s",
-            "learned": f"learned {what} in {r['seconds']:.1f} s"}.get(r["result"], what)
+    """check_body's answer in a few words: "recognised Body #2 (heavy tote) in 1.1 s"."""
+    what = f"Body #{r['n']} ({r['name']})"
+    return {"same": f"same body as before, {what}", "recalled": f"recognised {what} in {r['seconds']:.1f} s",
+            "learned": f"learned it as {what} in {r['seconds']:.1f} s"}.get(r["result"], what)

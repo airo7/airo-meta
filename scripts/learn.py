@@ -43,7 +43,7 @@ async def main(args):
             if e["kind"] == "result":
                 print(f"{e['probe']:>14}  z {', '.join(f'{v:+5.1f}' for v in e['z'].values())}")
             elif e["kind"] in ("hypothesis", "prediction", "recall", "fallback", "alert", "conclusion"):
-                print(f"[{e['kind']}] {e['text']}")
+                print(f"[{e['kind']}] {e['text']}" + (f" ({e['detail']})" if e.get("detail") else ""))
         seen = len(sci.notebook)
         if sci.members is not members and len(sci.segments):
             members = sci.members

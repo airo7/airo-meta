@@ -12,6 +12,7 @@ from pathlib import Path
 
 RUNS = Path("data/runs")
 ARRIVED = re.compile(r"Arrived at \(([-\d.]+), ([-\d.]+)\), ([\d.]+) cm off")
+# Older runs carry these only in the text; newer notes say it in fields ("changed", "how").
 BACK = re.compile(r"Body #(\d+), (relearned|recalled) in ([\d.]+) s")
 SURPRISE = ("Body changed", "Reality left the cloud")
 STOPS = ("Safety stop", "Hardware fault")
@@ -50,7 +51,8 @@ def episodes(notes: list[dict]) -> list[dict]:
         if (kind == "command" and e.get("intent") == "learn") or (kind == "hypothesis" and cur is None):
             cur = {"kind": "learn", "t0": e["t"], "z": []}
             out.append(cur)
-        elif kind == "alert" and text.startswith(SURPRISE) and (cur is None or cur["kind"] != "surprise"):
+        elif kind == "alert" and (e.get("changed") or text.startswith(SURPRISE)) and (cur is None or
+                                                                                      cur["kind"] != "surprise"):
             cur = {"kind": "surprise", "t0": e["t"], "z": []}
             out.append(cur)
         elif cur is None:
@@ -60,9 +62,13 @@ def episodes(notes: list[dict]) -> list[dict]:
         elif kind == "recall":
             cur.update(name=e.get("name"), recall_s=e.get("recall_s"))
         elif kind == "conclusion" and "body" in e:
-            cur.update(body=e["body"], name=e.get("name"), scripted=bool(e.get("fallback")))
+            cur.update(body=e["body"], name=e.get("name"), scripted=bool(e.get("fallback")),
+                       uncertain=bool(e.get("uncertain")))
             if cur["kind"] == "learn":
                 cur["t1"], cur = e["t"], None
+        elif kind == "conclusion" and "how" in e:
+            cur.update(t1=e["t"], how=e["how"], n=e["n"], seconds=e["seconds"])
+            cur = None
         elif kind == "conclusion" and (m := BACK.match(text)):
             cur.update(t1=e["t"], how=m[2], n=int(m[1]), seconds=float(m[3]))
             cur = None
@@ -123,6 +129,7 @@ def summary(ticks: list[dict], notes: list[dict]) -> list[tuple[str, str]]:
         via = ("scripted" if ep["scripted"] else "Wonder") if "scripted" in ep else ""
         if ep["kind"] == "learn":
             got = f"; {via}: \"{ep['name']}\", {body(ep['body'])}" if "body" in ep else ""
+            got += ", uncertain: the fit was discarded" if ep.get("uncertain") else ""
             rows.append(("learn", f"at {at}, {took}, {_probes(ep)}{got}"))
         else:
             how = (f"{ep['how']} Body #{ep['n']} \"{ep.get('name', '')}\" in {ep['seconds']:.1f} s"

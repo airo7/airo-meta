@@ -69,7 +69,7 @@ def test_twin_finds_a_marker_taped_off_centre():
     assert -6.5 < fwd < -5.0 and abs(left) < 0.8
     x, y, _ = rig.true_pose
     assert math.hypot(rig.pose.x - x, rig.pose.y - y) < 0.01
-    assert not any("does not fit the others" in e["text"] for e in sci.notebook)
+    assert not any("does not fit the others" in e.get("detail", "") for e in sci.notebook)
     pivots = [e for e in sci.notebook if e["kind"] == "result" and e["probe"].startswith("pivot")]
     assert pivots and all(abs(e["measured"]["lateral_cm"]) < 1.5 for e in pivots)
     assert len(sci.segments) == 5

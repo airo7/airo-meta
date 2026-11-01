@@ -480,3 +480,16 @@ body.clean #top > *, body.clean #rail, body.clean #map, body.clean #bottom, body
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
 }
+
+/* feed: the plain sentence first, the technical line and tool calls folded under it */
+.card .say { margin-top: 10px; font-size: 15px; line-height: 1.36; color: var(--label); }
+.card .said { margin-top: 3px; color: var(--label2); }
+.card .said::before { content: "→ "; color: var(--label3); }
+details.more { margin-top: 6px; }
+details.more > summary { width: fit-content; cursor: pointer; list-style: none; color: var(--label3); font-size: 12px; }
+details.more > summary::-webkit-details-marker { display: none; }
+details.more > summary::before { content: "▸ "; }
+details.more[open] > summary::before { content: "▾ "; }
+details.more .tech { margin-top: 2px; color: var(--label2); font-size: 12.5px; font-variant-numeric: tabular-nums; }
+.card details.more .in { margin-top: 6px; -webkit-line-clamp: unset; }
+.card details.more .out { font-size: 13px; color: var(--label2); }

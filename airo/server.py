@@ -19,7 +19,8 @@ Optional fields:
     "mode": "sim" | "real",
     "episode": {"phases": [{"t": float, "kind": "drive|surprise|probe|refit|relearn", "label": str}]},
     "relearn": {"phase": "changed|testing|done", "elapsed_s": float, "probe": str, "step": int, "steps": int} | None,
-    notebook result entries: "predicted", "sd", "measured", "unit" draw a prediction-vs-measurement gauge.
+    notebook result entries: "predicted", "sd", "measured", "unit" draw a prediction-vs-measurement gauge;
+    any entry's "detail" is the technical line behind its plain "text".
 
 Floor frame: x right, y up, origin at corner marker 1. /video (set_frame) covers exactly floor w x h;
 /view (set_view) is the hero view: a 3/4 sim render with ghost cars, or the raw phone frame on hardware.
