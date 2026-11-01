@@ -211,7 +211,7 @@ def test_tote_stays_on_through_hard_driving(cmd):
     async def run():
         await loaded(car)
         worst = 0.0
-        for k in range(40):
+        for _ in range(40):
             await car.step(*cmd)
             worst = max(worst, deck_offset(car))
         return worst
@@ -294,7 +294,7 @@ def test_three_robots_fetch_and_deliver_without_colliding_or_deadlock():
     f, world, gaps, seen = run_fleet(3, ["airo 1 deliver to assembly", "airo 2 deliver to packing",
                                          "airo 3 deliver to dock"], Feeling)
     for r, station in zip(f.robots, ("assembly", "packing", "dock")):
-        assert any(n["text"].startswith(f"Delivered a ") and n["text"].endswith(f"{station.capitalize()}.")
+        assert any(n["text"].startswith("Delivered a ") and n["text"].endswith(f"{station.capitalize()}.")
                    for n in r.mission.notes), r.name
         assert math.dist(r.rig.true_pose[:2], r.mission.dock[:2]) < 0.06
     assert world.t < 130 and min(gaps) > 0.25

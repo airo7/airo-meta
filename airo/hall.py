@@ -363,7 +363,7 @@ def workfloor(site, cs: dict[str, Cell], rng) -> np.ndarray:
     for x in np.arange(-0.6, w + 0.8, 0.9):
         c.text("WALKWAY", (x, (walk[0] + walk[1]) / 2), 0.06, WHITE)
 
-    for name, cl in cs.items():
+    for cl in cs.values():
         out, along, base = np.array(cl.out), np.array(cl.along), np.array(cl.base)
         quad = lambda f, r, s: np.array([p(*(base + f * out - s * along)), p(*(base + f * out + s * along)),
                                           p(*(base + r * out + s * along)), p(*(base + r * out - s * along))],
@@ -395,7 +395,7 @@ def workfloor(site, cs: dict[str, Cell], rng) -> np.ndarray:
     for k, (x, y, th) in enumerate(pick.wait):
         c.paint(YELLOW, lambda m, x=x, y=y, th=th: box(m, x, y, th, 0.16, 0.11, dash=True))
         c.text(f"Q{k + 1}", (x + 0.21, y), 0.05, YELLOW, angle=90)
-    for name, bay in site.drops.items():
+    for bay in site.drops.values():
         for x, y, th in bay.wait:
             c.paint(WHITE, lambda m, x=x, y=y, th=th: box(m, x, y, th, 0.16, 0.11, dash=True))
     for k, (x, y, th) in enumerate(site.starts):

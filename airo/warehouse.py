@@ -226,7 +226,7 @@ class Warehouse:
     # building
 
     def build(self, spec):
-        for n, ld in self.loaders.items():
+        for ld in self.loaders.values():
             ld.arm.build(spec, ld.title)
         for t in self.totes:
             self._tote(spec, t)
