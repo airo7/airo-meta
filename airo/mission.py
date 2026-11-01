@@ -16,6 +16,7 @@ import numpy as np
 from airo import planner, portrait
 from airo.body import KEY, THRESHOLD, Body, cloud, inverse, save, surprise, wrap
 from airo.control import OM_MAX, V_MAX, face, follow
+from airo.probes import FLOOR, QTY
 from airo.rig import DT, BaseRig, RigAbort
 from airo.server import topdown
 from airo.voice import parse_intent
@@ -83,7 +84,9 @@ def _gauge(entry: dict) -> dict:
     if not (isinstance(p, dict) and isinstance(m, dict)):
         return entry
     q = max(p, key=lambda k: abs(p[k][0]))
-    return {**entry, "predicted": round(p[q][0], 1), "sd": round(p[q][1], 1), "measured": round(m[q], 1),
+    # the spread with the measurement floor, as the plain verdict uses it, so the dot agrees with "as predicted"
+    sd = math.hypot(p[q][1], FLOOR[QTY.index(q)])
+    return {**entry, "predicted": round(p[q][0], 1), "sd": round(sd, 1), "measured": round(m[q], 1),
             "unit": GAUGE_UNITS[q]}
 
 

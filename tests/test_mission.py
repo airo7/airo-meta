@@ -163,7 +163,7 @@ def test_notebook_outcomes_become_gauge_numbers():
     e = _gauge({"kind": "result", "predicted": {"forward_cm": (1.0, 0.2), "lateral_cm": (0.1, 0.1),
                                                 "turn_deg": (51.3, 11.0)},
                 "measured": {"forward_cm": 0.5, "lateral_cm": 0.0, "turn_deg": 68.8}})
-    assert (e["predicted"], e["sd"], e["measured"], e["unit"]) == (51.3, 11.0, 68.8, "°")
+    assert (e["predicted"], e["sd"], e["measured"], e["unit"]) == (51.3, 11.2, 68.8, "°")
     assert _gauge({"kind": "prediction", "predicted": {"turn_deg": (5.0, 1.0)}})["predicted"] == {"turn_deg": (5.0, 1.0)}
 
 
