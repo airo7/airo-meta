@@ -47,6 +47,37 @@ function tools(list) {
   }).join("")}</div>`;
 }
 
+const LEAD = {
+  recall: (a) => `Maybe I'm Body #${a.n} again: one test drive will tell.`,
+  refit: () => "Updating my body model with what I measured.",
+  predict: () => "Working out what the next test drive should do.",
+  get_body: () => "Checking what I know about my body so far.",
+  list_probes: () => "Looking at which test drives fit on the floor.",
+};
+
+function parsed(s) {
+  try {
+    const j = JSON.parse(s || "{}");
+    return j && typeof j === "object" ? j : {};
+  } catch {
+    return {};
+  }
+}
+
+/* Lines from Wonder's reasons and the engine's results come first, then Wonder's own words, then the generic ones. */
+function said(m) {
+  const own = [], generic = [];
+  for (const t of m.tools || []) {
+    const a = parsed(t.args), why = t.name === "conclude" ? a.text : t.name === "recall" ? LEAD.recall(a) : a.reason;
+    if (t.plain || why) own.push(t.name === "conclude" ? [t.plain || why, ""] : [why || t.plain, why ? t.plain || "" : ""]);
+    else if (LEAD[t.name]) generic.push([LEAD[t.name](a), ""]);
+  }
+  return own.length ? own : m.output ? [[m.output, ""]] : generic;
+}
+
+const sayHtml = (m) => said(m).map(([a, b]) => `<p class="say">${esc(minus(a))}</p>${b ? `<p class="said">${esc(minus(b))}</p>` : ""}`).join("");
+const more = (html) => `<details class="more"><summary>Details</summary>${html}</details>`;
+
 function cardHtml(m) {
   const r = app.state.robots.find((x) => x.id === m.robot), ver = /(\d+(?:\.\d+)+)$/.exec(m.model || "")?.[1] || "";
   const who = r ? `<i class="dot" style="--c:${r.color}"></i>${esc(r.name)}` : esc(m.robot || "Fleet");
@@ -57,7 +88,7 @@ function cardHtml(m) {
   else if (m.kind === "describe") body = `<p class="in">${esc(m.input)}</p>${img ? `<div class="split"><img src="${img}" alt=""><p class="quote">${esc(m.output)}</p></div>` : `<p class="quote">${esc(m.output)}</p>`}`;
   else if (m.kind === "transcribe") body = `<p class="quote">${esc(m.output)}</p>`;
   else if (m.kind === "image") body = `<p class="in">${esc(m.input)}</p>${img ? `<img class="shot square" src="${img}" alt="">` : ""}<p class="out">${esc(m.output)}</p>`;
-  else body = `<p class="in">${esc(m.input)}</p><p class="out">${esc(minus(m.output))}</p><div class="tl">${tools(m.tools)}</div>`;
+  else body = `<div class="sayl">${sayHtml(m) || `<p class="say">${esc(m.input)}</p>`}</div>${more(`<p class="in">${esc(m.input)}</p>${m.output ? `<p class="out">${esc(minus(m.output))}</p>` : ""}<div class="tl">${tools(m.tools)}</div>`)}`;
   return `<article><header><span class="glyph">${GLYPH[m.kind] || GLYPH.wonder}</span>
     <span class="title"><b>${esc(MODEL_NAME[m.kind] || m.model)}<small>${esc(ver)}</small></b><span>${who} · <time></time></span></span>
     <span class="lat">${m.ok ? "" : "Failed · "}${latency(m.ms)}<i></i></span></header>${body}</article>`;
@@ -79,11 +110,12 @@ function renderFeed(s) {
         setTimeout(() => c.classList.remove("fresh"), 2400);
       }
       c.toolsKey = JSON.stringify(m.tools);
-      $("lastcall").textContent = `${MODEL_NAME[m.kind] || m.model} · ${words(m.output || m.input).slice(0, 48)}`;
+      $("lastcall").textContent = `${MODEL_NAME[m.kind] || m.model} · ${(said(m)[0]?.[0] || words(m.output || m.input)).slice(0, 48)}`;
     } else if (m.tools && JSON.stringify(m.tools) !== c.toolsKey) {
       c.toolsKey = JSON.stringify(m.tools);
-      const tl = c.querySelector(".tl");
+      const tl = c.querySelector(".tl"), sl = c.querySelector(".sayl");
       if (tl) tl.innerHTML = tools(m.tools);
+      if (sl && said(m).length) sl.innerHTML = sayHtml(m);
     }
     c.classList.toggle("hide", !!feed.filter && m.kind !== feed.filter);
     setText(c.querySelector("time"), ago(m.t));
@@ -139,9 +171,10 @@ function addNote(e, animate) {
     $("notebook").append(nb.cur);
   }
   const label = nb.cur.single ? "" : `<div class="kind">${NOTE_KIND[e.kind] || cap(e.kind)}</div>`;
-  const step = el("div", `step ${e.kind}`, `<svg viewBox="0 0 20 20">${NOTE_ICON[e.kind] || NOTE_ICON.fallback}</svg><div>${label}<p>${esc(e.text)}</p></div>`);
+  const detail = e.detail ? more(`<p class="tech">${esc(minus(e.detail))}</p>`) : "";
+  const step = el("div", `step ${e.kind}`, `<svg viewBox="0 0 20 20">${NOTE_ICON[e.kind] || NOTE_ICON.fallback}</svg><div>${label}<p>${esc(e.text)}</p>${detail}</div>`);
   if (!animate) step.style.animation = "none";
-  if (e.predicted != null && e.measured != null) step.lastChild.append(gauge(e));
+  if (e.predicted != null && e.measured != null) step.lastChild.insertBefore(gauge(e), step.lastChild.querySelector("details"));
   nb.cur.append(step);
   if (e.kind === "conclusion") nb.cur.done = true;
   $("notebook").scrollTo({ top: $("notebook").scrollHeight, behavior: animate ? "smooth" : "auto" });
