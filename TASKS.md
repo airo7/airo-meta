@@ -81,7 +81,7 @@ No new features after tonight.
 Fitted parameters: gL, gR, dz, η, τ, κ. The track width b is fixed. The answer key is displayed, never fed to the fit.
 
 ## Probe library
-Floor inset: 0.25 m. Each probe checks its free space first. The rig aborts on leaving the inset; the firmware watchdog stops the car within 500 ms.
+Floor inset: 0.15 m. Each probe checks its free space first. The rig aborts on leaving the inset; the firmware watchdog stops the car within 500 ms.
 
 | Probe | Command | Measures | Space |
 |---|---|---|---|

@@ -23,8 +23,8 @@ the 20 Hz control loop: every number comes from the fit.
 
 - **Learns its body.** Ten probes (steps, pivots, arcs, a ramp, a pulse) fit gains, dead zone, delay, wheel lag,
   turn efficiency and drift, with a calibrated Laplace posterior. The ghost cloud is that posterior rolled forward.
-- **Notices change.** Each half-second window is scored against the cloud. Surprise fires when three windows run
-  above threshold, or when moderate surprise persists (a capped CUSUM catches a tow on an already loaded car).
+- **Notices change.** Each half-second window is scored against the cloud. Surprise fires when the median of three
+  windows is above threshold, or when moderate surprise persists (a capped CUSUM catches a tow on an already loaded car).
 - **Relearns, verified.** Probes go where the surprise happened (turning or straight), and a relearn only counts once
   a probe it predicted tightly lands within 2σ. A refit with each gain's sign flipped finds a reversed motor.
 - **Remembers.** Bodies are kept per robot model and shared by the fleet. Before relearning, a remembered body that
@@ -53,7 +53,9 @@ frames; with it, Muse Wonder runs the experiments and SAM reads the camera. In t
 floor and deck (the mezzanine) presets.
 
 Other entry points: `scripts/learn.py` (learn and gate a body against the hand-measured key), `scripts/goto.py`
-(click a point, the car drives there), `scripts/eval.py` (the benchmark below; `--wonder` uses the live scientist).
+(click a point, the car drives there), `scripts/eval.py` (the benchmark below; `--wonder` uses the live scientist), `scripts/show.py` (the warehouse and
+the real car as two tabs behind one page), `scripts/report.py` (numbers from one hardware run), `scripts/centre_check.py`
+(where the car turns about).
 
 ## Meta models
 
@@ -68,15 +70,17 @@ Other entry points: `scripts/learn.py` (learn and gate a body against the hand-m
 ## How it works
 
 - **Car and camera:** `protocol.py` (firmware bytes), `car.py` (BLE), `camera.py` (ArUco floor homography and pose),
-  `rig.py` (20 Hz loop with a safety envelope and jsonl logs).
+  `rig.py` (20 Hz loop with a safety envelope and jsonl logs), `eye.py` (where the turning centre sits relative to
+  the marker), `floorwatch.py` (objects dropped on the real floor, against the empty floor as first seen).
 - **Body:** `body.py` (model, rollout, fit with sign search, Laplace posterior, surprise), `probes.py` (probe
   library, free-space check, predicted vs measured outcomes), `scientist.py` (Wonder tool loop, scripted fallback,
   verified relearn, `check_body`, lab notebook), `memory.py` (the shared body library and recall matching).
 - **Driving:** `control.py` (delay-compensated pure pursuit), `planner.py` (SAM masks to a grid, A* with clearance),
-  `mission.py` (deliveries and the carry workflow, surprise monitor, dashboard state), `fleet.py` (robots, command
+  `geometry.py` (footprints and overlap), `mission.py` (deliveries and the carry workflow, surprise monitor, dashboard state), `fleet.py` (robots, command
   routing, give-way guard).
 - **Twin:** `world.py` and `mjsim.py` (one MuJoCo world for every car, a DC-motor model per wheel), `sim.py` (the
-  model-exact simulator), `scene.py`, `hall.py`, `mezzanine.py` (the factory hall), `warehouse.py` (totes, conveyor,
+  model-exact simulator), `scene.py`, `hall.py`, `mezzanine.py` (the factory hall), `site.py` (floors, stations and their SAM concepts), `meshes.py` (procedural
+  meshes), `menagerie.py` (UR5e, Robotiq 2F-85 and G1 from MuJoCo Menagerie), `warehouse.py` (totes, conveyor,
   bays, queues), `loader.py` and `cobot.py` (pick and station arms), `life.py`, `workers.py`, `forklift.py`,
   `walkmap.py` (people, the forklift and floor events), `orbit.py` (the interactive camera).
 - **Interface:** `server.py` and `web/` (dashboard), `meta_api.py` (Meta model clients and the model feed),
@@ -150,7 +154,7 @@ is left out of a learn.
 
 ## Hardware and setup
 
-Elegoo Smart Robot Car V4 (Arduino UNO, 4 TT motors, skid steer, no encoders), HM-10 BLE module, and an iPhone as an
+Elegoo Smart Robot Car V4 (Arduino UNO, 4 TT motors, skid steer, no encoders), BLE module (advertises as HC-05), and an iPhone as an
 overhead camera (~1.8 m) via Continuity Camera.
 
 ```sh
@@ -172,7 +176,9 @@ the parcel a box wrapped in yellow. On the phone, turn off Center Stage, Portrai
 
 ## Limitations
 
-- All numbers are from simulation; hardware runs are next.
+- The tables above are from simulation (`scripts/eval.py`). On the real car (Nov 1) a warm-motor change was caught
+  and relearned in 27 s, and 3.5 min of patrol with a bottle on board raised no false alarm; `scripts/report.py`
+  gives a run's numbers.
 - The body model has seven parameters and no term for drag, slip or battery sag. Changes under ~8% speed and the
   twin's small slippery patch go unnoticed, and in the model-exact simulator a tow on a loaded car stays below the
   sustained-surprise allowance.

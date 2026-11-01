@@ -117,7 +117,7 @@ class Dashboard:
             return Response(self.portrait, media_type="image/png") if self.portrait else Response(status_code=404)
 
         @app.post("/cmd")
-        def cmd(c: Command):
+        async def cmd(c: Command):
             self.commands.put_nowait(c.text)
             return {"ok": True}
 
