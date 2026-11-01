@@ -17,7 +17,10 @@ const ICON = {
   zone: '<svg viewBox="0 0 16 16"><path d="M8 2.5 1.8 13.5h12.4zM8 7v3m0 1.8v.2"/></svg>',
 };
 const named = (p) => NAMES[p.name] || p.name;
-if (window.top !== window.self) document.documentElement.classList.add("embedded");
+if (window.top !== window.self) {
+  document.documentElement.classList.add("embedded");
+  addEventListener("keydown", (e) => e.key === "`" && window.parent.postMessage({ airo: "toggle" }, "*"));
+}
 
 const app = { state: null, sel: null, loaded: false, want: null, notes: {}, phases: {}, zones: new Set(), heard: new Set(), recallAt: {}, radar: null, pin: null };
 
