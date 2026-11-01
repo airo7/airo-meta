@@ -11,6 +11,7 @@ from airo.rig import HZ, BaseRig
 V_MAX = 0.25
 V_MIN = 0.08
 OM_MAX = 2.0
+RECENTRE_PWM = 160
 PIVOT = math.radians(60)
 RESUME = math.radians(20)
 SLOW_R = 0.3
@@ -68,8 +69,24 @@ async def face(rig: BaseRig, body: Body, theta: float, tol: float = math.radians
     await _settle(rig)
 
 
-async def recentre(rig: BaseRig, body: Body):
+class _Capped:
+    """Scales commands down to cap: a body refitted on a few seconds can ask for full power, and a heavy car then
+    overshoots every turn and swings back and forth."""
+
+    def __init__(self, rig: BaseRig, cap: int):
+        self._rig, self._cap = rig, cap
+
+    def __getattr__(self, name):
+        return getattr(self._rig, name)
+
+    async def step(self, pwm_l: int, pwm_r: int):
+        k = min(1.0, self._cap / max(abs(pwm_l), abs(pwm_r), 1))
+        return await self._rig.step(round(pwm_l * k), round(pwm_r * k))
+
+
+async def recentre(rig: BaseRig, body: Body, cap: int = RECENTRE_PWM):
     """Floor centre, then face along the long axis in whichever direction is nearer: the long probes fit there."""
+    rig = _Capped(rig, cap)
     await goto(rig, body, (rig.floor[0] / 2, rig.floor[1] / 2))
     axis = 0.0 if rig.floor[0] >= rig.floor[1] else math.pi / 2
     await face(rig, body, axis if abs(wrap(rig.pose.theta - axis)) <= math.pi / 2 else axis + math.pi)

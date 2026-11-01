@@ -5,7 +5,9 @@ import numpy as np
 import pytest
 
 from airo.body import KEY, Body
-from airo.control import face, follow, goto
+from dataclasses import replace
+
+from airo.control import RECENTRE_PWM, face, follow, goto, recentre
 from airo.sim import SimRig
 
 DRIFTY = Body(g_l=0.0029, g_r=0.0034, dz=28, eta=0.27, tau=0.25, lag=0.12, kappa=-0.15)
@@ -45,3 +47,13 @@ def test_face_turns_in_place(theta):
     rig = asyncio.run(run())
     assert abs((rig.pose.theta - theta + math.pi) % (2 * math.pi) - math.pi) < math.radians(10)
     assert math.dist((rig.pose.x, rig.pose.y), (1.0, 0.6)) < 0.05
+
+
+def test_recentre_caps_power_when_the_body_is_wrong():
+    async def run():
+        rig = SimRig(KEY, pose0=(0.4, 0.4, 0.0), log_dir=None)
+        await recentre(rig, replace(KEY, eta=KEY.eta / 4))
+        return rig
+    rig = asyncio.run(run())
+    assert np.abs(rig.history[1]).max() <= RECENTRE_PWM
+    assert math.dist((rig.pose.x, rig.pose.y), (rig.floor[0] / 2, rig.floor[1] / 2)) < 0.08
