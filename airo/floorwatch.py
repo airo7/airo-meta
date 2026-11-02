@@ -14,6 +14,8 @@ DIFF = 28
 MIN_AREA = 0.0025
 # more than this much of the floor changed at once is the light or the phone's exposure, not an object
 GLOBAL = 0.25
+# floor cells around a changed patch to compare it with (about 6 cm)
+RING = 25
 
 
 class FloorWatch:
@@ -58,7 +60,8 @@ class FloorWatch:
         changed = cv2.morphologyEx(changed.astype(np.uint8), cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
         changed = cv2.morphologyEx(changed, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
         n, labels, stats, _ = cv2.connectedComponentsWithStats(changed)
-        keep = [k for k in range(1, n) if stats[k, cv2.CC_STAT_AREA] * self.res ** 2 >= MIN_AREA]
+        keep = [k for k in range(1, n) if stats[k, cv2.CC_STAT_AREA] * self.res ** 2 >= MIN_AREA
+                and not self._gone(labels == k, cur * gain, seen & ~changed.astype(bool))]
         self.grid = np.isin(labels, keep)
         self.dist = cv2.distanceTransform((~self.grid).astype(np.uint8), cv2.DIST_L2, 3) * self.res \
             if keep else np.full(self.shape, np.inf)
@@ -69,6 +72,19 @@ class FloorWatch:
             c = cv2.convexHull(max(contours, key=cv2.contourArea))[:, 0]
             self.polygons.append((c + 0.5) * self.res)
         return True
+
+    def _gone(self, blob: np.ndarray, cur: np.ndarray, floor: np.ndarray) -> bool:
+        """Something in the reference that has since been taken away: the patch now looks like the floor around it but
+        did not before. The reference heals there, so the empty spot is not kept as an obstacle."""
+        ring = cv2.dilate(blob.astype(np.uint8), np.ones((RING, RING), np.uint8)).astype(bool) & ~blob & floor
+        if ring.sum() < RING:
+            return False
+        now = abs(float(np.median(cur[blob]) - np.median(cur[ring])))
+        then = abs(float(np.median(self.ref[blob]) - np.median(self.ref[ring])))
+        if then > DIFF / 2 and now < then / 3:
+            self.ref[blob] = cur[blob]
+            return True
+        return False
 
     def clearance(self, xy) -> float:
         i, j = int(xy[1] / self.res), int(xy[0] / self.res)

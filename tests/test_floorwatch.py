@@ -60,3 +60,12 @@ def test_the_box_being_pushed_does_not_block_but_anything_else_does():
     other = box + (0.0, 0.0)
     other[:, 0] += 0.3
     assert w.ahead(path, reach=0.35, radius=0.12, ignore=other) is not None
+
+
+def test_a_carton_there_at_start_and_taken_away_leaves_no_ghost():
+    w = FloorWatch(FLOOR)
+    w.update(frame((0.4, 0.3), carton=(0.4, 0.8)), H, at(0.4, 0.3))
+    w.update(frame((0.4, 0.3)), H, at(0.4, 0.3))
+    assert not w.polygons
+    w.update(frame((0.4, 0.3), carton=(0.4, 0.8)), H, at(0.4, 0.3))
+    assert len(w.polygons) == 1
