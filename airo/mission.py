@@ -206,9 +206,31 @@ def push_plan(poly, start, goal, inside, clearance) -> dict | None:
     if not inside(float(push_from[0]), float(push_from[1])) or not inside(float(run_in[0]), float(run_in[1])):
         return None
     push_to = c + PUSH_M * n - standoff * n
-    tup = lambda p: (float(p[0]), float(p[1]))
-    return {"centroid": tup(c), "size": size, "n": tup(n),
+    tup = lambda p: (float(p[0]), float(p[1]))  # noqa: E731
+    return {"centroid": tup(c), "size": size, "n": tup(n), "d": PUSH_M,
             "run_in": tup(run_in), "push_from": tup(push_from), "push_to": tup(push_to)}
+
+
+def push_out_plan(poly, inside, floor, inset) -> dict | None:
+    """Shove a polygon toward the nearest floor edge until it is clear of the drivable area: None when too big or the
+    car can't get behind it and stay on the floor."""
+    poly = np.asarray(poly, float)
+    c = poly.mean(axis=0)
+    size = float(max(cv2.minAreaRect(poly.astype(np.float32))[1]))
+    if size > PUSH_MAX:
+        return None
+    (w, h), standoff = floor, STANDOFF + (size - 0.1) / 2
+    edges = [((1, 0), w - inset - c[0]), ((-1, 0), c[0] - inset), ((0, 1), h - inset - c[1]), ((0, -1), c[1] - inset)]
+    for n, gap in sorted(edges, key=lambda e: e[1]):
+        n = np.asarray(n, float)
+        d = max(0.05, gap + size / 2 + 0.02)
+        push_from, push_to = c - standoff * n, c + (d - standoff) * n
+        run_in = next((push_from - r * n for r in (RUN_IN_PUSH, RUN_IN_PUSH / 2) if inside(*(push_from - r * n))), None)
+        if run_in is not None and inside(*push_from) and inside(*push_to):
+            tup = lambda p: (float(p[0]), float(p[1]))  # noqa: E731
+            return {"centroid": tup(c), "size": size, "n": tup(n), "d": d, "run_in": tup(run_in),
+                    "push_from": tup(push_from), "push_to": tup(push_to)}
+    return None
 
 
 class Stuck(Exception):
@@ -490,6 +512,36 @@ class Mission:
             return False
         self.note("result", f"{Name} blocks the only way. It is {plan['size'] * 100:.0f} cm, small enough to push, "
                             f"so I'll move it aside.")
+        if await self._shove(plan, poly, name):
+            self.note("result", f"Moved {name} aside. Carrying on.")
+            return True
+        return False
+
+    async def push_out(self, xy=None):
+        """On command: push the object nearest xy (or the car) out of the drivable area."""
+        polys = self.floor.polygons if self.floor is not None else []
+        p = self.rig.pose
+        poly = min(polys, key=lambda q: math.dist(q.mean(axis=0), xy or (p.x, p.y)), default=None)
+        if poly is None:
+            self.note("alert", "I don't see anything on the floor to push.")
+            return
+        c = poly.mean(axis=0)
+        plan = push_out_plan(poly, self.rig.inside, self.rig.floor, self.rig.inset)
+        if plan is None:
+            size = float(max(cv2.minAreaRect(np.asarray(poly, np.float32))[1]))
+            why = "too big for me to push" if size > PUSH_MAX else "I can't get behind it without leaving the floor"
+            self.note("alert", f"The object at ({c[0]:.2f}, {c[1]:.2f}) is {size * 100:.0f} cm and {why}. "
+                               f"Could someone move it?")
+            return
+        self.note("result", f"Pushing the {plan['size'] * 100:.0f} cm object at ({c[0]:.2f}, {c[1]:.2f}) "
+                            f"{plan['d'] * 100:.0f} cm toward the edge, out of my driving area.")
+        if await self._shove(plan, poly, "the object"):
+            self.note("result", "Done: it is out of my driving area.")
+
+    async def _shove(self, plan, poly, name) -> bool:
+        """Get behind the object, push it plan["d"] along plan["n"], back off and look: True when it moved."""
+        Name = name[0].upper() + name[1:]
+        p = self.rig.pose
         prev, self._push_name = self.status, name
         self.status = "clearing"
         try:
@@ -533,9 +585,8 @@ class Mission:
                 self.look_floor()
             c = np.asarray(plan["centroid"], float)
             near = min(self.floor.polygons, key=lambda q: math.dist(q.mean(axis=0), c), default=None)
-            moved = near is None or math.dist(near.mean(axis=0), c) >= PUSH_M / 2
+            moved = near is None or math.dist(near.mean(axis=0), c) >= plan["d"] / 2
             if not stalled and moved:
-                self.note("result", f"Moved {name} aside. Carrying on.")
                 return True
             self.note("alert", f"{Name} won't move: too heavy for me. Could someone move it?")
             return False
@@ -959,6 +1010,9 @@ class Mission:
                              f"{b.tau * 1000:.0f} ms.")
         elif intent.kind == "goto" and not self.rig.inside(*intent.xy):
             self.note("alert", f"({intent.xy[0]:.2f}, {intent.xy[1]:.2f}) is outside the floor inset.")
+        elif intent.kind == "push":
+            await self._cancel()
+            self._task = asyncio.create_task(self._run(self.push_out(intent.xy)))
         elif intent.kind == "turn":
             await self._cancel()
             self._task = asyncio.create_task(self._run(self.turn(intent.angle)))

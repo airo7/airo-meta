@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from airo.mission import PUSH_MAX, PUSH_M, STANDOFF, push_plan
+from airo.mission import PUSH_M, PUSH_MAX, STANDOFF, push_out_plan, push_plan
 
 START, GOAL = (1.0, 0.2), (1.0, 1.2)
 
@@ -41,3 +41,24 @@ def test_standoff_grows_with_size():
 
 def test_a_side_without_room_beyond_the_box_is_not_used():
     assert push_plan(box(1.0, 0.7, 0.1), START, GOAL, lambda x, y: True, lambda xy: 0.01) is None
+
+
+def inset(x, y):
+    return 0.15 <= x <= 0.65 and 0.15 <= y <= 1.07
+
+
+def test_push_out_shoves_toward_the_nearest_edge_until_clear_of_the_driving_area():
+    plan = push_out_plan(box(0.70, 0.28, 0.12), inset, (0.8, 1.22), 0.15)
+    assert plan is not None and plan["n"] == (1.0, 0.0)
+    assert 0.70 + plan["d"] - 0.06 >= 0.65
+    assert all(inset(*plan[k]) for k in ("run_in", "push_from", "push_to"))
+
+
+def test_push_out_from_mid_floor_goes_along_the_long_side():
+    plan = push_out_plan(box(0.40, 0.45, 0.12), inset, (0.8, 1.22), 0.15)
+    assert plan is not None and plan["n"] == (0.0, -1.0)
+    assert all(inset(*plan[k]) for k in ("run_in", "push_from", "push_to"))
+
+
+def test_push_out_refuses_a_big_box():
+    assert push_out_plan(box(0.40, 0.45, PUSH_MAX + 0.05), inset, (0.8, 1.22), 0.15) is None

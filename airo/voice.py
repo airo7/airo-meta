@@ -88,7 +88,7 @@ async def transcribe(on_text: Callable[[str, bool], None], device=None, frames: 
 
 @dataclass
 class Intent:
-    kind: Literal["deliver", "learn", "stop", "status", "goto", "patrol", "turn", "say"]
+    kind: Literal["deliver", "learn", "stop", "status", "goto", "patrol", "turn", "say", "push"]
     target: str | None = None
     xy: tuple[float, float] | None = None
     angle: float | None = None
