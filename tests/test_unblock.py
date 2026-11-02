@@ -86,5 +86,5 @@ def test_push_to_an_unreachable_place_goes_as_far_as_it_can():
 
 
 def test_a_long_push_is_split_into_stages():
-    plan = push_to_plan(box(0.45, 0.30, 0.12), (0.45, 1.00), inset, cap=0.2)
-    assert plan is not None and plan["d"] <= 0.2 and plan["short"] > 0.45
+    plan = push_to_plan(box(0.45, 0.45, 0.12), (0.45, 1.00), inset, cap=0.2)
+    assert plan is not None and plan["d"] <= 0.2 and plan["short"] > 0.3
