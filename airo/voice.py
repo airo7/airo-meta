@@ -93,6 +93,7 @@ class Intent:
     xy: tuple[float, float] | None = None
     angle: float | None = None
     text: str | None = None
+    to: tuple[float, float] | None = None
 
 
 _STOP = re.compile(r"\b(stop|halt|freeze|abort|cancel|emergency)\b")

@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from airo.mission import PUSH_M, PUSH_MAX, STANDOFF, push_out_plan, push_plan
+from airo.mission import PUSH_M, PUSH_MAX, STANDOFF, push_out_plan, push_plan, push_to_plan
 
 START, GOAL = (1.0, 0.2), (1.0, 1.2)
 
@@ -54,11 +54,22 @@ def test_push_out_shoves_toward_the_nearest_edge_until_clear_of_the_driving_area
     assert all(inset(*plan[k]) for k in ("run_in", "push_from", "push_to"))
 
 
-def test_push_out_from_mid_floor_goes_along_the_long_side():
+def test_push_out_from_mid_floor_takes_the_nearest_edge():
     plan = push_out_plan(box(0.40, 0.45, 0.12), inset, (0.8, 1.22), 0.15)
-    assert plan is not None and plan["n"] == (0.0, -1.0)
+    assert plan is not None and abs(plan["n"][0]) == 1.0 and plan["d"] < 0.4
     assert all(inset(*plan[k]) for k in ("run_in", "push_from", "push_to"))
 
 
 def test_push_out_refuses_a_big_box():
     assert push_out_plan(box(0.40, 0.45, PUSH_MAX + 0.05), inset, (0.8, 1.22), 0.15) is None
+
+
+def test_push_to_a_point_lines_up_behind_the_box():
+    plan = push_to_plan(box(0.40, 0.40, 0.12), (0.40, 0.80), inset)
+    assert plan is not None and plan["n"] == pytest.approx((0.0, 1.0)) and plan["d"] == pytest.approx(0.40)
+    assert plan["push_from"][1] < 0.40 < plan["push_to"][1] < 0.80
+
+
+def test_push_to_needs_room_behind_the_box():
+    # behind a box at the edge, pushing it inward, is off the driving area
+    assert push_to_plan(box(0.67, 0.77, 0.12), (0.40, 0.61), inset) is None

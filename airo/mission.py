@@ -211,26 +211,45 @@ def push_plan(poly, start, goal, inside, clearance) -> dict | None:
             "run_in": tup(run_in), "push_from": tup(push_from), "push_to": tup(push_to)}
 
 
+def _push_along(c, size, n, d, inside) -> dict | None:
+    standoff = STANDOFF + (size - 0.1) / 2
+    push_from, push_to = c - standoff * n, c + (d - standoff) * n
+    run_in = next((push_from - r * n for r in (RUN_IN_PUSH, RUN_IN_PUSH / 2, 0) if inside(*(push_from - r * n))), None)
+    if run_in is None or not inside(*push_from) or not inside(*push_to):
+        return None
+    tup = lambda p: (float(p[0]), float(p[1]))  # noqa: E731
+    return {"centroid": tup(c), "size": size, "n": tup(n), "d": d, "run_in": tup(run_in), "push_from": tup(push_from),
+            "push_to": tup(push_to)}
+
+
+def _outline(poly) -> tuple[np.ndarray, float]:
+    poly = np.asarray(poly, float)
+    return poly.mean(axis=0), float(max(cv2.minAreaRect(poly.astype(np.float32))[1]))
+
+
 def push_out_plan(poly, inside, floor, inset) -> dict | None:
     """Shove a polygon toward the nearest floor edge until it is clear of the drivable area: None when too big or the
     car can't get behind it and stay on the floor."""
-    poly = np.asarray(poly, float)
-    c = poly.mean(axis=0)
-    size = float(max(cv2.minAreaRect(poly.astype(np.float32))[1]))
+    c, size = _outline(poly)
     if size > PUSH_MAX:
         return None
-    (w, h), standoff = floor, STANDOFF + (size - 0.1) / 2
+    w, h = floor
     edges = [((1, 0), w - inset - c[0]), ((-1, 0), c[0] - inset), ((0, 1), h - inset - c[1]), ((0, -1), c[1] - inset)]
     for n, gap in sorted(edges, key=lambda e: e[1]):
-        n = np.asarray(n, float)
-        d = max(0.05, gap + size / 2 + 0.02)
-        push_from, push_to = c - standoff * n, c + (d - standoff) * n
-        run_in = next((push_from - r * n for r in (RUN_IN_PUSH, RUN_IN_PUSH / 2) if inside(*(push_from - r * n))), None)
-        if run_in is not None and inside(*push_from) and inside(*push_to):
-            tup = lambda p: (float(p[0]), float(p[1]))  # noqa: E731
-            return {"centroid": tup(c), "size": size, "n": tup(n), "d": d, "run_in": tup(run_in),
-                    "push_from": tup(push_from), "push_to": tup(push_to)}
+        if plan := _push_along(c, size, np.asarray(n, float), max(0.05, gap + size / 2 + 0.02), inside):
+            return plan
     return None
+
+
+def push_to_plan(poly, to, inside) -> dict | None:
+    """Shove a polygon's centre to the floor point to: None when too big, already there, or the car would have to
+    leave its driving area to get behind it."""
+    c, size = _outline(poly)
+    v = np.asarray(to, float) - c
+    d = float(np.hypot(*v))
+    if size > PUSH_MAX or d < 0.03:
+        return None
+    return _push_along(c, size, v / d, d, inside)
 
 
 class Stuck(Exception):
@@ -517,26 +536,32 @@ class Mission:
             return True
         return False
 
-    async def push_out(self, xy=None):
-        """On command: push the object nearest xy (or the car) out of the drivable area."""
+    async def push_out(self, xy=None, to=None):
+        """On command: push the object nearest xy (or the car) to the point to, or else out of the drivable area."""
         polys = self.floor.polygons if self.floor is not None else []
         p = self.rig.pose
         poly = min(polys, key=lambda q: math.dist(q.mean(axis=0), xy or (p.x, p.y)), default=None)
         if poly is None:
             self.note("alert", "I don't see anything on the floor to push.")
             return
-        c = poly.mean(axis=0)
-        plan = push_out_plan(poly, self.rig.inside, self.rig.floor, self.rig.inset)
+        c, size = _outline(poly)
+        there = f"to ({to[0]:.2f}, {to[1]:.2f})" if to else "toward the edge, out of my driving area"
+        plan = push_to_plan(poly, to, self.rig.inside) if to else \
+            push_out_plan(poly, self.rig.inside, self.rig.floor, self.rig.inset)
         if plan is None:
-            size = float(max(cv2.minAreaRect(np.asarray(poly, np.float32))[1]))
-            why = "too big for me to push" if size > PUSH_MAX else "I can't get behind it without leaving the floor"
-            self.note("alert", f"The object at ({c[0]:.2f}, {c[1]:.2f}) is {size * 100:.0f} cm and {why}. "
-                               f"Could someone move it?")
+            if size > PUSH_MAX:
+                why = "too big for me to push. Could someone move it?"
+            elif to and math.dist(c, to) < 0.03:
+                why = "already there."
+            else:
+                why = (f"I would have to get behind it, off my driving area, to push it {there}. Try another spot."
+                       if to else "I can't get behind it without leaving my driving area. Could someone move it?")
+            self.note("alert", f"The object at ({c[0]:.2f}, {c[1]:.2f}) is {size * 100:.0f} cm and {why}")
             return
-        self.note("result", f"Pushing the {plan['size'] * 100:.0f} cm object at ({c[0]:.2f}, {c[1]:.2f}) "
-                            f"{plan['d'] * 100:.0f} cm toward the edge, out of my driving area.")
+        self.note("result", f"Pushing the {size * 100:.0f} cm object at ({c[0]:.2f}, {c[1]:.2f}) "
+                            f"{plan['d'] * 100:.0f} cm {there}.")
         if await self._shove(plan, poly, "the object"):
-            self.note("result", "Done: it is out of my driving area.")
+            self.note("result", f"Done: it is {'there' if to else 'out of my driving area'}.")
 
     async def _shove(self, plan, poly, name) -> bool:
         """Get behind the object, push it plan["d"] along plan["n"], back off and look: True when it moved."""
@@ -1018,7 +1043,7 @@ class Mission:
             self.note("alert", f"({intent.xy[0]:.2f}, {intent.xy[1]:.2f}) is outside the floor inset.")
         elif intent.kind == "push":
             await self._cancel()
-            self._task = asyncio.create_task(self._run(self.push_out(intent.xy)))
+            self._task = asyncio.create_task(self._run(self.push_out(intent.xy, intent.to)))
         elif intent.kind == "turn":
             await self._cancel()
             self._task = asyncio.create_task(self._run(self.turn(intent.angle)))

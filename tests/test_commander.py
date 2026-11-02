@@ -24,6 +24,7 @@ def test_tool_calls_become_intents(monkeypatch):
         (("say", {"text": "I am a car."}), Intent("say", text="I am a car.")),
         (("deliver", {"station": "packing"}), Intent("deliver", "packing")),
         (("push", {"x": 0.7, "y": 0.28}), Intent("push", xy=(0.7, 0.28))),
+        (("push", {"x": 0.5, "y": 0.4, "to_x": 0.4, "to_y": 0.61}), Intent("push", xy=(0.5, 0.4), to=(0.4, 0.61))),
     ]:
         monkeypatch.setattr(meta_api, "wonder", reply(name, **args))
         assert asyncio.run(commander.understand("…", "The floor is 0.80 x 1.22 m.", {"packing": "x"})) == want
