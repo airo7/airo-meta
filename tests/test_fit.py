@@ -81,3 +81,9 @@ def test_a_box_on_the_destination_parks_beside_it():
     assert np.hypot(spot[0] - goal[0], spot[1] - goal[1]) < 0.3
     assert planner.plan(sc, (0.38, 0.65), spot, clearance=need, allowed=allowed) is not None
     assert nearest_free(goal, need, at, inside, reach=0.05) is None
+
+
+def test_a_gap_under_need_is_not_called_a_fit():
+    sc = scene(*WALL)
+    route, note = choose_route(sc, START, GOAL, 0.10, 0.03, None, lambda p: 0.08)
+    assert route is not None and "tight gap: 16 cm" in note and "it fits" not in note

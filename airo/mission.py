@@ -139,9 +139,12 @@ def choose_route(scene, start, goal, need: float, drift: float, allowed, clearan
             return route, (f"The short way has a {gap * 100:.0f} cm gap. I need {2 * need * 100:.0f} cm: "
                            f"{2 * HALF_W * 100:.0f} cm for my body, room for ±{drift * 100:.0f} cm of drift and a "
                            f"safety margin, so I'm {tail}")
-    if route is not None and _narrowest(route, clearance_at) < 2 * (need + 0.05):
-        gap = _narrowest(route, clearance_at)
-        return route, f"The gap is {gap * 100:.0f} cm and I need {2 * need * 100:.0f} cm: it fits."
+    if route is not None and (gap := _narrowest(route, clearance_at)) < 2 * (need + 0.05):
+        if gap >= 2 * need:
+            return route, f"The gap is {gap * 100:.0f} cm and I need {2 * need * 100:.0f} cm: it fits."
+        # the planner's coarser grid lets a route a few cm under need through
+        return route, (f"A tight gap: {gap * 100:.0f} cm where I'd like {2 * need * 100:.0f}, but my "
+                       f"{2 * HALF_W * 100:.0f} cm body fits through.")
     return route, None
 
 
