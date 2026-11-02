@@ -145,6 +145,19 @@ def choose_route(scene, start, goal, need: float, drift: float, allowed, clearan
     return route, None
 
 
+def nearest_free(goal, need: float, clearance_at, inside, reach: float = 0.35):
+    """The floor point nearest goal, inside and at least need from everything on the floor; None within reach."""
+    g = np.asarray(goal, float)
+    best = None
+    for dx in np.arange(-reach, reach + 1e-9, STEP):
+        for dy in np.arange(-reach, reach + 1e-9, STEP):
+            q = g + (dx, dy)
+            d = math.hypot(dx, dy)
+            if d <= reach and (best is None or d < best[0]) and inside(*q) and clearance_at(q) >= need:
+                best = d, (float(q[0]), float(q[1]))
+    return None if best is None else best[1]
+
+
 class Surprised(Exception):
     pass
 
@@ -278,6 +291,7 @@ class Mission:
         self._quiet_until = -math.inf
         self._near: tuple[float, float, float] | None = None
         self._push_name = "the obstacle"
+        self._instead: tuple[float, float] | None = None
         self._task: asyncio.Task | None = None
 
     @property
@@ -429,6 +443,14 @@ class Mission:
                 self.note("result", note or "It is staying, so I am going around it.")
                 self.path = route
                 return route[1:]
+            if self.floor.clearance(goal) < need and (spot := nearest_free(goal, need, self.floor.clearance,
+                                                                           self.rig.inside)):
+                route = planner.plan(scene, (p.x, p.y), spot, clearance=need, allowed=self._inside(scene))
+                if route:
+                    self.note("result", f"It is sitting on my destination, so I'm going around it and parking "
+                                        f"right beside it, {math.dist(spot, goal) * 100:.0f} cm away.")
+                    self.path, self._instead = route, spot
+                    return route[1:]
             if skip:
                 self.note("alert", f"({goal[0]:.2f}, {goal[1]:.2f}) is blocked, so I skip it.")
                 return None
@@ -541,9 +563,14 @@ class Mission:
                 p = self.rig.pose
                 self.path = [(p.x, p.y), goal]
                 try:
+                    self._instead = None
                     await self._reach(goal)
                     off = math.dist((self.rig.pose.x, self.rig.pose.y), goal)
-                    self.note("result", f"Arrived at ({goal[0]:.2f}, {goal[1]:.2f}), {off * 100:.1f} cm off.")
+                    if self._instead:
+                        self.note("result", f"Parked beside it, {off * 100:.0f} cm from ({goal[0]:.2f}, "
+                                            f"{goal[1]:.2f}): as close as the box lets me.")
+                    else:
+                        self.note("result", f"Arrived at ({goal[0]:.2f}, {goal[1]:.2f}), {off * 100:.1f} cm off.")
                     return True
                 except Surprised as e:
                     await self.relearn(str(e))

@@ -4,7 +4,8 @@ import cv2
 import numpy as np
 
 from airo.body import Body, lateral_sd
-from airo.mission import HALF_W, choose_route
+from airo import planner
+from airo.mission import HALF_W, choose_route, nearest_free
 from airo.planner import Scene
 
 RES = 0.02
@@ -63,3 +64,20 @@ def test_waiting_note_when_nothing_fits():
     sc = scene((0.9, 0.0, 1.1, 0.64), (0.9, 0.86, 1.1, 1.5))
     route, note = choose_route(sc, START, GOAL, 0.20, 0.03, None, clearance_at(sc))
     assert route is None and note is not None and "waiting." in note
+
+
+def test_a_box_on_the_destination_parks_beside_it():
+    # the real floor's box on Nov 2: corner 2 at (0.65, 0.15) was 6 cm from it
+    sc = scene((0.55, 0.20, 0.67, 0.34))
+    at = clearance_at(sc)
+    inside = lambda x, y: 0.15 <= x <= 0.65 and 0.15 <= y <= 1.07  # noqa: E731
+    rows, cols = sc.grid.shape
+    x, y = (np.arange(cols) + 0.5) * RES, (np.arange(rows) + 0.5) * RES
+    allowed = ((y >= 0.15) & (y <= 1.07))[:, None] & ((x >= 0.15) & (x <= 0.65))[None, :]
+    goal, need = (0.65, 0.15), 0.15
+    assert planner.plan(sc, (0.38, 0.65), goal, clearance=need, allowed=allowed) is None
+    spot = nearest_free(goal, need, at, inside)
+    assert spot is not None and at(spot) >= need and inside(*spot)
+    assert np.hypot(spot[0] - goal[0], spot[1] - goal[1]) < 0.3
+    assert planner.plan(sc, (0.38, 0.65), spot, clearance=need, allowed=allowed) is not None
+    assert nearest_free(goal, need, at, inside, reach=0.05) is None
