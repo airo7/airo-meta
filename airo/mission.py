@@ -70,6 +70,8 @@ FLOOR_DT = 0.2
 WAY_REACH, WAY_R = 0.35, 0.12
 WAY_WAIT_S = 1.5
 PUSH_MAX, PUSH_M, RUN_IN_PUSH, PUSH_ROOM = 0.2, 0.25, 0.2, 0.05
+# a box slides off the bumper on a long push: push this far, back off, look, re-aim
+PUSH_STAGE, PUSH_STAGES = 0.2, 6
 # a detour narrower than this trips the WAY_R check along it again and loops
 MIN_NEED = WAY_R + 0.03
 OVERPUSH = 0.02
@@ -235,15 +237,16 @@ def push_out_plan(poly, inside, floor, inset) -> dict | None:
     return None
 
 
-def push_to_plan(poly, to, inside) -> dict | None:
-    """Shove a polygon's centre toward the floor point to, as far as the car can follow while staying in its driving
-    area; plan["short"] is how far from to it will end. None when too big, already there, or no push fits."""
+def push_to_plan(poly, to, inside, cap: float = math.inf) -> dict | None:
+    """Shove a polygon's centre toward the floor point to, at most cap and as far as the car can follow while staying
+    in its driving area; plan["short"] is how far from to it will end. None when too big, already there, or no push
+    fits."""
     c, size = _outline(poly)
     v = np.asarray(to, float) - c
     d = float(np.hypot(*v))
     if size > PUSH_MAX or d < 0.03:
         return None
-    for k in np.arange(d, 0.03, -0.02):
+    for k in np.arange(min(d, cap), 0.03, -0.02):
         if plan := _push_along(c, size, v / d, float(k), inside):
             return plan | {"short": d - float(k)}
     return None
@@ -534,7 +537,8 @@ class Mission:
         return False
 
     async def push_out(self, xy=None, to=None):
-        """On command: push the object nearest xy (or the car) to the point to, or else out of the drivable area."""
+        """On command: push the object nearest xy (or the car) to the point to, or else out of the drivable area, in
+        short pushes, looking where it went after each."""
         polys = self.floor.polygons if self.floor is not None else []
         p = self.rig.pose
         poly = min(polys, key=lambda q: math.dist(q.mean(axis=0), xy or (p.x, p.y)), default=None)
@@ -542,27 +546,40 @@ class Mission:
             self.note("alert", "I don't see anything on the floor to push.")
             return
         c, size = _outline(poly)
-        there = f"to ({to[0]:.2f}, {to[1]:.2f})" if to else "toward the edge, out of my driving area"
-        plan = push_to_plan(poly, to, self.rig.inside) if to else \
-            push_out_plan(poly, self.rig.inside, self.rig.floor, self.rig.inset)
-        if plan is None:
-            if size > PUSH_MAX:
-                why = "too big for me to push. Could someone move it?"
-            elif to and math.dist(c, to) < 0.03:
-                why = "already there."
-            else:
-                why = (f"I would have to get behind it, off my driving area, to push it {there}. Try another spot."
-                       if to else "I can't get behind it without leaving my driving area. Could someone move it?")
-            self.note("alert", f"The object at ({c[0]:.2f}, {c[1]:.2f}) is {size * 100:.0f} cm and {why}")
-            return
-        short = plan.get("short", 0)
-        self.note("result", f"Pushing the {size * 100:.0f} cm object at ({c[0]:.2f}, {c[1]:.2f}) "
-                            f"{plan['d'] * 100:.0f} cm {there}" + (
-                                f", {short * 100:.0f} cm short of it: that is as far as I can follow it inside my "
-                                f"driving area." if short > 0.02 else "."))
-        if await self._shove(plan, poly, "the object"):
-            where = "as close as I can get it" if short > 0.02 else "there" if to else "out of my driving area"
-            self.note("result", f"Done: it is {where}.")
+        out = to is None
+        if out and (plan := push_out_plan(poly, self.rig.inside, self.rig.floor, self.rig.inset)):
+            to = tuple(c + plan["d"] * np.asarray(plan["n"]))
+        there = "out of my driving area" if out else f"to ({to[0]:.2f}, {to[1]:.2f})"
+        for stage in range(PUSH_STAGES):
+            c, size = _outline(poly)
+            if to is not None and math.dist(c, to) < 0.04:
+                self.note("result", f"Done: it is {'out of my driving area' if out else 'there'}.")
+                return
+            plan = None if to is None else push_to_plan(poly, to, self.rig.inside, cap=PUSH_STAGE)
+            if plan is None:
+                if stage:
+                    self.note("result", f"That is as far as I can push it: {math.dist(c, to) * 100:.0f} cm from "
+                                        f"({to[0]:.2f}, {to[1]:.2f}) without leaving my driving area.")
+                elif size > PUSH_MAX:
+                    self.note("alert", f"The object at ({c[0]:.2f}, {c[1]:.2f}) is {size * 100:.0f} cm, too big for "
+                                       f"me to push. Could someone move it?")
+                else:
+                    self.note("alert", f"To push the object at ({c[0]:.2f}, {c[1]:.2f}) {there} I would have to get "
+                                       f"behind it, off my driving area. Try another spot.")
+                return
+            if not stage:
+                self.note("result", f"Pushing the {size * 100:.0f} cm object at ({c[0]:.2f}, {c[1]:.2f}) {there}, "
+                                    f"{math.dist(c, to) * 100:.0f} cm, in short pushes, looking where it went after "
+                                    f"each.")
+            if not await self._shove(plan, poly, "the object"):
+                return
+            expect = c + plan["d"] * np.asarray(plan["n"])
+            poly = min(self.floor.polygons, key=lambda q: math.dist(q.mean(axis=0), expect), default=None)
+            if poly is None or math.dist(poly.mean(axis=0), expect) > 0.15:
+                self.note("alert", "I lost sight of the object after pushing it.")
+                return
+        c, _ = _outline(poly)
+        self.note("result", f"Stopping here: it is {math.dist(c, to) * 100:.0f} cm from ({to[0]:.2f}, {to[1]:.2f}).")
 
     async def _shove(self, plan, poly, name) -> bool:
         """Get behind the object, push it plan["d"] along plan["n"], back off and look: True when it moved."""
