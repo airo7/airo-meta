@@ -329,6 +329,7 @@ class Scientist:
         self.verified = True
         self.memory = memory or Memory()
         self.recalling: Entry | None = None
+        self._dropped = False
         self._candidates: list[Entry] = []
         self._cause = ""
         self._looking: asyncio.Task | None = None
@@ -342,6 +343,7 @@ class Scientist:
 
     async def learn(self, budget: int = 10):
         self.segments, self._anchor, self._verify, self.verified = [], None, False, True
+        self._dropped = False
         self._fallback = False
         await self.find_eye()
         await self._session(f"Learn this car's body from scratch with {budget} probes. A reasonable schedule is "
@@ -712,7 +714,9 @@ class Scientist:
     async def refit(self) -> dict:
         if self._stale and self.segments:
             self.best = await asyncio.to_thread(fit, self.segments, self.best, anchor=self._anchor, signs=self._signs)
-            if not self._verify and (i := self._bumped()) is not None:
+            # a second probe the fit can't explain means the fit is wrong, not a second bump
+            if not self._verify and not self._dropped and (i := self._bumped()) is not None:
+                self._dropped = True
                 name = self._ran[i] if len(self._ran) == len(self.segments) else "a probe"
                 del self.segments[i]
                 await self._note("alert", "One test drive looks like I bumped into something, so I'm leaving it "
