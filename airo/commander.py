@@ -36,8 +36,10 @@ TOOLS = [
     _tool("push", "Push the object on the floor at x, y to to_x, to_y; without them out of the driving area, toward "
           "the nearest edge.", ("x", "y"), x=_NUM, y=_NUM, to_x=_NUM, to_y=_NUM),
     _tool("stop", "Stop now."),
-    _tool("learn", "Run experiments to learn or relearn how the body moves."),
-    _tool("status", "Report the robot's body and how it is doing."),
+    _tool("learn", "Drive test moves to measure how the body moves now and update the body model. Use it whenever "
+          "the body may have changed (a load put on or taken off, a part swapped, driving oddly) or the user asks "
+          "the robot to check, test or relearn itself."),
+    _tool("status", "Report the body model already stored and how the robot is doing, without moving or testing."),
     _tool("say", "Answer in one or two plain sentences.", ("text",), text={"type": "string"}),
 ]
 

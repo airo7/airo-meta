@@ -345,8 +345,8 @@ class Scientist:
         self._fallback = False
         await self.find_eye()
         await self._session(f"Learn this car's body from scratch with {budget} probes. A reasonable schedule is "
-                            f"{SCHEDULE[:budget]}, but order the probes to cut the largest uncertainty first. Nothing "
-                            "is attached to the car yet; name the body after how it drives. You may conclude only "
+                            f"{SCHEDULE[:budget]}, but order the probes to cut the largest uncertainty first. Name the "
+                            "body after how it drives. You may conclude only "
                             f"after straight probes at two clearly different speeds (one at or below {SLOW} PWM, one "
                             f"at or above {FAST} PWM, forward or back) and at least one pivot: one speed cannot tell "
                             "the gain from the dead zone.", SCHEDULE, budget, gate=True)
