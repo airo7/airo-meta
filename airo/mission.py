@@ -72,6 +72,7 @@ WAY_WAIT_S = 1.5
 PUSH_MAX, PUSH_M, RUN_IN_PUSH, PUSH_ROOM = 0.2, 0.25, 0.2, 0.05
 # a detour narrower than this trips the WAY_R check along it again and loops
 MIN_NEED = WAY_R + 0.03
+OVERPUSH = 0.02
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
           "fetching": ("drive", "drive to the pick cell"), "loading": ("drive", "loaded by the arm"),
           "unloading": ("drive", "unloaded by the arm"), "returning": ("drive", "back to the dock"),
@@ -199,21 +200,14 @@ def push_plan(poly, start, goal, inside, clearance) -> dict | None:
             best = (room, n)
     if best is None:
         return None
-    n = best[1]
-    standoff = STANDOFF + (size - 0.1) / 2
-    push_from = c - standoff * n
-    run_in = push_from - RUN_IN_PUSH * n
-    if not inside(float(push_from[0]), float(push_from[1])) or not inside(float(run_in[0]), float(run_in[1])):
-        return None
-    push_to = c + PUSH_M * n - standoff * n
-    tup = lambda p: (float(p[0]), float(p[1]))  # noqa: E731
-    return {"centroid": tup(c), "size": size, "n": tup(n), "d": PUSH_M,
-            "run_in": tup(run_in), "push_from": tup(push_from), "push_to": tup(push_to)}
+    return _push_along(c, size, best[1], PUSH_M, inside)
 
 
 def _push_along(c, size, n, d, inside) -> dict | None:
+    """Line up standoff behind the box and drive until the box centre has moved d: the car meets the box when its
+    centre is half a car and half a box away, and follow stops a little short."""
     standoff = STANDOFF + (size - 0.1) / 2
-    push_from, push_to = c - standoff * n, c + (d - standoff) * n
+    push_from, push_to = c - standoff * n, c + (d - geometry.CAR[0] - size / 2 + OVERPUSH) * n
     run_in = next((push_from - r * n for r in (RUN_IN_PUSH, RUN_IN_PUSH / 2, 0) if inside(*(push_from - r * n))), None)
     if run_in is None or not inside(*push_from) or not inside(*push_to):
         return None
@@ -242,14 +236,17 @@ def push_out_plan(poly, inside, floor, inset) -> dict | None:
 
 
 def push_to_plan(poly, to, inside) -> dict | None:
-    """Shove a polygon's centre to the floor point to: None when too big, already there, or the car would have to
-    leave its driving area to get behind it."""
+    """Shove a polygon's centre toward the floor point to, as far as the car can follow while staying in its driving
+    area; plan["short"] is how far from to it will end. None when too big, already there, or no push fits."""
     c, size = _outline(poly)
     v = np.asarray(to, float) - c
     d = float(np.hypot(*v))
     if size > PUSH_MAX or d < 0.03:
         return None
-    return _push_along(c, size, v / d, d, inside)
+    for k in np.arange(d, 0.03, -0.02):
+        if plan := _push_along(c, size, v / d, float(k), inside):
+            return plan | {"short": d - float(k)}
+    return None
 
 
 class Stuck(Exception):
@@ -558,10 +555,14 @@ class Mission:
                        if to else "I can't get behind it without leaving my driving area. Could someone move it?")
             self.note("alert", f"The object at ({c[0]:.2f}, {c[1]:.2f}) is {size * 100:.0f} cm and {why}")
             return
+        short = plan.get("short", 0)
         self.note("result", f"Pushing the {size * 100:.0f} cm object at ({c[0]:.2f}, {c[1]:.2f}) "
-                            f"{plan['d'] * 100:.0f} cm {there}.")
+                            f"{plan['d'] * 100:.0f} cm {there}" + (
+                                f", {short * 100:.0f} cm short of it: that is as far as I can follow it inside my "
+                                f"driving area." if short > 0.02 else "."))
         if await self._shove(plan, poly, "the object"):
-            self.note("result", f"Done: it is {'there' if to else 'out of my driving area'}.")
+            where = "as close as I can get it" if short > 0.02 else "there" if to else "out of my driving area"
+            self.note("result", f"Done: it is {where}.")
 
     async def _shove(self, plan, poly, name) -> bool:
         """Get behind the object, push it plan["d"] along plan["n"], back off and look: True when it moved."""
@@ -616,9 +617,12 @@ class Mission:
                 self.look_floor()
             c = np.asarray(plan["centroid"], float)
             near = min(self.floor.polygons, key=lambda q: math.dist(q.mean(axis=0), c), default=None)
-            moved = near is None or math.dist(near.mean(axis=0), c) >= plan["d"] / 2
-            if not stalled and moved:
+            shift = math.inf if near is None else math.dist(near.mean(axis=0), c)
+            if not stalled and shift >= plan["d"] / 2:
                 return True
+            if not stalled:
+                self.note("alert", f"I pushed {name}, but it only moved {shift * 100:.0f} cm of {plan['d'] * 100:.0f}.")
+                return False
             self.note("alert", f"{Name} won't move: too heavy for me. Could someone move it?")
             return False
         finally:
@@ -996,12 +1000,19 @@ class Mission:
 
     async def _ask(self, text: str, n: int):
         try:
-            intent = await self.understand(text, self.situation(), self.stations)
+            intents = await self.understand(text, self.situation(), self.stations)
         except Exception:
             log.warning("command model failed, falling back to the parser", exc_info=True)
-            intent = parse_intent(text, self.stations)
-        if n == self._asked:
+            intents = [parse_intent(text, self.stations)]
+        for intent in intents:
+            if n != self._asked:
+                return
             await self.act(text, intent)
+            if self._task is not None:
+                with suppress(asyncio.CancelledError):
+                    await self._task
+            if self.status in ("aborted", "error", "stopped"):
+                return
 
     def situation(self) -> str:
         """What the model needs to place a command on this floor."""
@@ -1014,8 +1025,9 @@ class Mission:
         if p is not None:
             s += f" The robot is at ({p.x:.2f}, {p.y:.2f}) heading {math.degrees(p.theta):.0f} deg, {self.status}."
         if self.floor is not None and self.floor.polygons:
-            s += " Objects on the floor at " + ", ".join(
-                f"({c[0]:.2f}, {c[1]:.2f})" for c in (q.mean(axis=0) for q in self.floor.polygons)) + "."
+            s += " Objects on the floor: " + ", ".join(
+                f"{size * 100:.0f} cm at ({c[0]:.2f}, {c[1]:.2f})"
+                for c, size in map(_outline, self.floor.polygons)) + "."
         if self.stations:
             s += " Stations: " + ", ".join(self.stations) + "."
         return s

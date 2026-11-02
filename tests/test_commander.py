@@ -27,7 +27,7 @@ def test_tool_calls_become_intents(monkeypatch):
         (("push", {"x": 0.5, "y": 0.4, "to_x": 0.4, "to_y": 0.61}), Intent("push", xy=(0.5, 0.4), to=(0.4, 0.61))),
     ]:
         monkeypatch.setattr(meta_api, "wonder", reply(name, **args))
-        assert asyncio.run(commander.understand("…", "The floor is 0.80 x 1.22 m.", {"packing": "x"})) == want
+        assert asyncio.run(commander.understand("…", "The floor is 0.80 x 1.22 m.", {"packing": "x"})) == [want]
     messages, tools = reply.seen
     assert messages[0]["content"].endswith("The floor is 0.80 x 1.22 m.")
     assert tools[-1]["function"]["parameters"]["properties"]["station"]["enum"] == ["packing"]
@@ -37,7 +37,7 @@ def test_a_plain_answer_without_a_tool_is_said(monkeypatch):
     async def wonder(messages, tools, model, timeout, effort=None):
         return SimpleNamespace(content="Hello.", tool_calls=None)
     monkeypatch.setattr(meta_api, "wonder", wonder)
-    assert asyncio.run(commander.understand("hi", "")) == Intent("say", text="Hello.")
+    assert asyncio.run(commander.understand("hi", "")) == [Intent("say", text="Hello.")]
 
 
 def test_a_slow_reply_is_asked_once_more(monkeypatch):
@@ -49,5 +49,15 @@ def test_a_slow_reply_is_asked_once_more(monkeypatch):
             raise TimeoutError
         return SimpleNamespace(content="Hello.", tool_calls=None)
     monkeypatch.setattr(meta_api, "wonder", wonder)
-    assert asyncio.run(commander.understand("hi", "")) == Intent("say", text="Hello.")
+    assert asyncio.run(commander.understand("hi", "")) == [Intent("say", text="Hello.")]
     assert len(waits) == 2
+
+
+def test_a_chain_of_steps_runs_in_the_order_given(monkeypatch):
+    calls = [SimpleNamespace(id=f"c{i}", function=SimpleNamespace(name=n, arguments=json.dumps(a)))
+             for i, (n, a) in enumerate([("go_to", {"x": 0.4, "y": 0.6}), ("turn", {"degrees": 90}), ("say", {"text": "Done."})])]
+
+    async def wonder(messages, tools, model, timeout, effort=None):
+        return SimpleNamespace(content=None, tool_calls=calls)
+    monkeypatch.setattr(meta_api, "wonder", wonder)
+    assert [i.kind for i in asyncio.run(commander.understand("…", ""))] == ["goto", "turn", "say"]

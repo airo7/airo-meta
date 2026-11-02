@@ -315,7 +315,7 @@ def test_patrol_laps_the_inset_corners_until_stopped(mission):
 def test_the_model_reads_commands_and_stop_never_waits_for_it(mission):
     async def understand(text, situation, stations):
         await asyncio.sleep(0.3)
-        return Intent("goto", xy=(0.6, 0.7)) if "middle" in text else Intent("say", text="I am a robot car.")
+        return [Intent("goto", xy=(0.6, 0.7)) if "middle" in text else Intent("say", text="I am a robot car.")]
 
     async def run():
         mission.understand = understand
@@ -357,3 +357,17 @@ def test_turns_pivot_by_the_asked_angle(mission):
     start = mission.rig.pose.theta
     asyncio.run(run())
     assert abs(math.remainder(mission.rig.pose.theta - start - math.pi / 2, 2 * math.pi)) < math.radians(12)
+
+
+def test_a_chained_command_runs_each_step_after_the_last(mission):
+    async def understand(text, situation, stations):
+        return [Intent("goto", xy=(0.6, 0.7)), Intent("say", text="I am there.")]
+
+    async def run():
+        mission.understand = understand
+        await mission.handle("go to the middle and tell me when you are there")
+        await mission._asking
+
+    asyncio.run(run())
+    texts = [n["text"] for n in mission.notes]
+    assert texts[-1] == "I am there." and any("(0.60, 0.70)" in t for t in texts[:-1])

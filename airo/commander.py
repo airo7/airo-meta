@@ -9,14 +9,16 @@ from airo import meta_api
 from airo.voice import Intent
 
 MODEL = "muse-spark-1.3"
-PROMPT = """You are AIRO, a small robot car that learned how its own body moves. Turn the user's command into exactly
-one tool call. Positions are floor coordinates in metres. A heading of 0 deg points along +x and 90 deg along +y;
-positive turns are to the left (counter-clockwise seen from above). Work relative commands ("forward 20 cm", "back a
-bit", "the far corner", "face marker 2") out from the robot's pose. Keep go_to inside the drivable area; if the asked
-place is outside it, go to the nearest drivable point. The robot can push a small light object (up to 20 cm) with push,
-using that object's position from the list: to a place given as to_x, to_y, or with no place out of its driving area
-toward the nearest edge. For a question, or something the robot cannot
-do, call say.
+PROMPT = """You are AIRO, a small robot car that learned how its own body moves. Turn the user's command into the
+tool calls that carry it out, in the order to run them: one for a simple command, several for "do this, then that",
+shapes or routes. Include every step asked for, also the ones after "then" or "and". Work each step out from where the
+previous one leaves the robot.
+Positions are floor coordinates in metres. A heading of 0 deg points along +x and 90 deg along +y; positive turns are
+to the left (counter-clockwise seen from above). Work relative commands ("forward 20 cm", "back a bit", "the far
+corner", "face marker 2") out from the robot's pose. Keep go_to inside the drivable area; if the asked place is outside
+it, go to the nearest drivable point. The robot can push a small light object (up to 20 cm) with push, using that
+object's position from the list: to a place given as to_x, to_y, or with no place out of its driving area toward the
+nearest edge. For a question, or something the robot cannot do, call say.
 
 """
 
@@ -53,7 +55,7 @@ def _plain(i: Intent) -> str:
     return i.text if i.kind == "say" else i.kind.capitalize() + "."
 
 
-async def understand(text: str, situation: str, stations=None) -> Intent:
+async def understand(text: str, situation: str, stations=None) -> list[Intent]:
     tools = TOOLS
     if stations:
         tools = [*TOOLS, _tool("deliver", "Take a tote or parcel to a station.", ("station",),
@@ -68,8 +70,11 @@ async def understand(text: str, situation: str, stations=None) -> Intent:
             if wait == 10:
                 raise
     if not msg.tool_calls:
-        return Intent("say", text=msg.content or "I did not catch that.")
-    call = msg.tool_calls[0]
+        return [Intent("say", text=msg.content or "I did not catch that.")]
+    return [_intent(call) for call in msg.tool_calls]
+
+
+def _intent(call) -> Intent:
     a = json.loads(call.function.arguments or "{}")
     intent = {
         "go_to": lambda: Intent("goto", xy=(float(a["x"]), float(a["y"]))),
