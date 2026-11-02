@@ -554,9 +554,15 @@ class Mission:
                 return False
             ahead, self._ahead, self._ignore = self._ahead, path[1:], poly
             try:
-                await follow(_Watched(self), self.body, path, v_max=self.v_max)
-            except InTheWay:
-                self.note("alert", f"Something else is in my way to {name}. Waiting until it is clear.")
+                # a leg this short overshoots more than it gains
+                if math.dist((p.x, p.y), plan["run_in"]) >= 0.1:
+                    await follow(_Watched(self), self.body, path, v_max=self.v_max)
+            except InTheWay as e:
+                hull = np.asarray(poly, np.float32)
+                log.info("run-in blocked at %s: clearance %.3f, %.3f from %s", e.xy, self.floor.clearance(e.xy),
+                         -cv2.pointPolygonTest(hull, e.xy, True), name)
+                self.note("alert", f"Something else is in my way at ({e.xy[0]:.2f}, {e.xy[1]:.2f}) on my way "
+                                   f"behind {name}, so I stopped.")
                 return False
             finally:
                 self._ahead, self._ignore = ahead, None
