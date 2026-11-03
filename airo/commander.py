@@ -70,15 +70,16 @@ async def understand(text: str, situation: str, stations=None, done: list[str] |
     if stations:
         tools = [*TOOLS, _tool("deliver", "Take a tote or parcel to a station.", ("station",),
                                station={"type": "string", "enum": list(stations)})]
+    ask = text
     if done is not None:
-        text += (f"\n\nAlready done, in order: {' '.join(done) or 'nothing'} Don't repeat any of it. If the command "
-                 "also asks to be told something, call say with the answer from the situation now; if nothing is left, "
-                 "reply done without a tool.")
-    messages = [{"role": "system", "content": PROMPT + situation}, {"role": "user", "content": text}]
+        ask += (f"\n\nAlready done, in order: {' '.join(done) or 'nothing'} Don't repeat any of it. If the command "
+                "also asks to be told something, call say with the answer from the situation now; if nothing is left, "
+                "reply done without a tool.")
+    messages = [{"role": "system", "content": PROMPT + situation}, {"role": "user", "content": ask}]
     # a reply usually takes 1-2 s; a slow one rarely recovers, a fresh request usually does
     for wait in (8, 10):
         try:
-            msg = await meta_api.wonder(messages, tools, model=MODEL, timeout=wait, effort="low")
+            msg = await meta_api.wonder(messages, tools, model=MODEL, timeout=wait, effort="low", shown=text)
             break
         except TimeoutError:
             if wait == 10:

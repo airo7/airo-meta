@@ -70,6 +70,9 @@ def test_calls_land_in_the_feed_with_robot_image_tools_and_failures(monkeypatch)
     w = meta_api.FEED[-1]
     assert w["input"] == "Learn the body."
     assert (w["tools"][0]["name"], w["tools"][0]["result"]) == ("run_probe", "z +0.4")
+    asyncio.run(meta_api.wonder([{"role": "user", "content": "Learn the body.\n\nAlready done: ..."}], [],
+                                shown="Learn the body."))
+    assert meta_api.FEED[-1]["input"] == "Learn the body."
 
     async def down(**_):
         raise ConnectionError("offline")
