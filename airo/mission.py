@@ -70,6 +70,8 @@ PATROL_IN = 0.05
 FLOOR_DT = 0.2
 WAY_REACH, WAY_R = 0.35, 0.12
 WAY_WAIT_S = 1.5
+# a ghost on the floor watcher's map blocks the same spot after every detour: give up on it rather than loop
+SAME_SPOT, REBLOCKS = 0.05, 4
 PUSH_MAX, PUSH_M, RUN_IN_PUSH, PUSH_ROOM = 0.2, 0.25, 0.2, 0.05
 # a box slides off the bumper on a long push: push this far, back off, look, re-aim
 PUSH_STAGE, PUSH_STAGES = 0.2, 6
@@ -461,8 +463,9 @@ class Mission:
 
     async def _reach(self, goal, skip: bool = False) -> bool:
         """A pivot then a straight leg to goal. Something in the way: wait a moment, then go around it. skip gives
-        up on a goal with no way around instead of waiting for one; False then."""
-        legs = [tuple(goal)]
+        up on a goal with no way around instead of waiting for one; False then. Raises Blocked when the same spot
+        keeps blocking the way."""
+        legs, hits = [tuple(goal)], []
         while True:
             try:
                 for i, g in enumerate(legs):
@@ -472,6 +475,11 @@ class Mission:
                     await follow(watched, self.body, [(p.x, p.y), g], v_max=self.v_max)
                 return True
             except InTheWay as e:
+                hits.append(e.xy)
+                if sum(math.dist(e.xy, h) < SAME_SPOT for h in hits) >= REBLOCKS:
+                    await self.rig.stop()
+                    raise Blocked(f"I keep getting blocked at the same spot near ({e.xy[0]:.2f}, {e.xy[1]:.2f}), so "
+                                  "I'm stopping here. Please check the floor.") from e
                 legs = await self._around(e.xy, tuple(goal), skip)
                 if legs is None:
                     return False
@@ -689,6 +697,9 @@ class Mission:
                     return True
                 except Surprised as e:
                     await self.relearn(str(e))
+                except Blocked as e:
+                    self.note("alert", str(e))
+                    return False
             self.note("alert", f"Gave up on ({goal[0]:.2f}, {goal[1]:.2f}) after {attempts} attempts.")
             return False
         finally:
@@ -720,6 +731,9 @@ class Mission:
                         await self._reach(goal, skip=True)
                 except Surprised as e:
                     await self.relearn(str(e))
+                except Blocked as e:
+                    self.note("alert", str(e))
+                    return
         finally:
             self.path = []
 

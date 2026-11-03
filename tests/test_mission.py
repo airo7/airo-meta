@@ -292,6 +292,42 @@ def test_go_to_a_point_relearns_on_the_way_and_arrives(mission):
     assert mission.notes[-1]["text"].startswith("Arrived at (0.40, 0.40), ") and mission.goal is None
 
 
+class Ghost:
+    """A floor watcher that keeps seeing something at one spot with a tight gap beside it, as on the real floor."""
+    polygons = []
+
+    def __init__(self, xy):
+        self.xy = xy
+
+    def update(self, *_):
+        pass
+
+    def ahead(self, *_):
+        return self.xy
+
+    def scene(self):
+        return planner.Scene(np.zeros((70, 100), bool), 0.02, {}, None, [])
+
+    def clearance(self, p):
+        return 0.08
+
+
+def test_a_spot_that_keeps_blocking_the_way_ends_the_drive(mission):
+    mission.floor = Ghost((0.59, 1.02))
+
+    async def run():
+        await mission.act("go to 0.6 1.0", Intent("goto", xy=(0.6, 1.0)))
+        await mission._task
+
+    asyncio.run(run())
+    texts = [n["text"] for n in mission.notes]
+    assert sum(t.startswith("Something is in my way at (0.59, 1.02)") for t in texts) == 3
+    assert any(t.startswith("A tight gap") for t in texts)
+    assert texts[-1] == ("I keep getting blocked at the same spot near (0.59, 1.02), so I'm stopping here. Please "
+                         "check the floor.")
+    assert not mission.busy and mission.status == "idle" and mission.goal is None
+
+
 def test_a_point_outside_the_inset_is_noted_not_driven(mission):
     asyncio.run(mission.handle("go to 0.05 0.7"))
     assert not mission.busy and mission.notes[-1]["text"] == "(0.05, 0.70) is outside the floor inset."
