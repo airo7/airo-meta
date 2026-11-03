@@ -1021,7 +1021,8 @@ class Mission:
         except Exception:
             log.warning("command model failed, falling back to the parser", exc_info=True)
             intents = [parse_intent(text, self.stations)]
-        for intent in intents:
+        start, later = len(self.notes), any(i.kind == "answer_after" for i in intents)
+        for intent in (i for i in intents if i.kind != "answer_after"):
             if n != self._asked:
                 return
             await self.act(text, intent)
@@ -1030,6 +1031,17 @@ class Mission:
                     await self._task
             if self.status in ("aborted", "error", "stopped"):
                 return
+        if not later:
+            return
+        try:
+            done = [e["text"] for e in self.notes[start:] if e["kind"] in ("result", "alert")]
+            after = await self.understand(text, self.situation(), self.stations, done=done)
+        except Exception:
+            log.warning("follow-up failed", exc_info=True)
+            return
+        for intent in after:
+            if n == self._asked:
+                await self.act(text, intent)
 
     def situation(self) -> str:
         """What the model needs to place a command on this floor."""
