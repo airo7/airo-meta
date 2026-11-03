@@ -334,6 +334,26 @@ def test_the_model_reads_commands_and_stop_never_waits_for_it(mission):
     assert "(0.60, 0.70)" in mission.notes[-1]["text"]
 
 
+def test_the_answer_is_the_headline_until_it_is_old_or_the_next_command(mission, monkeypatch):
+    async def understand(text, situation, stations):
+        return [Intent("say", text="I am a robot car.") if "?" in text else Intent("status")]
+
+    async def run():
+        mission.understand = understand
+        await mission.handle("what are you?")
+        await mission._asking
+        assert mission.state()["now"] == "I am a robot car."
+        later = time.time() + 16
+        with monkeypatch.context() as m:
+            m.setattr(time, "time", lambda: later)
+            assert mission.now().startswith("Waiting for a command")
+        await mission.handle("how are you doing")
+        await mission._asking
+
+    asyncio.run(run())
+    assert mission.now().startswith("Waiting for a command")
+
+
 def test_a_failing_model_falls_back_to_the_parser(mission):
     async def understand(text, situation, stations):
         raise TimeoutError

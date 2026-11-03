@@ -56,6 +56,7 @@ GIVE_WAY_M = 0.1
 # the car rolls on for a while after the last reverse command: keep this much floor behind it
 GIVE_WAY_ROOM = 0.25
 WAIT_S = 1.0
+ANSWER_S = 15.0
 # a via with something parked on it (a dropped carton) moves toward the goal; robots and people move on, station
 # pads are paint
 MOVING = ("robot", "person")
@@ -306,6 +307,7 @@ class Mission:
         self.understand = None
         self._asked = 0
         self._asking: asyncio.Task | None = None
+        self._answer: tuple[float, str, str] | None = None
         parcel = None if cell is not None else planner.PARCEL
         self.scan = scan or (lambda: planner.scan(rig.frame(), rig.H, rig.floor, stations=stations, parcel=parcel))
         self.threshold = threshold
@@ -348,6 +350,13 @@ class Mission:
             kind, label = PHASES[value]
             self.phases.append({"t": time.time() - self.t0, "kind": kind, "label": label})
         self._status = value
+
+    @property
+    def answer(self) -> str | None:
+        """The last spoken answer, while it is recent and nothing has happened since."""
+        if self._answer and self._answer[1] == self.status and time.time() - self._answer[0] < ANSWER_S:
+            return self._answer[2]
+        return None
 
     @property
     def body(self) -> Body:
@@ -1009,6 +1018,7 @@ class Mission:
     async def handle(self, text: str):
         """With the model live it reads the command, off the loop so the rig keeps ticking; "stop" never waits."""
         self._asked += 1
+        self._answer = None
         quick = parse_intent(text, self.stations)
         if self.understand is None or (quick and quick.kind == "stop"):
             await self.act(text, quick)
@@ -1067,6 +1077,7 @@ class Mission:
             return
         if intent.kind == "say":
             self.note("result", intent.text)
+            self._answer = time.time(), self.status, intent.text
             return
         self.command = text
         self._persist({"t": time.time(), "kind": "command", "text": text, "intent": intent.kind})
@@ -1159,6 +1170,8 @@ class Mission:
     def now(self) -> str:
         """One plain sentence on what the car is doing and why, for the dashboard."""
         sci, s = self.sci, self.status
+        if answer := self.answer:
+            return answer
         if self.cell is not None and (line := self._carry_now()):
             return line
         to = f"the {self.station} station" if self.station else "the station"

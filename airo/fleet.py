@@ -343,6 +343,8 @@ class Fleet:
                 return f"Waiting: {b.name} {b.why}." if b.person else f"Stopped: {b.name} {b.why}; replanning."
             other = next((o.name for o in self.robots if o.rig is b), "another robot")
             return f"Waiting: {other} is in its way."
+        if answer := m.answer:
+            return answer
         if m.cell is not None or m.status in ("driving", "patrolling"):
             return m.now()
         intent = parse_intent(m.command, m.stations) if m.command else None

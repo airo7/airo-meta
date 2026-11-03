@@ -154,6 +154,8 @@ def test_fleet_routes_commands_and_publishes_v3_state():
     assert [r["id"] for r in s["robots"]] == ["airo-1", "airo-2", "airo-3"]
     assert all({"name", "color", "real", "now", "status", "pose", "body", "notebook"} <= r.keys() for r in s["robots"])
     assert "models" not in s and s["robots"][0]["now"].startswith("Parked at its charging dock as Body #1")
+    asyncio.run(f.robots[0].mission.act("where are you?", Intent("say", text="By the dock.")))
+    assert f.state()["robots"][0]["now"] == "By the dock."
     assert f.route("restock") == "the conveyor brings totes by itself"
 
 
