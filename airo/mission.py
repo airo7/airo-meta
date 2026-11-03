@@ -78,6 +78,8 @@ PUSH_STAGE, PUSH_STAGES = 0.2, 6
 # a detour narrower than this trips the WAY_R check along it again and loops
 MIN_NEED = WAY_R + 0.03
 OVERPUSH = 0.02
+# the inset is itself a safety margin: the line-up behind a box may sit this far outside it, the push's end may not
+LINE_UP_SLACK = 0.03
 PHASES = {"delivering": ("drive", "drive to the parcel"), "pushing": ("drive", "push to the station"),
           "fetching": ("drive", "drive to the pick cell"), "loading": ("drive", "loaded by the arm"),
           "unloading": ("drive", "unloaded by the arm"), "returning": ("drive", "back to the dock"),
@@ -210,11 +212,12 @@ def push_plan(poly, start, goal, inside, clearance) -> dict | None:
 
 def _push_along(c, size, n, d, inside) -> dict | None:
     """Line up standoff behind the box and drive until the box centre has moved d: the car meets the box when its
-    centre is half a car and half a box away, and follow stops a little short."""
+    centre is half a car and half a box away, and follow stops a little short. inside is rig.inside(x, y, margin)."""
     standoff = STANDOFF + (size - 0.1) / 2
     push_from, push_to = c - standoff * n, c + (d - geometry.CAR[0] - size / 2 + OVERPUSH) * n
-    run_in = next((push_from - r * n for r in (RUN_IN_PUSH, RUN_IN_PUSH / 2, 0) if inside(*(push_from - r * n))), None)
-    if run_in is None or not inside(*push_from) or not inside(*push_to):
+    run_in = next((push_from - r * n for r in (RUN_IN_PUSH, RUN_IN_PUSH / 2, 0)
+                   if inside(*(push_from - r * n), -LINE_UP_SLACK)), None)
+    if run_in is None or not inside(*push_from, -LINE_UP_SLACK) or not inside(*push_to):
         return None
     tup = lambda p: (float(p[0]), float(p[1]))  # noqa: E731
     return {"centroid": tup(c), "size": size, "n": tup(n), "d": d, "run_in": tup(run_in), "push_from": tup(push_from),
