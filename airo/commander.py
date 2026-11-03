@@ -18,7 +18,8 @@ to the left (counter-clockwise seen from above). Work relative commands ("forwar
 corner", "face marker 2") out from the robot's pose. Keep go_to inside the drivable area; if the asked place is outside
 it, go to the nearest drivable point. The robot can push a small light object (up to 20 cm) with push, using that
 object's position from the list: to a place given as to_x, to_y, or with no place out of its driving area toward the
-nearest edge. For a question, or something the robot cannot do, call say.
+nearest edge. When the user asks a question or asks to be told something (what you see, where you are), end
+with say, answering it from the situation below. For something the robot cannot do, call say.
 
 """
 
@@ -40,7 +41,8 @@ TOOLS = [
           "the body may have changed (a load put on or taken off, a part swapped, driving oddly) or the user asks "
           "the robot to check, test or relearn itself."),
     _tool("status", "Report the body model already stored and how the robot is doing, without moving or testing."),
-    _tool("say", "Answer in one or two plain sentences.", ("text",), text={"type": "string"}),
+    _tool("say", "Answer in one or two plain sentences for a person: name places by the nearest marker or "
+          "corner and distances in cm, not coordinates or degrees.", ("text",), text={"type": "string"}),
 ]
 
 
