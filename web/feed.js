@@ -75,7 +75,17 @@ function said(m) {
     if (t.plain || why) own.push(t.name === "conclude" ? [t.plain || why, ""] : [why || t.plain, why ? t.plain || "" : ""]);
     else if (LEAD[t.name]) generic.push([LEAD[t.name](a), ""]);
   }
-  return own.length ? own : m.output ? [[m.output, ""]] : generic;
+  return runs(own.length ? own : m.output ? [[m.output, ""]] : generic);
+}
+
+function runs(lines) {
+  const out = [];
+  for (const [a, b] of lines) {
+    const last = out.at(-1);
+    if (last && last[0] === a && last[1] === b) last[2]++;
+    else out.push([a, b, 1]);
+  }
+  return out.map(([a, b, n]) => [n > 1 ? `${a} ×${n}` : a, b]);
 }
 
 const sayHtml = (m) => said(m).map(([a, b]) => `<p class="say">${esc(minus(a))}</p>${b ? `<p class="said">${esc(minus(b))}</p>` : ""}`).join("");
