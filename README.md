@@ -47,7 +47,7 @@ uv run scripts/demo.py --site factory      # open http://127.0.0.1:8000
 ```
 
 Without a `MODEL_API_KEY` a scripted scientist runs a fixed probe schedule and the twin segments its own frames, so
-everything works offline; the Meta models panel then lists those calls as failed. `uv run scripts/fetch_models.py`
+everything works offline; the Meta models panel stays empty. `uv run scripts/fetch_models.py`
 adds the UR5e arm, Robotiq gripper and Unitree G1 workers from MuJoCo Menagerie (without them the scene uses its own
 arm and leaves the workers out). The body memory lives in the git-ignored `data/`, so a fresh clone starts from the
 prior body.
