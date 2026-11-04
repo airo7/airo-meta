@@ -1,0 +1,341 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>How AIRO works</title>
+<meta name="description" content="The body model and fit, the ghost cloud, surprise detection, verified relearning, fleet memory, the planner, the MuJoCo twin and the threading model behind AIRO.">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./">AIRO<span>Adaptive Intelligence for Robots</span></a>
+    <nav>
+      <a href="./">Overview</a>
+      <a href="how-it-works.html" aria-current="page">How it works</a>
+      <a href="https://github.com/airo7/airo-meta/blob/main/docs/tuning.md">Tuning</a>
+      <a href="https://github.com/airo7/airo-meta">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap doc">
+<aside>
+  <ol>
+    <li><a href="#rig">Car, camera, rig</a></li>
+    <li><a href="#body">Body model</a></li>
+    <li><a href="#fit">Fitting</a></li>
+    <li><a href="#cloud">Ghost cloud</a></li>
+    <li><a href="#surprise">Surprise</a></li>
+    <li><a href="#learn">Learning a body</a></li>
+    <li><a href="#relearn">Verified relearn</a></li>
+    <li><a href="#check">Check after a load</a></li>
+    <li><a href="#memory">Fleet memory</a></li>
+    <li><a href="#commands">Commands</a></li>
+    <li><a href="#planner">Planning, control</a></li>
+    <li><a href="#twin">The twin</a></li>
+    <li><a href="#threads">Threading model</a></li>
+    <li><a href="#limits">Limitations</a></li>
+  </ol>
+</aside>
+
+<article>
+
+<section id="rig">
+  <div class="label"><b>01</b> Car, camera, rig</div>
+  <h2>A $50 car and a phone.</h2>
+  <p class="where">airo/protocol.py · car.py · camera.py · eye.py · rig.py</p>
+  <p>The car is an Elegoo Smart Robot Car V4: an Arduino UNO, four TT motors, skid steer, no encoders, and a BLE
+    module. Its firmware predates the hackathon and is used unchanged; <code>protocol.py</code> reimplements its byte
+    layout, and the firmware stops the motors 500 ms after the last command.</p>
+  <p>An iPhone about 1.8 m above the floor is the only sensor. Four ArUco markers taped at the floor corners define a
+    metric frame (1 → 2 is +x, 1 → 4 is +y) through a homography, and a fifth marker on the car gives its pose. A
+    marker taped off the turning centre swings on a circle while the car pivots, so every pivot would look like a
+    slide: <code>eye.py</code> runs two pivots in place, opposite ways, and fits where the turning centre sits.</p>
+  <p><code>rig.py</code> is the 20 Hz loop: it sends commands, reads the latest pose, keeps goals inside a 0.15 m
+    floor inset, holds still through brief marker blindness (up to 1.5 s) instead of aborting, and logs every tick to
+    jsonl. On the real car, pivots below about 70 PWM stall and the car breaks away from rest at about 45 PWM, so
+    commands are kept above both.</p>
+</section>
+
+<section id="body">
+  <div class="label"><b>02</b> Body model</div>
+  <h2>Seven numbers describe how this car moves.</h2>
+  <p class="where">airo/body.py</p>
+  <p>A body maps the two PWM commands to motion. Each side has a gain past a soft dead zone; commands act after a delay
+    and reach the wheels through a first-order lag; the turn rate has an effective track factor and a drift term:</p>
+<pre class="eq">target_side(t) = g_side · p(t − τ) · σ((|p(t − τ)| − dz) / 2)      σ = logistic
+w_side         = target_side through a first-order lag (time constant lag)
+v              = (w_L + w_R) / 2
+ω              = η · (w_R − w_L) / 0.145 m  +  κ · v
+ẋ = v cos θ     ẏ = v sin θ     θ̇ = ω</pre>
+  <table>
+    <tr><th>Parameter</th><th>Meaning</th><th>Excited by</th></tr>
+    <tr><td><code>g_l</code>, <code>g_r</code></td><td>speed per PWM, each side</td><td>any motion</td></tr>
+    <tr><td><code>dz</code></td><td>dead zone: PWM before a wheel moves</td><td>a command near the dead zone</td></tr>
+    <tr><td><code>tau</code></td><td>command delay</td><td>any motion</td></tr>
+    <tr><td><code>lag</code></td><td>wheel response time constant</td><td>any motion</td></tr>
+    <tr><td><code>eta</code></td><td>turn efficiency of the skid-steer (the track width is fixed at 0.145 m)</td><td>a turn</td></tr>
+    <tr><td><code>kappa</code></td><td>drift: turn per unit of forward speed</td><td>a turn</td></tr>
+  </table>
+  <p>The rollout integrates this on a 10 ms grid, warming the wheel state up on the 2.5 s of commands before the
+    window. Inverted, the same model gives the PWM pair for a wanted speed and turn rate, so driving always uses the
+    body the car believes it has.</p>
+</section>
+
+<section id="fit">
+  <div class="label"><b>03</b> Fitting</div>
+  <h2>Least squares on what the camera saw.</h2>
+  <p class="where">airo/body.py: fit</p>
+  <ul>
+    <li><strong>Residuals:</strong> predicted minus measured x and y for every pose sample, plus 0.1 × the heading error
+      in radians, over every probe segment.</li>
+    <li><strong>Restarts:</strong> delay and lag trade off into local minima, so the fit restarts at τ = 0.05, 0.15 and
+      0.3 s and keeps the lowest cost.</li>
+    <li><strong>Sign search:</strong> gradient descent cannot pass a gain through zero, where that side stops responding.
+      After a change the fit also restarts with the left, the right and both gains negated, which is how a reversed
+      motor wire is found.</li>
+    <li><strong>Anchor:</strong> in a relearn a weak pull toward the previous body keeps parameters the new data says
+      little about (the dead zone after a few pivots) from wandering.</li>
+    <li><strong>Bumped probes:</strong> a probe whose residual is 4× the others' median and over 2 cm ran into
+      something, and is left out of the learn.</li>
+  </ul>
+</section>
+
+<section id="cloud">
+  <div class="label"><b>04</b> Ghost cloud</div>
+  <h2>The uncertainty is drawn, not hidden.</h2>
+  <p class="where">airo/body.py: posterior, ensemble, cloud</p>
+  <p>The posterior is a Laplace approximation around the fitted body with a broad physical prior:</p>
+<pre class="eq">Σ  = ( Jᵀ J / s²  +  diag(1 / prior_sd²) )⁻¹
+s² = 14 · τ_corr · RSS / (n − 7)</pre>
+  <p>J is the residual Jacobian. A parameter no probe has excited has its column zeroed and keeps its prior spread:
+    the gains, delay and lag need any motion, the dead zone a command near it, eta and drift a turn. The noise variance
+    is inflated by 14 times the residuals' autocorrelation time τ<sub>corr</sub>, because the Laplace fit misses each
+    segment's noisy start pose and the curved delay–lag ridge; 14 was calibrated on held-out probes in simulation,
+    where over 30 seeds the true outcome falls within 2σ of the prediction 87–100% of the time.</p>
+  <p>Bodies drawn from N(best, Σ) and rolled forward over the planned commands are the ghost cloud on the dashboard.
+    After ten probes its radius (the spread after 1.5 s of a gentle arc from rest) is 0.3 cm in the model-exact
+    simulator and 1.1 cm in the MuJoCo twin.</p>
+  <figure>
+    <video autoplay muted loop playsinline preload="metadata" poster="media/cloud.jpg">
+      <source src="media/cloud.mp4" type="video/mp4">
+    </video>
+    <figcaption><span class="tag">SIMULATED</span>Possible bodies spread wide after the first probe, then collapse onto
+      one.</figcaption>
+  </figure>
+</section>
+
+<section id="surprise">
+  <div class="label"><b>05</b> Surprise</div>
+  <h2>Every half second: did the car go where the cloud said?</h2>
+  <p class="where">airo/body.py: surprise · airo/mission.py</p>
+  <p>Each 0.5 s window is replayed: every cloud member is rolled from the window's first measured pose over the
+    commands the rig actually ran (so a late tick does not read as a changed body), and the measured displacement is
+    compared with the cloud's:</p>
+<pre class="eq">s_xy = |Δp_measured − mean Δp| / √(var Δp + (1 cm)²)
+s_θ  = |Δθ_measured − mean Δθ| / √(var Δθ + (0.03 rad)²)
+score = max(s_xy, s_θ)</pre>
+  <ul>
+    <li><strong>Sudden change:</strong> the median of the last three windows above 3.0. One spike never triggers.</li>
+    <li><strong>Slow change:</strong> a capped CUSUM, S ← max(0, S + min(score, 3.0) − 1.8), triggers above 3.0. Clean
+      windows stayed under 1.6 in 40 eval runs on both rigs; a tow on an already loaded car scores about 2.4, under
+      the main threshold but caught here.</li>
+    <li>Windows with a pose dropout are skipped, and surprise is suppressed for 2 s after a relearn.</li>
+  </ul>
+  <p>Across 70 simulated runs per rig, bare and loaded, there were no false triggers.</p>
+</section>
+
+<section id="learn">
+  <div class="label"><b>06</b> Learning a body</div>
+  <h2>Experiments, chosen to separate hypotheses.</h2>
+  <p class="where">airo/probes.py · airo/scientist.py: learn</p>
+  <p>The probe library is open-loop: straight steps at several speeds and in reverse, a ramp, pivots both ways at
+    three powers, arcs both ways and a short pulse. Each kind measures something (steps the side gains, drift and
+    delay; the ramp the dead zone; pivots eta; arcs the mixing law; the pulse delay and coast), and each is checked
+    against the free floor before it runs.</p>
+  <p>A single straight speed cannot tell the gain from the dead zone (any g · (p − dz) through one point fits), so a
+    learn only concludes after a straight probe at or below 60 PWM, one at or above 100 PWM, and a pivot. A full learn
+    is ten probes. Muse Wonder chooses them through tools; without the API a fixed schedule does.</p>
+</section>
+
+<section id="relearn">
+  <div class="label"><b>07</b> Verified relearn</div>
+  <h2>A new body is accepted when a prediction lands.</h2>
+  <p class="where">airo/scientist.py: relearn, run_probe, conclude</p>
+  <ol>
+    <li>On a surprise the car halts. Muse Spark looks at the car in parallel ("a weight pack strapped on top").</li>
+    <li>Remembered bodies whose clouds explain the window since the change (median surprise under 3.0) are offered to
+      Wonder through a <code>recall</code> tool; otherwise the body is refitted on that window first.</li>
+    <li>Wonder gets the tools <code>run_probe</code> and <code>conclude</code>. Each <code>run_probe</code> refits first
+      and records the engine's prediction (mean and sd for forward, sideways and turn) before the wheels move. Wonder
+      must give a plain-language reason and a falsifiable technical hypothesis for every probe; it may only quote
+      numbers the tools returned, and unsafe or unknown probes are rejected.</li>
+    <li>The relearn is <strong>confirmed</strong> when a probe in the regime where the surprise happened (straight or
+      turning) lands with |z| &lt; 2 on all three quantities, and the prediction was tight: sd at most 3 cm, 3 cm and
+      6°. A vague prediction would confirm anything.</li>
+    <li>Wonder has 12 s of thinking time per relearn (a turn takes 6–20 s); then a scripted policy finishes with up to
+      five probes (step, pivots both ways, step back). A change no body explains, with |z| above 5, stops the car as a
+      hardware fault.</li>
+    <li><code>conclude</code> writes one plain sentence, the technical detail and a short body name into the lab
+      notebook; Muse Image draws a self-portrait for the memory card.</li>
+  </ol>
+</section>
+
+<section id="check">
+  <div class="label"><b>08</b> Check after a load</div>
+  <h2>Loaded at the cell: same, recalled, or new?</h2>
+  <p class="where">airo/scientist.py: check_body, _weigh, _choose</p>
+  <p>When an arm puts a tote on a car (or takes it off), the car does not wait to be surprised. Parked at the cell it
+    runs one pivot in place (a smaller one, or the other way, if the bay leaves less room) and weighs every body it
+    knows:</p>
+  <ul>
+    <li>A body qualifies only if the pivot lands within |z| &lt; 2 with a tight prediction.</li>
+    <li>Qualifying bodies are ranked by Gaussian log-likelihood, which also charges a wide cloud for its spread, so a
+      vague body cannot win.</li>
+    <li>The current body is kept unless another is at least 1.0 more likely in log-likelihood (about 2.7×).</li>
+    <li>If the best two are within that margin, a second pivot (the other way, if there is room) tells them apart.</li>
+    <li>If nothing explains it, the pivot is repeated in case something bumped the car. If the two runs disagree, it
+      keeps its body and lets driving show a change; otherwise the new body is learned at the cell.</li>
+  </ul>
+  <p>This path is scripted throughout, so driving never waits on Wonder. In the factory carry benchmark it named the
+    right body for 41/41 heavy loads, 40/40 light ones and 81/81 unloads in the normal warehouse, with a median check of
+    2.1 s (3.7 s for a light tote, which sits between the bare and heavy bodies and usually needs the second pivot).</p>
+</section>
+
+<section id="memory">
+  <div class="label"><b>09</b> Fleet memory</div>
+  <h2>A body learned once is recalled by every robot.</h2>
+  <p class="where">airo/memory.py</p>
+  <p>The library is one JSON file per robot model. Each entry holds the body, its cloud members, the cause, whether it
+    was verified, which robot learned it, which robots have tested it since, and its self-portrait. Every robot holds a
+    view of the same pool with its own active body; a robot new to the pool starts from the fleet's first confirmed
+    body.</p>
+  <p>Recall costs one confirming probe: 2.1 s against 3.7 s and two probes for a relearn in the memory benchmark
+    (weight on, off, on again: 10/10 each way on both rigs). In the factory the first heavy tote of a run is learned
+    at the cell in about 12 s; every later one, on any robot, is recalled.</p>
+  <figure>
+    <video autoplay muted loop playsinline preload="metadata" poster="media/recall.jpg">
+      <source src="media/recall.mp4" type="video/mp4">
+    </video>
+    <figcaption><span class="tag">SIMULATED</span>AIRO 2 recognises Body #2, learned by AIRO 1, in 2.1 s.</figcaption>
+  </figure>
+</section>
+
+<section id="commands">
+  <div class="label"><b>10</b> Commands</div>
+  <h2>Plain words in, tool calls out.</h2>
+  <p class="where">airo/commander.py · airo/voice.py · airo/fleet.py</p>
+  <p>Muse Spark reads a typed or spoken command with the robot's pose, the floor and what it knows, and returns the
+    tool calls that carry it out, in order: <code>go_to</code>, <code>turn</code>, <code>patrol</code>,
+    <code>push</code>, <code>stop</code>, <code>learn</code>, <code>status</code>, <code>say</code>,
+    <code>answer_after</code> (for "look around and tell me what you see") and, on the factory, <code>deliver</code>.
+    "Stop" never waits for a model, and offline a plain parser takes over. Muse Voice Transcribe streams speech over a
+    realtime WebSocket. The fleet routes "airo 2 …" to one robot and everything else to the selected one.</p>
+</section>
+
+<section id="planner">
+  <div class="label"><b>11</b> Planning and control</div>
+  <h2>A grid from SAM, a path, and a pursuit that knows the delay.</h2>
+  <p class="where">airo/planner.py · airo/control.py · airo/fleet.py · airo/floorwatch.py</p>
+  <ul>
+    <li><strong>Perception:</strong> each site maps its station names to SAM concepts, so "deliver to packing" means
+      something on the floor. SAM 3.1 masks are warped through the floor homography into a 2 cm occupancy grid.</li>
+    <li><strong>Planning:</strong> 8-connected A* with clearance on that grid.</li>
+    <li><strong>Control:</strong> delay-compensated pure pursuit steers from the pose predicted one delay ahead, with a
+      0.15 m lookahead and 0.25 m/s top speed; it pivots in place above 60° heading error, drives again below 20°, and
+      slows inside 0.3 m of the goal. PWM comes from the learned body's inverse.</li>
+    <li><strong>Fleet:</strong> robots plan around each other's footprints, queue for bays, give way to people and the
+      forklift, and plan around dropped pallets and cartons.</li>
+    <li><strong>Real floor:</strong> <code>floorwatch.py</code> compares a top-down floor image with the empty floor as
+      first seen, so something dropped in the car's way makes it wait, then go around with its learned sideways spread
+      as clearance.</li>
+  </ul>
+</section>
+
+<section id="twin">
+  <div class="label"><b>12</b> The twin</div>
+  <h2>A warehouse where a tote's mass really loads the wheels.</h2>
+  <p class="where">airo/world.py · mjsim.py · warehouse.py · loader.py · cobot.py · workers.py · forklift.py · hall.py</p>
+  <ul>
+    <li>One MuJoCo world holds every car, with a DC-motor model per wheel, wheel stiction that drops once a wheel turns,
+      damping that grows with contact force (so a load slows the car), a 0.17 s command delay, a slight left/right
+      motor mismatch for drift, and the firmware's 500 ms watchdog.</li>
+    <li>Totes are free bodies without contacts. The conveyor and arms move them kinematically, and on a car's deck a
+      weld holds them, so a 0.8 kg tote genuinely loads the car it rides.</li>
+    <li>Arms load and unload at every bay: our own six-axis arm, or the UR5e with a Robotiq 2F-85 from MuJoCo Menagerie
+      with numerical damped-least-squares IK. Unitree G1 workers walk kinematically; an autonomous forklift shuttles
+      pallets and stops for people. All at 1:4 scale.</li>
+    <li>Poses come from ground truth or from the real ArUco pipeline run on rendered frames. Offline, a SAM stand-in
+      segments the rendered overhead view.</li>
+    <li>The hall's static parts are merged per material, so the whole building is a few dozen draw calls.</li>
+  </ul>
+  <figure>
+    <img src="factory.jpg" alt="The factory twin from the observation deck: three cars, arm cells at the stations, the pick cell on the left" loading="lazy">
+    <figcaption><span class="tag">SIMULATED</span>The factory twin from the observation deck.</figcaption>
+  </figure>
+</section>
+
+<section id="threads">
+  <div class="label"><b>13</b> Threading model</div>
+  <h2>One event loop. Threads only hand data over.</h2>
+  <p class="where">scripts/demo.py · scripts/show.py · airo/server.py</p>
+  <ul>
+    <li><strong>One event loop per process.</strong> <code>demo.py</code> runs on a single asyncio loop: the dashboard
+      (uvicorn), the fleet publishing state at 10 Hz, each robot's mission stepping its rig at 20 Hz, the ticker that
+      paces MuJoCo by the wall clock, the 3D view at 24 fps and voice.</li>
+    <li><strong>Threads only hand data over.</strong> On the real car a daemon thread grabs camera frames and tracks the
+      marker; the loop reads its latest pose. Typed commands come from a daemon stdin thread and microphone audio from
+      the sound card's callback, both through <code>loop.call_soon_threadsafe</code>. Body fits run in
+      <code>asyncio.to_thread</code> (numpy only).</li>
+    <li><strong>There is no render thread.</strong> Every MuJoCo renderer (overhead camera, SAM stand-in, 3D view) is
+      created, used and closed on the event-loop thread; the dashboard's <code>/camera</code> handler queues its request
+      for the 3D view loop instead of rendering itself.</li>
+    <li><strong><code>show.py</code> separates by process.</strong> The warehouse and the live car are two child
+      <code>demo.py</code> processes, each with its own loop, GL contexts and BLE link. On Ctrl+C each child gets one
+      SIGTERM so it can close BLE; the process group is killed only after 20 s.</li>
+  </ul>
+  <p>Two rules prevent the crashes: a MuJoCo GL context must be freed on the thread that made it, or it segfaults, so
+    nothing renders through <code>to_thread</code> or an executor; and threads off the loop are daemons, because
+    <code>asyncio.run</code> waits for executor threads at exit and one blocked on stdin would keep the process and its
+    BLE link alive.</p>
+</section>
+
+<section id="limits">
+  <div class="label"><b>14</b> Limitations</div>
+  <h2>What it doesn't do yet.</h2>
+  <ul>
+    <li>The benchmark tables are from simulation. On the real car: with a water bottle on, the old model predicted 0 cm
+      and the car moved 17 cm, and after relearning 7 predictions in a row landed; a warm-motor change was relearned in
+      27 s; 3.5 min of patrol with a bottle on board raised no false alarm.</li>
+    <li>The body model has seven parameters and no term for drag, slip or battery sag. Changes under ~8% speed and the
+      twin's small slippery patch go unnoticed, and in the model-exact simulator a tow on a loaded car stays below the
+      sustained-surprise allowance.</li>
+    <li>Drift is weakly identifiable; the learning gate reports its sign as undetermined within 2σ of zero.</li>
+    <li>The uncertainty inflation is calibrated in simulation; on hardware only its autocorrelation factor adapts.</li>
+    <li>Muse Wonder takes 6–20 s per turn, so live it often gets one turn of its 12 s budget before the scripted policy
+      finishes a relearn; the benchmark uses the scripted scientist for repeatability.</li>
+  </ul>
+  <p>Every constant above, its value, file and line, and whether it was measured, fitted or chosen:
+    <a href="https://github.com/airo7/airo-meta/blob/main/docs/tuning.md">docs/tuning.md</a>.</p>
+</section>
+
+</article>
+</main>
+
+<footer>
+  <div class="wrap cols">
+    <div>
+      <p><strong style="color: var(--text)">AIRO</strong> by PiSpace, built during the Meta Global AI Developer Hackathon
+        2026. MIT licence.</p>
+    </div>
+    <div>
+      <p><a href="./">Overview</a> · <a href="https://github.com/airo7/airo-meta">GitHub</a></p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>

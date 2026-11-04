@@ -1,0 +1,317 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AIRO: Adaptive Intelligence for Robots</title>
+<meta name="description" content="A $50 encoder-less robot car that notices when its body changes, runs its own experiments with Muse Wonder, refits a physics body model, and shares what it learned with the fleet.">
+<meta property="og:title" content="AIRO: Adaptive Intelligence for Robots">
+<meta property="og:description" content="A robot that notices its body changed, tests itself, and only trusts the new model once a prediction lands.">
+<meta property="og:image" content="https://airo7.github.io/airo-meta/media/recall.jpg">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="top">
+  <div class="wrap">
+    <a class="brand" href="./">AIRO<span>Adaptive Intelligence for Robots</span></a>
+    <nav>
+      <a class="wide" href="#loop">The loop</a>
+      <a href="#try">Try it</a>
+      <a class="wide" href="#numbers">Numbers</a>
+      <a href="how-it-works.html">How it works</a>
+      <a href="https://github.com/airo7/airo-meta">GitHub</a>
+    </nav>
+  </div>
+</header>
+
+<main>
+
+<section class="hero">
+  <div class="wrap">
+    <div class="eyebrow">PiSpace · Meta Global AI Developer Hackathon 2026</div>
+    <h1>A robot that notices its body changed, and proves the fix.</h1>
+    <p class="lede">AIRO runs on a $50 car with no wheel encoders and one overhead phone camera. When a load, a tow or a
+      worn motor makes its body model wrong, it notices, designs its own experiments with Muse Wonder, refits a
+      physics model, and only accepts it once a prediction lands. Every body it learns goes into a memory the whole
+      fleet shares.</p>
+    <div class="actions">
+      <a class="btn primary" href="#try">Run the twin, no API key</a>
+      <a class="btn" href="https://github.com/airo7/airo-meta">Source on GitHub</a>
+      <a class="btn" href="how-it-works.html">How it works</a>
+    </div>
+    <figure>
+      <video autoplay muted loop playsinline preload="auto" poster="media/fleet.jpg">
+        <source src="media/fleet.mp4" type="video/mp4">
+      </video>
+      <figcaption><span class="tag">SIMULATED</span>Eight cars in the MuJoCo warehouse twin, each with its ghost cloud:
+        where its body model says it will be.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="problem">
+  <div class="wrap">
+    <div class="label"><b>01</b> The problem</div>
+    <div class="split wide-left">
+      <figure>
+        <video autoplay muted loop playsinline preload="auto" poster="media/problem.jpg">
+          <source src="media/problem.mp4" type="video/mp4">
+        </video>
+        <figcaption><span class="tag">SIMULATED</span>Same command, same body model. The car towing a 150 g carton
+          misses by 11 cm, and doesn't know.</figcaption>
+      </figure>
+      <div>
+        <h2>Bodies change. Models don't.</h2>
+        <p>Every robot drives by a model of its own body, tuned once by an engineer. Then it carries a heavy tote, tows
+          a cart, its tyres wear or its battery sags. The model is now wrong, and the robot stops short or drifts
+          without knowing it.</p>
+        <p class="muted">Today the fix is a service call. Over a robot's life, setup, tuning and upkeep cost more than
+          the robot itself.</p>
+      </div>
+    </div>
+    <div class="stats">
+      <div class="stat">
+        <div class="n amber">25–40%</div>
+        <div class="d">of a robot's lifetime cost is the purchase; the rest is setup, tuning and upkeep</div>
+        <div class="src">Vendor estimates: <a href="https://www.mecademic.com/knowledge_base/robots-total-cost-of-ownership-tco/">Mecademic</a>,
+          <a href="https://automationinside.com/article/total-cost-of-ownership-for-robots-and-amrs">Automation Inside</a></div>
+      </div>
+      <div class="stat">
+        <div class="n">~102,900</div>
+        <div class="d">transport and logistics robots sold in 2024</div>
+        <div class="src"><a href="https://ifr.org/ifr-press-releases/news/service-robots-see-global-growth-boom">IFR</a></div>
+      </div>
+      <div class="stat">
+        <div class="n">98.5%</div>
+        <div class="d">of US manufacturers have fewer than 500 employees</div>
+        <div class="src"><a href="https://nam.org/member-services/smm-membership/">NAM</a></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="film">
+  <div class="wrap">
+    <div class="label"><b>02</b> The film</div>
+    <h2>Three minutes: one real car, then a warehouse.</h2>
+    <!-- VIDEO: replace the whole div below with the YouTube embed, for example
+    <div class="video-embed"><iframe src="https://www.youtube-nocookie.com/embed/VIDEO_ID" title="AIRO demo film" allow="accelerometer; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen></iframe></div>
+    -->
+    <div class="video-slot" style="background-image: url('media/film.jpg')">
+      <p>Demo film coming here</p>
+    </div>
+    <!-- /VIDEO -->
+  </div>
+</section>
+
+<section id="real">
+  <div class="wrap">
+    <div class="label"><b>03</b> On the real car</div>
+    <div class="split">
+      <div>
+        <h2>A water bottle on top. The old model was sure of the wrong answer.</h2>
+        <div class="gap">
+          <div><span class="v">0 cm</span><span class="k">predicted by the old body model</span></div>
+          <span class="arrow">→</span>
+          <div><span class="v" style="color: var(--miss)">17 cm</span><span class="k">what the car moved</span></div>
+        </div>
+        <p>The car noticed, ran its own probes, refitted its body, and then <strong>7 predictions in a row
+          landed</strong>. An Elegoo V4 kit car, an iPhone looking down from about 1.8 m, ArUco markers taped to the floor. No encoders, no
+          lab.</p>
+        <p class="muted small">Also on the real car: a warm-motor change caught and relearned in 27 s, and 3.5 min of
+          patrol with a bottle on board without a false alarm.</p>
+      </div>
+      <figure>
+        <video autoplay muted loop playsinline preload="auto" poster="media/realcar.jpg">
+          <source src="media/realcar.mp4" type="video/mp4">
+        </video>
+        <figcaption><span class="tag">REAL CAR</span>The Elegoo car with the water bottle strapped on, on the
+          marker floor.</figcaption>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<section id="loop">
+  <div class="wrap">
+    <div class="label"><b>04</b> The loop</div>
+    <div class="split wide-left">
+      <figure>
+        <video autoplay muted loop playsinline preload="auto" poster="media/cloud.jpg">
+          <source src="media/cloud.mp4" type="video/mp4">
+        </video>
+        <figcaption><span class="tag">SIMULATED</span>The ghost cloud is the body model's uncertainty rolled forward:
+          the bodies the car might be spread wide after one test drive, then collapse as the probes come in.</figcaption>
+      </figure>
+      <div>
+        <h2>Notice, test, refit, verify, remember.</h2>
+        <p>Meta's models plan the experiments, look at the car, read the floor and take commands. They never steer:
+          the 20 Hz control loop runs on the fitted physics, and every number a model quotes comes from a tool.</p>
+        <p><a href="how-it-works.html">The full technical write-up →</a></p>
+      </div>
+    </div>
+    <ol class="loop">
+      <li><span class="i">01 · notice</span><h3>Surprise against the cloud</h3>
+        <p>Every half second the car's motion is scored against its predicted futures. The median of three windows over
+          threshold, or a slow drift summed by a CUSUM, means the body changed.</p></li>
+      <li><span class="i">02 · experiment</span><h3>Muse Wonder designs the probe</h3>
+        <p>A step, a pivot or an arc, each with a falsifiable hypothesis. The physics model predicts the outcome before
+          the wheels turn.</p></li>
+      <li><span class="i">03 · refit</span><h3>Seven-parameter body</h3>
+        <p>Per-side gain, dead zone, delay, wheel lag, turn efficiency and drift, fitted to what the camera saw, with a
+          Laplace posterior that becomes the new cloud.</p></li>
+      <li><span class="i">04 · verify</span><h3>Only a landed prediction counts</h3>
+        <p>A relearn is accepted once a tight prediction lands within 2σ on distance, sideways drift and turn. A
+          refit with a motor's sign flipped finds a reversed wire.</p></li>
+      <li><span class="i">05 · remember</span><h3>Fleet memory</h3>
+        <p>Each body is stored for the robot model and shared. Another robot that meets a known body recalls it with
+          one confirming probe in about 2.1 s.</p></li>
+      <li><span class="i">06 · listen</span><h3>Plain words in</h3>
+        <p>Muse Spark turns "airo 2 bring a heavy tote to packing" into tool calls, Muse Voice Transcribe hears it,
+          SAM 3.1 reads the floor, Muse Image draws each body's self-portrait.</p></li>
+    </ol>
+  </div>
+</section>
+
+<section id="twin">
+  <div class="wrap">
+    <div class="label"><b>05</b> The warehouse twin</div>
+    <h2>One robot learns a heavy tote. Every other robot recognises it.</h2>
+    <p class="lede">A MuJoCo warehouse at 1:4 scale: three cars, robot arms loading totes at the pick cell, Unitree G1
+      workers, an autonomous forklift, dropped cartons. Totes are welded to the deck, so their mass really loads the
+      car's wheels.</p>
+    <div class="pair">
+      <figure>
+        <video autoplay muted loop playsinline preload="auto" poster="media/load.jpg">
+          <source src="media/load.mp4" type="video/mp4">
+        </video>
+        <figcaption><span class="tag">SIMULATED</span>The arm loads a heavy tote. The car checks its new body with a
+          pivot in place before it drives.</figcaption>
+      </figure>
+      <figure>
+        <video autoplay muted loop playsinline preload="auto" poster="media/recall.jpg">
+          <source src="media/recall.mp4" type="video/mp4">
+        </video>
+        <figcaption><span class="tag">SIMULATED</span>AIRO 2 recognises Body #2 (heavier: −20% speed, −14% turn), learned
+          by AIRO 1, in 2.1 s.</figcaption>
+      </figure>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="n ghost">41/41</div><div class="d">heavy loads identified as the right body (normal warehouse)</div></div>
+      <div class="stat"><div class="n ghost">0</div><div class="d">false relearns across the carry runs</div></div>
+      <div class="stat"><div class="n ghost">180/180</div><div class="d">deliveries in 10 stress runs, calm to busy, no give-ups</div></div>
+      <div class="stat"><div class="n ghost">2.1 s</div><div class="d">median recall of a known body, vs ~12 s to learn it the first time</div></div>
+    </div>
+  </div>
+</section>
+
+<section id="try">
+  <div class="wrap">
+    <div class="label"><b>06</b> Try it yourself</div>
+    <div class="split">
+      <div>
+        <h2>The factory twin in 60 seconds. No API key.</h2>
+        <p>Needs <a href="https://docs.astral.sh/uv/">uv</a>, which fetches Python 3.13. Without a key, a scripted
+          scientist runs a fixed probe schedule and the twin segments its own frames, so everything runs offline.</p>
+<pre><span class="c"># clone, install, run</span>
+git clone https://github.com/airo7/airo-meta
+cd airo-meta
+uv sync
+uv run scripts/demo.py --site factory
+<span class="c"># open http://127.0.0.1:8000</span></pre>
+        <p class="muted small"><code>uv run scripts/fetch_models.py</code> adds the UR5e arm, the Robotiq gripper and the G1
+          workers from MuJoCo Menagerie. With a <code>MODEL_API_KEY</code> in <code>.env</code>,
+          <code>uv run --env-file .env scripts/demo.py --site factory</code> uses the Meta models live.</p>
+      </div>
+      <div>
+        <h3>Then type into the command bar</h3>
+        <table>
+          <tr><td><code>airo 2 bring a heavy tote to packing</code></td><td>an arm loads it, the car checks its body, delivers</td></tr>
+          <tr><td><code>select airo 3</code>, <code>learn</code></td><td>pick a robot and make it learn its body</td></tr>
+          <tr><td><code>weight</code>, <code>tow</code>, <code>flip</code></td><td>change its body mid-run; watch it notice</td></tr>
+          <tr><td><code>remove weight</code></td><td>back to a body it already knows: recall</td></tr>
+          <tr><td><code>send a worker across</code>, <code>drop a carton</code></td><td>things the fleet plans around</td></tr>
+          <tr><td><code>busy</code>, <code>speed 0.5</code>, <code>pause</code></td><td>how lively the floor is, and the clock</td></tr>
+        </table>
+        <p class="muted small">Drag to orbit the 3D view, scroll to zoom, click a part to name it.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="models">
+  <div class="wrap">
+    <div class="label"><b>07</b> Meta models</div>
+    <h2>Five models, one job each, none in the control loop.</h2>
+    <table>
+      <tr><th>Model</th><th>Role in AIRO</th></tr>
+      <tr><td><code>muse-wonder-1.0</code></td><td>The scientist. Picks each probe with a falsifiable hypothesis, decides
+        whether to recall a remembered body or relearn, concludes and names the body. Its tools return every number;
+        it never steers. A 12 s budget per relearn, then a scripted policy finishes.</td></tr>
+      <tr><td><code>muse-spark-1.3</code></td><td>Turns typed or spoken commands into tool calls (go to, turn, push,
+        patrol, learn, say, deliver) from the robot's pose and floor. Looks at the car when its body changes and says
+        what is on it. "Stop" never waits for it.</td></tr>
+      <tr><td><code>sam-3.1</code></td><td>Segments the floor: totes, stations and obstacles become polygons and an
+        occupancy grid for the planner.</td></tr>
+      <tr><td><code>muse-voice-transcribe-1.0</code></td><td>Realtime speech to commands.</td></tr>
+      <tr><td><code>muse-image-1.0</code></td><td>A self-portrait of each confirmed body for its memory card.</td></tr>
+    </table>
+    <p class="muted small">Every call appears live in the dashboard's model feed with its latency, input and output.</p>
+  </div>
+</section>
+
+<section id="numbers">
+  <div class="wrap">
+    <div class="label"><b>08</b> Measured numbers</div>
+    <h2>Benchmarked, not demoed once.</h2>
+    <p class="muted">Simulation rows: <code>scripts/eval.py</code>, scripted scientist, no API, 10 seeds per rig. Full
+      tables in the <a href="https://github.com/airo7/airo-meta#measured-numbers">README</a>.</p>
+    <table>
+      <tr><th></th><th>SimRig (model-exact)</th><th>MuJoCo twin (physics)</th></tr>
+      <tr><td>Learn: 10 probes, cloud radius</td><td>0.3 cm, parameters within 7% of truth</td><td>1.1 cm</td></tr>
+      <tr><td>Held-out probes within 2σ</td><td>100%</td><td>100%</td></tr>
+      <tr><td>False surprise triggers (70 runs, bare and loaded)</td><td>0</td><td>0</td></tr>
+      <tr><td>Weight: detected / confirmed / delivered</td><td>10/10 at 1.1 s, 10/10, 10/10 (gains −35%)</td><td>10/10 at 6.5 s, 10/10, 10/10 (0.8 kg)</td></tr>
+      <tr><td>Tow: detected / confirmed / delivered</td><td>4/10, 4/4, 10/10 (gains −15%, lag ×2)</td><td>10/10 at 1.7 s, 10/10, 10/10</td></tr>
+      <tr><td>Reversed left motor: detected / confirmed / delivered</td><td>10/10 at 1.1 s, 9/10, 10/10</td><td>10/10 at 1.1 s, 10/10, 10/10</td></tr>
+      <tr><td>Memory: weight on → relearn #2, off → recall #1, on → recall #2</td><td>10/10, 10/10, 10/10</td><td>10/10, 10/10, 10/10</td></tr>
+      <tr><td>Recall vs relearn, sim time</td><td>2.1 s and 1 probe vs 3.7 s and 2 probes</td><td>same</td></tr>
+    </table>
+    <table>
+      <tr><th>Factory carry, three robots, 0.8 kg and 0.2 kg totes</th><th>normal warehouse</th><th>calm warehouse</th></tr>
+      <tr><td>Heavy tote: right body (learned / recalled), median check</td><td>41/41 (5 / 36), 2.1 s</td><td>45/45 (5 / 40), 2.1 s</td></tr>
+      <tr><td>Light tote: right body, all "same", median check</td><td>40/40, 3.7 s</td><td>45/45, 3.7 s</td></tr>
+      <tr><td>Unloaded: right body (same / recalled), median check</td><td>81/81 (40 / 41), 2.1 s</td><td>90/90 (45 / 45), 2.1 s</td></tr>
+      <tr><td>Surprise relearns (none are real changes here)</td><td>0</td><td>0</td></tr>
+    </table>
+    <p class="muted small">After these runs the fleet's gridlock was fixed (planning around the forklift and dropped
+      goods, giving way to people): 10 stress runs from calm to busy delivered 180/180 with no give-ups. The honest
+      gaps (a slippery patch the twin misses, a tow on an already loaded car in the model-exact simulator) are listed
+      under <a href="how-it-works.html#limits">limitations</a>.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap cols">
+    <div>
+      <p><strong style="color: var(--text)">AIRO</strong> by PiSpace. Built during the Meta Global AI Developer
+        Hackathon, Oct 26 – Nov 4 2026; the first commit is from Oct 28 2026. The car's Arduino firmware is
+        pre-existing (<a href="https://github.com/airo7/sim2real-robot-car">airo7/sim2real-robot-car</a>), the UR5e,
+        Robotiq 2F-85 and Unitree G1 models come from
+        <a href="https://github.com/google-deepmind/mujoco_menagerie">MuJoCo Menagerie</a>; everything else was
+        written for this project.</p>
+      <p>MIT licence.</p>
+    </div>
+    <div>
+      <p><a href="https://github.com/airo7/airo-meta">Source on GitHub</a></p>
+      <p><a href="how-it-works.html">How it works</a></p>
+      <p><a href="https://github.com/airo7/airo-meta/blob/main/docs/tuning.md">Tuning constants</a></p>
+    </div>
+  </div>
+</footer>
+
+</body>
+</html>
