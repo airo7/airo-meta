@@ -70,7 +70,7 @@ def test_a_box_on_the_destination_parks_beside_it():
     # the real floor's box on Nov 2: corner 2 at (0.65, 0.15) was 6 cm from it
     sc = scene((0.55, 0.20, 0.67, 0.34))
     at = clearance_at(sc)
-    inside = lambda x, y: 0.15 <= x <= 0.65 and 0.15 <= y <= 1.07  # noqa: E731
+    inside = lambda x, y: 0.15 <= x <= 0.65 and 0.15 <= y <= 1.07
     rows, cols = sc.grid.shape
     x, y = (np.arange(cols) + 0.5) * RES, (np.arange(rows) + 0.5) * RES
     allowed = ((y >= 0.15) & (y <= 1.07))[:, None] & ((x >= 0.15) & (x <= 0.65))[None, :]

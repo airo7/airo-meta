@@ -50,9 +50,7 @@ def calibrate(**kw) -> dict:
 
 @pytest.fixture(scope="module")
 def cal():
-    bare, heavy = calibrate(), calibrate(weight=0.4)
-    print("\nbare ", {k: round(v, 5) for k, v in bare.items()}, "\nheavy", {k: round(v, 5) for k, v in heavy.items()})
-    return bare, heavy
+    return calibrate(), calibrate(weight=0.4)
 
 
 def test_model_loads():
@@ -108,7 +106,6 @@ def test_body_fit_recovers_the_physics():
              [(120, 60, 1), (60, 120, 1), (100, 100, 0.3)]
     segs = [probe(*p, noise=(0.002, math.radians(0.3))) for p in probes] + [probe(120, 120, 2, ramp=True)]
     got = fit(segs, PRIOR)
-    print("\nfit", got)
     assert (got.g_l + got.g_r) / 2 == pytest.approx(0.00316, rel=0.1)
     assert got.g_l > got.g_r and 18 <= got.dz <= 33 and 0.22 <= got.eta <= 0.38 and 0.15 <= got.tau <= 0.25
 

@@ -219,7 +219,7 @@ def _push_along(c, size, n, d, inside) -> dict | None:
                    if inside(*(push_from - r * n), -LINE_UP_SLACK)), None)
     if run_in is None or not inside(*push_from, -LINE_UP_SLACK) or not inside(*push_to):
         return None
-    tup = lambda p: (float(p[0]), float(p[1]))  # noqa: E731
+    tup = lambda p: (float(p[0]), float(p[1]))
     return {"centroid": tup(c), "size": size, "n": tup(n), "d": d, "run_in": tup(run_in), "push_from": tup(push_from),
             "push_to": tup(push_to)}
 
