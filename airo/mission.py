@@ -27,8 +27,8 @@ from airo.voice import parse_intent
 WINDOW = 0.5
 QUIET_S = 2.0
 # A slow change keeps surprise above DRIFT_K: the excess is summed over unsuppressed windows (a CUSUM) and triggers
-# past DRIFT_H. Each window adds at most THRESHOLD - DRIFT_K, so a lone spike, however large, cannot trigger it. Clean windows stayed under 1.6 in 40 eval runs on both rigs; a tow on a
-# loaded car scores ~2.4, under THRESHOLD.
+# past DRIFT_H. Each window adds at most THRESHOLD - DRIFT_K, so a lone spike, however large, cannot trigger it.
+# Clean windows stayed under 1.6 in 40 eval runs on both rigs; a tow on a loaded car scores ~2.4, under THRESHOLD.
 DRIFT_K, DRIFT_H = 1.8, 3.0
 RESCAN_S = 2.0
 DRIFT_M = 0.08

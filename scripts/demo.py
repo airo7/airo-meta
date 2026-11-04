@@ -73,7 +73,8 @@ async def console(commands: asyncio.Queue):
 
 
 async def film(fleet: Fleet, dash: Dashboard):
-    """The interactive 3D view, following the selected robot, with its ghost cloud over the next HORIZON seconds. Runs on the event loop: the world's GL contexts belong to the thread that steps it."""
+    """The interactive 3D view, following the selected robot, with its ghost cloud over the next HORIZON seconds.
+    Runs on the event loop: the world's GL contexts belong to the thread that steps it."""
     world = fleet.world
     orbit, last = Orbit(fleet.robot.rig, VIEW), {}
     while True:

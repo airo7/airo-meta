@@ -1,7 +1,7 @@
-"""An autonomous counterbalance forklift at 1:4 (lidar on the roof, no driver), procedural like the hall: it shuttles a pallet between a rack bay on the back
-aisle and a staging lane on the right of the hall. Kinematic: its pose is a mocap body, the fork carriage a link
-whose height is written into the model, and it turns about the middle of its front axle the way a rear-steered truck
-does. It stops for people in front of it."""
+"""An autonomous counterbalance forklift at 1:4 (lidar on the roof, no driver), procedural like the hall: it shuttles a
+pallet between a rack bay on the back aisle and a staging lane on the right of the hall. Kinematic: its pose is a
+mocap body, the fork carriage a link whose height is written into the model, and it turns about the middle of its
+front axle the way a rear-steered truck does. It stops for people in front of it."""
 
 import math
 from dataclasses import dataclass
