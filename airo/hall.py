@@ -337,9 +337,6 @@ def _cage(b: Batch, rng, xy, yaw: float):
             ((k // 2) % 2 - 0.5) * 0.08, 0.025 + 0.028 + 0.056 * (k // 4))
 
 
-# textures
-
-
 def workfloor(site, cs: dict[str, Cell], rng) -> np.ndarray:
     """The painted work floor: control joints, contact shadows, the hazard-striped AMR zone, the pedestrian
     walkway, hatched robot cells, charging bays, the loading bay with its queue boxes, flow arrows, tyre marks."""

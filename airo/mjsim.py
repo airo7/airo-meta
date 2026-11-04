@@ -310,8 +310,6 @@ class MjRig(BaseRig):
     async def sam(self, image: np.ndarray, concept: str) -> list[meta_api.Segment]:
         return await self.world.sam(image, concept)
 
-    # rendering
-
     def frame(self) -> np.ndarray:
         return self.world.frame()
 

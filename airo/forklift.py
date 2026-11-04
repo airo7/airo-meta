@@ -57,8 +57,6 @@ class Forklift:
                         [-LENGTH + 0.1, WIDTH / 2]])
         return pts @ np.array([[c, s], [-s, c]]) + (self.x, self.y)
 
-    # building
-
     def build(self, spec):
         body = spec.worldbody.add_body(name="forklift", pos=[self.x, self.y, 0], mocap=True)
         b = Batch("forklift")
@@ -130,8 +128,6 @@ class Forklift:
         else:
             d.mocap_pos[self._pallet] = (*self.pallet[:2], 0)
         d.mocap_quat[self._pallet] = _yaw(self.pallet[2])
-
-    # moving
 
     def update(self, t: float, people) -> None:
         dt = 0.0 if self._t is None else min(t - self._t, 0.1)

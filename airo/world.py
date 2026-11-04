@@ -115,8 +115,6 @@ class World:
         if self.m is not None:
             self.compile()
 
-    # place changes
-
     def spill(self, rect=None, friction: float = 0.12):
         """A slippery zone (x0, y0, x1, y1) on the floor, default the site's: it changes the place, not a car."""
         if "slippery" in self.changes:
@@ -147,8 +145,6 @@ class World:
             o.xy = home.xy
         mujoco.mj_forward(m, d)
         self._frame = self._seg = None
-
-    # time
 
     def _physics(self, until: float):
         m, d = self.m, self.d
@@ -215,8 +211,6 @@ class World:
         for r in self._renderers.values():
             r.close()
         self._renderers.clear()
-
-    # cameras
 
     @property
     def H(self) -> np.ndarray:

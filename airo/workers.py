@@ -196,8 +196,6 @@ class Worker:
     def pose(self) -> tuple[float, float, float]:
         return self.x, self.y, self.heading
 
-    # building
-
     def build(self, spec, vest: str):
         """The G1 under a mocap pelvis, a hi-vis vest, and a carton it shows when carrying."""
         self.lod = menagerie.Lod(self.prefix + "torso_link")
@@ -232,8 +230,6 @@ class Worker:
         m.geom_group[self._carton] = 1 if self.carrying else 4
         d.mocap_pos[self._mocap] = (self.x, self.y, self.z + r.height(q))
         d.mocap_quat[self._mocap] = (math.cos(self.heading / 2), 0, 0, math.sin(self.heading / 2))
-
-    # moving
 
     def update(self, t: float, cars) -> None:
         dt = 0.0 if self._t is None else min(t - self._t, 0.1)

@@ -219,9 +219,6 @@ def remove_spill(spec, clean: bytes | None):
         spec.texture("workfloor").data = clean
 
 
-# textures
-
-
 def _noise(rng, shape, cell: int) -> np.ndarray:
     small = rng.normal(size=(shape[0] // cell + 3, shape[1] // cell + 3)).astype(np.float32)
     big = cv2.resize(small, (small.shape[1] * cell, small.shape[0] * cell), interpolation=cv2.INTER_CUBIC)

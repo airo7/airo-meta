@@ -223,8 +223,6 @@ class Warehouse:
     def pick(self) -> Loader:
         return self.loaders["pick"]
 
-    # building
-
     def build(self, spec):
         for ld in self.loaders.values():
             ld.arm.build(spec, ld.title)
@@ -314,8 +312,6 @@ class Warehouse:
         what = "steel parts" if t.kind == "heavy" else "small parcels"
         return f"Tote · {t.kind}", f"{KINDS[t.kind]:.1f} kg of {what}, {where}"
 
-    # tote kinds and poses
-
     def set_kind(self, t: Tote, kind: str):
         """Swap what's in the tote: its mass for physics, its contents for the camera, in the spec and the model."""
         if kind == t.kind:
@@ -378,8 +374,6 @@ class Warehouse:
         e = m.equality(f"{prefix}latch{t.k}").id
         m.eq_data[e, :10] = (0, 0, 0, *t.latch[1])
         d.eq_active[e] = 1
-
-    # the inbound conveyor
 
     def order(self, kind: str) -> Tote:
         """The tote for a new order: the first unclaimed one on the conveyor, packed with kind. The conveyor holds a
@@ -447,8 +441,6 @@ class Warehouse:
         t.slide = (self.world.t, self.world.t + dist / BELT_V, p0, np.array(to, float))
         self._moving = True
 
-    # stations
-
     def slot(self, station: str) -> Slot:
         """A free place at the station, clearing the longest-waiting tote back into stock if all are taken."""
         taken = {t.slot: t for t in self.totes if t.slot is not None}
@@ -465,8 +457,6 @@ class Warehouse:
 
     def reserve(self, s: Slot, t: Tote):
         t.slot = s
-
-    # time
 
     def event(self, loader: Loader, what: str, t: Tote):
         d = self.world.d

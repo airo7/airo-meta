@@ -121,8 +121,6 @@ class Life:
     def walker(self) -> Worker | None:
         return next((w for w in self.workers if w.role == "walker"), None)
 
-    # building
-
     def build(self, spec):
         for w in self.workers:
             w.build(spec, "hivis")
@@ -166,8 +164,6 @@ class Life:
             d.groups = m.geom_group[d.geoms].copy()
         self._t = None
         self._apply()
-
-    # time
 
     def act(self, t: float):
         if self._t is not None and t - self._t < RATE:
@@ -263,8 +259,6 @@ class Life:
         if self._t is not None:
             self._schedule(self._t)
 
-    # people
-
     def _program(self, w: Worker):
         """What a worker does when it has nothing else to do."""
         rng = self.rng
@@ -354,8 +348,6 @@ class Life:
                   Step("take", posture="reach_low", secs=1.8, then=lambda: self._park(d)), *self._to_walkway()]
         w.doing = "clearing a dropped carton from the aisle"
 
-    # things in the aisles
-
     def drop(self, kind: str = "pallet") -> str:
         """Something lands in an aisle, near a robot's path if one is driving, clear of cars, bays and people."""
         free = [d for d in self.drops if d.kind == kind and not d.placed]
@@ -403,8 +395,6 @@ class Life:
                 if s < score:
                     best, score = (float(x), float(y)), s
         return best
-
-    # outputs
 
     def hazards(self) -> list[Hazard]:
         out = [Hazard(f"{w.name}", np.array([[w.x, w.y]]), True, "is crossing its path") for w in self.floor]
