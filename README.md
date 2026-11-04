@@ -5,6 +5,8 @@ once a prediction lands. Every body it learns is shared with the fleet.**
 
 By PiSpace, for the Meta Global AI Developer Hackathon 2026.
 Site and technical write-up: **[airo7.github.io/airo-meta](https://airo7.github.io/airo-meta/)**
+Demo film (3 min): **[youtu.be/ZUiLA-e9oUQ](https://youtu.be/ZUiLA-e9oUQ)** · Raw real-car footage, no edits but
+the pauses: **[docs/media/raw.mp4](docs/media/raw.mp4)**
 
 ![python 3.13](https://img.shields.io/badge/python-3.13-3b4252) ![MuJoCo twin](https://img.shields.io/badge/twin-MuJoCo-3b4252) ![license MIT](https://img.shields.io/badge/license-MIT-3b4252)
 
