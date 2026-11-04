@@ -1,4 +1,4 @@
-"""Day-1 gate: car pose at >=15 Hz with <=10 mm floor residual and jitter (keep the car still)."""
+"""Hardware check: car pose at >=15 Hz with <=10 mm floor residual and jitter (keep the car still)."""
 
 import argparse
 import math

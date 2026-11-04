@@ -1,4 +1,4 @@
-"""D3 gate: the car learns its body from probes, saves data/body.json and prints the fit next to the answer key."""
+"""The car learns its body from probes, saves data/body.json and prints the fit next to the answer key."""
 
 import argparse
 import asyncio

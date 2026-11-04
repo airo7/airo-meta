@@ -1,4 +1,4 @@
-"""D2 gate: click a floor point in the window, the car drives there and the final error is printed.
+"""Click a floor point in the window, the car drives there and the final error is printed.
 
 --dry only shows the pose and prints the floor coordinates of each click, to check the camera and markers.
 """

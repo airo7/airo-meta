@@ -1,4 +1,4 @@
-"""Day-1 gate: SAM 3.1 and Muse Spark latency on a real overhead frame. Run with: uv run --env-file .env"""
+"""SAM 3.1 and Muse Spark latency on a real overhead frame. Run with: uv run --env-file .env"""
 
 import argparse
 import asyncio

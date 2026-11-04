@@ -1,4 +1,4 @@
-"""Day-1 gate: BLE connects, the car drives straight then pivots, link stats are printed."""
+"""Hardware check: BLE connects, the car drives straight then pivots, link stats are printed."""
 
 import argparse
 import asyncio
