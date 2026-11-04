@@ -30,9 +30,6 @@ class FloorWatch:
         ii, jj = np.mgrid[:self.shape[0], :self.shape[1]]
         self._xy = ((jj + 0.5) * res, (ii + 0.5) * res)
 
-    def reset(self):
-        self.ref, self.known[:] = None, False
-
     def _topdown(self, frame: np.ndarray, H: np.ndarray) -> np.ndarray:
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if frame.ndim == 3 else frame
         small = cv2.resize(gray, None, fx=0.5, fy=0.5, interpolation=cv2.INTER_AREA)

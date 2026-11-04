@@ -114,7 +114,7 @@ def _things(spec, objects, site):
             wb.add_geom(name=f"thing{i}", type=GEOM.mjGEOM_BOX, size=[sx, sy, 0.0002], pos=[*o.xy, 0.0002],
                         material=f"sheet{i}")
         elif o.kind == "pallet":
-            _pallet(spec, wb.add_body(name=f"thing{i}", pos=[*o.xy, 0]), sx, sy, collide=True)
+            _pallet(wb.add_body(name=f"thing{i}", pos=[*o.xy, 0]), sx, sy, collide=True)
         else:
             _box(spec, i, o, sx, sy)
 
@@ -154,7 +154,7 @@ def _tag(concept: str):
     return int(c[5:7], 16), int(c[3:5], 16), int(c[1:3], 16)
 
 
-def _pallet(spec, b, sx, sy, collide=False, rng=None):
+def _pallet(b, sx, sy, collide=False):
     """A wooden pallet with stretch-wrapped cartons; the one on the floor is an obstacle the planner keeps clear of."""
     kw = {} if collide else STATIC
     for y in (-sy + 0.012, 0, sy - 0.012):
@@ -164,7 +164,7 @@ def _pallet(spec, b, sx, sy, collide=False, rng=None):
     top, n = 0.023, 2
     for i in range(n):
         for j in range(n):
-            for k in range(2 if rng is None else int(rng.integers(1, 4))):
+            for k in range(2):
                 c = [(-0.5 + i) * sx, (-0.5 + j) * sy, top + (k + 0.5) * 0.06]
                 b.add_geom(type=GEOM.mjGEOM_BOX, size=[sx / 2 - 0.003, sy / 2 - 0.003, 0.029], pos=c,
                            material="cardboard", **(kw if k == 0 else STATIC))

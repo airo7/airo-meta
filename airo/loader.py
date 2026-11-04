@@ -96,7 +96,7 @@ class Arm:
         """The tool point on a tote in its grasp frame: centred, the fingers across its middle."""
         return np.array([0.0, 0.0, half[2] - 0.015])
 
-    def build(self, spec, label: str):
+    def build(self, spec):
         """The arm into spec's world, every part in the arm's name space so a pick names the loader."""
         n, p = self.name, self.paint
         ped = spec.worldbody.add_body(name=n, pos=[*self.base, 0], quat=yaw_quat(self.yaw).tolist())

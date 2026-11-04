@@ -122,7 +122,7 @@ class UR5e:
             raise ValueError(f"{self.name}: ({xyz[0]:.2f}, {xyz[1]:.2f}, {xyz[2]:.2f}) is out of reach")
         return q
 
-    def build(self, spec, label: str):
+    def build(self, spec):
         """Pedestal, arm and gripper in the arm's name space, so a pick names the loader."""
         ped = spec.worldbody.add_body(name=self.name, pos=[*self.base, 0], quat=menagerie.yaw_quat(self.yaw))
         box = lambda size, pos, mat: ped.add_geom(type=GEOM.mjGEOM_BOX, size=size, pos=pos, material=mat, **STATIC)

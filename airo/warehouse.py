@@ -118,7 +118,7 @@ def slots(c: Cell) -> list[Slot]:
     return [Slot(c.name, k, (*c.at(b, s), z), yaw) for k, (b, s, z) in enumerate(spots)]
 
 
-def belt(c: Cell, floor_w: float, margin: float) -> tuple[np.ndarray, np.ndarray]:
+def belt(c: Cell, margin: float) -> tuple[np.ndarray, np.ndarray]:
     """The inbound conveyor: (end stop, entry inside the wall), totes travelling from entry to end."""
     end = c.at(BACK)
     return end, np.array([-margin - 0.25, end[1]])
@@ -208,7 +208,7 @@ class Warehouse:
         self.loaders = {n: Loader(*_arm(n, c), self) for n, c in self.cells.items()}
         self.lines = {n: Line(n, c.bay) for n, c in self.cells.items()}
         self.slots = {n: slots(c) for n, c in self.cells.items() if n != "pick"}
-        self.end, self.entry = belt(self.cells["pick"], site.floor[0], 1.0)
+        self.end, self.entry = belt(self.cells["pick"], 1.0)
         self.dir = (self.end - self.entry) / np.linalg.norm(self.end - self.entry)
         self.totes = [Tote(k, ("light", "heavy")[k % 2]) for k in range(POOL)]
         self.belt: list[Tote] = []
@@ -225,7 +225,7 @@ class Warehouse:
 
     def build(self, spec):
         for ld in self.loaders.values():
-            ld.arm.build(spec, ld.title)
+            ld.arm.build(spec)
         for t in self.totes:
             self._tote(spec, t)
 

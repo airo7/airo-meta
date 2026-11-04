@@ -54,7 +54,6 @@ class Site:
     cam_h: float = 1.8
     frame: tuple[int, int] = (1920, 1080)
     scene: str = "home"
-    max_robots: int = 1
     mode: str = "push"
     pick: Bay | None = None
     drops: dict[str, Bay] = field(default_factory=dict)
@@ -96,7 +95,7 @@ def factory() -> list[Thing]:
 HOME = Site("Home", (2.0, 1.4), STATIONS, world, starts=((1.0, 0.7, 0.0),), totes=(PARCEL,),
             spill=(1.2, 0.35, 1.6, 0.85), pose="aruco")
 FACTORY = Site("Factory", (3.0, 2.0), FACTORY_STATIONS, factory, starts=DOCKS, totes=(), spill=(1.7, 0.66, 2.2, 1.06),
-               spill_label="Oil spill", cam_h=2.6, frame=(1280, 720), scene="factory", max_robots=len(DOCKS),
+               spill_label="Oil spill", cam_h=2.6, frame=(1280, 720), scene="factory",
                mode="carry", pick=PICK, drops=DROPS,
                kinds={"assembly": "heavy", "qa": "light", "packing": "heavy", "dock": "light"})
 SITES = {"home": HOME, "factory": FACTORY}

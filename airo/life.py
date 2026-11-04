@@ -132,7 +132,7 @@ class Life:
             body = spec.worldbody.add_body(name=name, pos=list(PARKED), mocap=True)
             sx, sy = np.array(thing.size) / 2
             if kind == "pallet":
-                scene._pallet(spec, body, sx, sy, collide=True)
+                scene._pallet(body, sx, sy, collide=True)
             else:
                 body.add_geom(type=GEOM.mjGEOM_BOX, size=[sx, sy, 0.03], pos=[0, 0, 0.03], material="carton")
                 body.add_geom(type=GEOM.mjGEOM_BOX, size=[sx + 0.0004, 0.012, 0.0304], pos=[0, 0, 0.03],

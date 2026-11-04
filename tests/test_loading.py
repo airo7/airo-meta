@@ -133,12 +133,6 @@ def test_loader_loads_the_tote_onto_the_deck_and_off_at_a_station(models, statio
     assert world.m.body_mass[tote.body] == KINDS["heavy"]
 
 
-def _off(p, a, b) -> float:
-    a, b = np.asarray(a), np.asarray(b)
-    t = np.clip((p - a) @ (b - a) / ((b - a) @ (b - a)), 0, 1)
-    return float(np.linalg.norm(a + t * (b - a) - p))
-
-
 def _unexplained(car, body: Body, t0: float, window: float = 0.5) -> float:
     """The largest gap, over half-second windows since t0, between where the car went and where its commands take
     the body: a push from anything but its own wheels shows here."""

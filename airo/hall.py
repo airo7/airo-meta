@@ -31,6 +31,8 @@ CROSSING = 1.7
 def rack_front(site) -> float:
     """y of the racks' aisle face; their pallets sit RACK_DEPTH / 2 behind it."""
     return site.floor[1] + MARGIN - 0.06 - RACK_DEPTH
+
+
 GREEN = (60, 150, 70)
 
 
@@ -50,7 +52,7 @@ def build(spec, site):
     _walls(spec, site, rng)
     _racks(spec, site, rng)
     _conveyor(spec, site, cs["pick"])
-    _cells(spec, site, cs)
+    _cells(spec, cs)
     _docks(spec, site)
     _building(spec, site, rng)
     mezzanine.build(spec)
@@ -142,7 +144,7 @@ def _pallet(b: Batch, rng, pos, lo: bool = False, load: bool = True, yaw: float 
 
 def _conveyor(spec, site, c: Cell):
     """Powered roller conveyor in from the wall: side frames, rollers, legs, guide rails, end stop, photo eye."""
-    end, entry = belt(c, site.floor[0], MARGIN)
+    end, entry = belt(c, MARGIN)
     stop = end + 0.085 * (end - entry) / np.linalg.norm(end - entry)
     start = np.array([-MARGIN, end[1]])
     u = (stop - start) / np.linalg.norm(stop - start)
@@ -174,7 +176,7 @@ def _conveyor(spec, site, c: Cell):
     portal.emit(spec)
 
 
-def _cells(spec, site, cs: dict[str, Cell]):
+def _cells(spec, cs: dict[str, Cell]):
     """Around every loader: polycarbonate guarding on three sides, light-curtain posts at the open front, a stack light, the
     station's table or outbound pallet, and a sign."""
     f, kit = Batch("fence"), Batch("cell")

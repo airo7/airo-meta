@@ -275,7 +275,7 @@ class Worker:
     def _walk(self, step: Step, dt: float, cars) -> tuple[str, float, float]:
         if step.route and not step.planned:
             step.planned = True
-            self._replan(step, cars, every=False)
+            self._replan(step, every=False)
         if not step.points:
             self._next_step()
             return "stand", 0.0, 0.0
@@ -299,7 +299,7 @@ class Worker:
         if ahead is not None:
             self.blocked_s += dt
             if not ahead.moving or self.blocked_s > WAIT_MOVING:
-                self._replan(step, cars)
+                self._replan(step)
             self.speed = 0.0
             return "stand", 0.0, 0.0
         self.blocked, self.blocked_s = None, 0.0
@@ -330,10 +330,10 @@ class Worker:
             self._next_step()
             return True
         if self._still > STALL and self.plan:
-            self._replan(self.plan[0], None)
+            self._replan(self.plan[0])
         return False
 
-    def _replan(self, step: Step, cars, every: bool = True):
+    def _replan(self, step: Step, every: bool = True):
         """Walk round everything that stands in the way: a path from the walking map to the step's last point.
         At most once a second; without a planner or a path, keep the points and wait."""
         if self.planner is None or (every and self._t - self._replan_t < 1.0):
