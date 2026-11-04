@@ -69,7 +69,9 @@ def _call(model: str, kind: str, input: str):
     except asyncio.CancelledError:
         raise
     except BaseException as e:
-        record(model, kind, input, f"{type(e).__name__}: {e}", (time.perf_counter() - t0) * 1000, ok=False)
+        # offline runs skip every model call: a missing key is not a failure worth a card in the feed
+        if not (isinstance(e, KeyError) and e.args == ("MODEL_API_KEY",)):
+            record(model, kind, input, f"{type(e).__name__}: {e}", (time.perf_counter() - t0) * 1000, ok=False)
         raise
     record(model, kind, input, out["output"], (time.perf_counter() - t0) * 1000, image=out["image"],
            tools=out["tools"])
